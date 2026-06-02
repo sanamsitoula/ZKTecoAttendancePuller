@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 from zk import ZK
 
-from config import DeviceConfig, CONNECTION_TIMEOUT
+from config import DeviceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -17,19 +17,21 @@ class PullResult:
     error: str | None = None
 
 
-def pull_device(device: DeviceConfig, timeout: int = CONNECTION_TIMEOUT) -> PullResult:
+def pull_device(device: DeviceConfig) -> PullResult:
     """
     Connect to a ZKTeco device, pull all users and attendance records.
     Disables the device during the pull to prevent torn reads.
     Always re-enables and disconnects in the finally block.
+    Timeout is read from device.connection_timeout (set per device in devices.json).
     """
-    logger.info("[%s] Connecting to %s:%d ...", device.name, device.ip, device.port)
+    logger.info("[%s] Connecting to %s:%d (timeout=%ds) ...",
+                device.name, device.ip, device.port, device.connection_timeout)
 
     password = int(device.password) if device.password and device.password.isdigit() else 0
     zk = ZK(
         device.ip,
         port=device.port,
-        timeout=timeout,
+        timeout=device.connection_timeout,
         password=password,
         ommit_ping=True,   # skip ICMP — often blocked on device VLANs
         force_udp=False,

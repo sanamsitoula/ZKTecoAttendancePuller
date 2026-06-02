@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import psycopg2
 import psycopg2.extras
 
-from config import DB_CONFIG, DeviceConfig
+from config import DeviceConfig, load_db_config
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS pull_sessions (
 
 
 def get_connection():
-    return psycopg2.connect(**DB_CONFIG)
+    return psycopg2.connect(**load_db_config())
 
 
 def init_schema(conn) -> None:

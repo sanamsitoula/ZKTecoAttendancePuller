@@ -1,0 +1,29 @@
+[
+  {
+    "name": "MainEntrance",
+    "ip": "10.10.10.18",
+    "port": 4370,
+    "password": "",
+    "model": "MB2000",
+    "is_active": true,
+    "connection_timeout": 10
+  },
+  {
+    "name": "OfficeFloor2",
+    "ip": "10.10.10.19",
+    "port": 4370,
+    "password": "1234",
+    "model": "iFace302",
+    "is_active": true,
+    "connection_timeout": 15
+  },
+  {
+    "name": "Warehouse",
+    "ip": "10.10.10.20",
+    "port": 4370,
+    "password": "",
+    "model": "SpeedFace-V5L",
+    "is_active": false,
+    "connection_timeout": 10
+  }
+]

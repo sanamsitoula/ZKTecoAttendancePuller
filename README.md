@@ -52,6 +52,20 @@ Times are in **Nepal Time (Asia/Kathmandu, UTC+5:45)** as set by `SCHEDULER_TIME
 
 ---
 
+## Dynamic Configuration
+
+All devices and database credentials live in plain JSON files — no code changes needed.
+
+| File | Purpose | Restart needed? |
+|---|---|---|
+| `devices.json` | ZKTeco device list — add, remove, enable/disable devices | No — reloaded every pull cycle |
+| `db_config.json` | PostgreSQL connection — host, port, dbname, user, password | No — reloaded every connection |
+| `.env` | Scheduler timezone fallback if `db_config.json` is absent | Yes |
+
+Both JSON files are in `.gitignore` — they stay on the server and are never committed.
+
+---
+
 ## Prerequisites
 
 | Requirement | Version | Notes |
@@ -78,34 +92,61 @@ cd C:\ZKTecePuller
 
 ---
 
-### Step 2 — Configure Credentials
+### Step 2 — Configure Devices
 
 ```powershell
-Copy-Item .env.example .env
-notepad .env
+Copy-Item devices.json.example devices.json
+notepad devices.json
 ```
 
-Edit `.env` with your actual values:
+Edit `devices.json` — one object per ZKTeco device:
 
-```env
-# Database — the only section you need to change for a new server
-DB_HOST=192.168.1.10        # PostgreSQL server IP or hostname
-DB_PORT=5432
-DB_NAME=zkteco
-DB_USER=postgres
-DB_PASSWORD=your_strong_password
-
-# Device passwords (leave empty if devices have no password)
-DEVICE_PASSWORD_ATTN1=
-DEVICE_PASSWORD_ATTN2=
-DEVICE_PASSWORD_ATN3=
-
-# Nepal timezone (UTC+5:45) — adjust if server is in a different timezone
-DEVICE_TIMEZONE=Asia/Kathmandu
-SCHEDULER_TIMEZONE=Asia/Kathmandu
+```json
+[
+  {
+    "name": "MainEntrance",
+    "ip": "10.10.10.18",
+    "port": 4370,
+    "password": "",
+    "model": "MB2000",
+    "is_active": true,
+    "connection_timeout": 10
+  },
+  {
+    "name": "OfficeFloor2",
+    "ip": "10.10.10.19",
+    "port": 4370,
+    "password": "1234",
+    "model": "iFace302",
+    "is_active": true,
+    "connection_timeout": 15
+  }
+]
 ```
 
-> **Timezone:** Set to `Asia/Kathmandu` (Nepal, UTC+5:45). Other examples: `UTC` | `Asia/Dhaka` | `Asia/Karachi` | `Asia/Kolkata`
+To add a device: append a new object and save. It is picked up on the **next pull cycle automatically** — no restart.  
+To disable a device without removing it: set `"is_active": false`.
+
+---
+
+### Step 2b — Configure Database
+
+```powershell
+Copy-Item db_config.json.example db_config.json
+notepad db_config.json
+```
+
+```json
+{
+  "host": "192.168.1.10",
+  "port": 5432,
+  "dbname": "zkteco",
+  "user": "postgres",
+  "password": "your_strong_password"
+}
+```
+
+> **Timezone:** Also set `SCHEDULER_TIMEZONE=Asia/Kathmandu` and `DEVICE_TIMEZONE=Asia/Kathmandu` in `.env` (or copy `.env.example` to `.env`).
 
 ---
 
@@ -220,19 +261,15 @@ Expected output confirms devices connected, records inserted, and reports genera
 
 ## Changing Database Credentials
 
-1. Edit `.env` on the server:
-   ```powershell
-   notepad C:\ZKTecePuller\.env
-   ```
+Edit `db_config.json` on the server — **no restart required**:
 
-2. Update `DB_HOST`, `DB_NAME`, `DB_USER`, or `DB_PASSWORD` as needed.
+```powershell
+notepad C:\ZKTecePuller\db_config.json
+```
 
-3. Restart the service to apply:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File C:\ZKTecePuller\install_service.ps1 -Action restart
-   ```
+Change `host`, `dbname`, `user`, or `password` and save. The new credentials are used on the next pull cycle automatically.
 
-> Credentials are never stored in code — only in `.env`.
+> Credentials are never stored in code or committed to git — only in `db_config.json` (or `.env` as fallback).
 
 ---
 
@@ -286,25 +323,23 @@ powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action restart
 
 ## Adding a New Device
 
-1. Add a `DeviceConfig` entry in [config.py](config.py):
+Edit `devices.json` on the server — **no restart required**:
 
-```python
-DeviceConfig(
-    name="NewDevice",
-    ip="10.10.10.20",
-    port=4370,
-    password=os.getenv("DEVICE_PASSWORD_NEWDEVICE", ""),
-    model="SpeedFace-V5L",
-),
+```json
+{
+  "name": "NewDevice",
+  "ip": "10.10.10.20",
+  "port": 4370,
+  "password": "",
+  "model": "SpeedFace-V5L",
+  "is_active": true,
+  "connection_timeout": 10
+}
 ```
 
-2. Add to `.env`:
+Append the object to the array and save. The next pull cycle (or `python main.py --run-now`) picks it up and auto-registers it in the `devices` table.
 
-```env
-DEVICE_PASSWORD_NEWDEVICE=
-```
-
-3. Restart the service — the new device is auto-registered in the `devices` table.
+To **disable** a device temporarily without deleting it, set `"is_active": false`.
 
 ---
 
@@ -363,17 +398,21 @@ python main.py --report 2026-06-01
 
 ```
 ZKTecePuller/
-├── main.py              ← Entry point + pull cycle orchestration
-├── windows_service.py   ← Windows Service wrapper (install/start/stop)
-├── install_service.ps1  ← PowerShell helper: one-command server setup
-├── config.py            ← Devices, DB config, schedule, timezone
-├── scheduler.py         ← APScheduler background scheduler setup
-├── db.py                ← Schema, upsert, batch insert, pull sessions
-├── puller.py            ← ZKTeco SDK connection via pyzk
-├── report.py            ← Daily summary PNG + timeline chart generator
-├── test_pull.py         ← Manual one-shot test runner
+├── main.py                  ← Entry point + pull cycle orchestration
+├── windows_service.py       ← Windows Service wrapper (install/start/stop)
+├── install_service.ps1      ← PowerShell helper: one-command server setup
+├── config.py                ← load_devices() + load_db_config() + scheduler config
+├── scheduler.py             ← APScheduler background scheduler (5×/day)
+├── db.py                    ← Schema, upsert, batch insert, pull sessions
+├── puller.py                ← ZKTeco SDK connection via pyzk
+├── report.py                ← Daily summary PNG + timeline chart generator
+├── test_pull.py             ← Manual one-shot test runner
+├── devices.json             ← [EDIT THIS] ZKTeco device list — gitignored
+├── devices.json.example     ← Template for devices.json
+├── db_config.json           ← [EDIT THIS] DB connection — gitignored
+├── db_config.json.example   ← Template for db_config.json
 ├── requirements.txt
-├── .env.example         ← Template — copy to .env and fill in credentials
+├── .env.example             ← Template for timezone settings
 └── README.md
 ```
 

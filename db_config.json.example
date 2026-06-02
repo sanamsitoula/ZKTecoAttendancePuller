@@ -1,0 +1,7 @@
+{
+  "host": "localhost",
+  "port": 5432,
+  "dbname": "zkteco",
+  "user": "postgres",
+  "password": "your_db_password_here"
+}

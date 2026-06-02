@@ -22,7 +22,9 @@ print("\n" + "=" * 55)
 print("  ZKTeco Attendance Puller — Connection Test")
 print("=" * 55)
 
-from config import DEVICES, DB_CONFIG
+from config import load_devices
+
+DEVICES = load_devices()
 
 print("\n[1] TCP Port Check (port 4370)")
 for dev in DEVICES:

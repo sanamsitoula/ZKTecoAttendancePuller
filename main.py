@@ -18,8 +18,8 @@ import puller
 import report as report_mod
 import scheduler as sched_module
 from config import (
-    DEVICES, LOG_DIR, LOG_MAX_BYTES, LOG_BACKUP_COUNT,
-    DEVICE_TIMEZONE, PUNCH_LABELS,
+    LOG_DIR, LOG_MAX_BYTES, LOG_BACKUP_COUNT,
+    DEVICE_TIMEZONE, PUNCH_LABELS, load_devices,
 )
 
 try:
@@ -85,13 +85,21 @@ def run_pull_cycle() -> None:
     today = now_utc.strftime("%Y-%m-%d")
 
     try:
+        devices = load_devices()
+    except (FileNotFoundError, ValueError) as exc:
+        logger.error("Cannot load devices.json: %s", exc)
+        return
+
+    logger.info("Loaded %d device(s) from devices.json.", len(devices))
+
+    try:
         conn = db.get_connection()
     except Exception as exc:
         logger.error("Cannot connect to database: %s", exc)
         return
 
     try:
-        for device in DEVICES:
+        for device in devices:
             if not device.is_active:
                 logger.info("[%s] Skipped (inactive).", device.name)
                 continue

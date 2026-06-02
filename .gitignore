@@ -1,5 +1,7 @@
-# Environment — NEVER commit real credentials
+# Credentials and local config — NEVER commit these
 .env
+db_config.json
+devices.json
 
 # Python
 __pycache__/
