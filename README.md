@@ -6,63 +6,45 @@ Runs as a proper **Windows Service** — starts automatically on server boot, su
 
 ---
 
-## Pull Schedule
-
-| Time  | Notes            |
-|-------|------------------|
-| 06:20 | Morning open     |
-| 07:20 | Shift start      |
-| 09:20 | Late check-in    |
-| 13:20 | After lunch      |
-| 17:10 | End of day       |
-
-Times are in **Nepal Time (Asia/Kathmandu, UTC+5:45)** as set by `SCHEDULER_TIMEZONE` in `.env`.
-
-| Nepal Time | UTC Equivalent |
-|------------|----------------|
-| 06:20 NPT  | 00:35 UTC      |
-| 07:20 NPT  | 01:35 UTC      |
-| 09:20 NPT  | 03:35 UTC      |
-| 13:20 NPT  | 07:35 UTC      |
-| 17:10 NPT  | 11:25 UTC      |
-
----
-
 ## Features
 
 - Pulls from **multiple ZKTeco devices** simultaneously
-- Runs as a **Windows Service** with automatic startup
+- Runs as a **Windows Service** with automatic startup on boot
+- **Dynamic configuration** — add/remove devices or change DB credentials by editing JSON files, no restart needed
 - **Idempotent** — re-running never creates duplicate records
 - Stores employee names, user IDs, punch types (Check-In / Check-Out)
 - Generates **daily PNG report** + **timeline chart** after every pull
 - Full **audit trail** in `pull_sessions` table (per device, per run)
 - Graceful error handling — one failed device never blocks the others
 - Rotating log files in `logs/zkteco_puller.log`
-- All credentials in a single `.env` file — change and restart to apply
 
 ---
 
-## Devices Configured
+## Pull Schedule
 
-| Name   | IP Address   | Port | Model    |
-|--------|--------------|------|----------|
-| Attn1  | 10.10.10.18  | 4370 | MB2000   |
-| attn2  | 10.10.10.11  | 4370 | iFace302 |
-| atn3   | 10.10.10.12  | 4370 | unknown  |
+Times are in **Nepal Time (Asia/Kathmandu, UTC+5:45)**.
+
+| Nepal Time | UTC   | Notes          |
+|------------|-------|----------------|
+| 06:20 NPT  | 00:35 | Morning open   |
+| 07:20 NPT  | 01:35 | Shift start    |
+| 09:20 NPT  | 03:35 | Late check-in  |
+| 13:20 NPT  | 07:35 | After lunch    |
+| 17:10 NPT  | 11:25 | End of day     |
 
 ---
 
 ## Dynamic Configuration
 
-All devices and database credentials live in plain JSON files — no code changes needed.
+All devices and database credentials live in plain JSON files — no code changes ever needed.
 
 | File | Purpose | Restart needed? |
 |---|---|---|
-| `devices.json` | ZKTeco device list — add, remove, enable/disable devices | No — reloaded every pull cycle |
+| `devices.json` | ZKTeco device list — add, remove, enable/disable | No — reloaded every pull cycle |
 | `db_config.json` | PostgreSQL connection — host, port, dbname, user, password | No — reloaded every connection |
-| `.env` | Scheduler timezone fallback if `db_config.json` is absent | Yes |
+| `.env` | Scheduler timezone (`SCHEDULER_TIMEZONE`, `DEVICE_TIMEZONE`) | Yes |
 
-Both JSON files are in `.gitignore` — they stay on the server and are never committed.
+Both JSON files are in `.gitignore` — they stay on the server and are never committed to git.
 
 ---
 
@@ -72,7 +54,7 @@ Both JSON files are in `.gitignore` — they stay on the server and are never co
 |---|---|---|
 | Python | 3.10+ | 3.14 tested and working |
 | PostgreSQL | 13+ | Must be running and accessible from the server |
-| Network | — | Server must reach `10.10.10.x` subnet |
+| Network | — | Server must reach the ZKTeco device subnet |
 | OS | Windows Server 2016+ or Windows 10+ | Required for Windows Service |
 
 ---
@@ -124,12 +106,19 @@ Edit `devices.json` — one object per ZKTeco device:
 ]
 ```
 
-To add a device: append a new object and save. It is picked up on the **next pull cycle automatically** — no restart.  
-To disable a device without removing it: set `"is_active": false`.
+| Field | Required | Description |
+|---|---|---|
+| `name` | Yes | Unique label for the device |
+| `ip` | Yes | IP address of the ZKTeco device |
+| `port` | No | TCP port (default `4370`) |
+| `password` | No | Device password (leave `""` if none) |
+| `model` | No | Device model name (informational) |
+| `is_active` | No | `false` to skip without deleting (default `true`) |
+| `connection_timeout` | No | TCP timeout in seconds (default `10`) |
 
 ---
 
-### Step 2b — Configure Database
+### Step 3 — Configure Database
 
 ```powershell
 Copy-Item db_config.json.example db_config.json
@@ -146,11 +135,27 @@ notepad db_config.json
 }
 ```
 
-> **Timezone:** Also set `SCHEDULER_TIMEZONE=Asia/Kathmandu` and `DEVICE_TIMEZONE=Asia/Kathmandu` in `.env` (or copy `.env.example` to `.env`).
+---
+
+### Step 4 — Set Timezone
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+Set the server's local timezone:
+
+```env
+DEVICE_TIMEZONE=Asia/Kathmandu
+SCHEDULER_TIMEZONE=Asia/Kathmandu
+```
+
+> Other examples: `UTC` | `Asia/Dhaka` | `Asia/Karachi` | `Asia/Kolkata`
 
 ---
 
-### Step 3 — Create the Database
+### Step 5 — Create the Database
 
 On the PostgreSQL server, run:
 
@@ -162,7 +167,7 @@ The Python app creates all tables automatically on first run.
 
 ---
 
-### Step 4 — Verify Device Connectivity
+### Step 6 — Verify Device Connectivity
 
 From the server, confirm the ZKTeco devices are reachable:
 
@@ -176,7 +181,7 @@ All should show `TcpTestSucceeded : True`.
 
 ---
 
-### Step 5 — Install the Windows Service
+### Step 7 — Install the Windows Service
 
 Open PowerShell **as Administrator** and run:
 
@@ -188,7 +193,7 @@ powershell -ExecutionPolicy Bypass -File install_service.ps1
 This script will:
 1. Install all Python dependencies (`pip install -r requirements.txt`)
 2. Run the `pywin32` post-install step (required for service support)
-3. Check that `.env` exists (prompts you if it does not)
+3. Check that configuration files exist
 4. Register `ZKTecoAttendancePuller` as a Windows Service
 5. Set startup type to **Automatic** (starts on boot)
 6. Start the service immediately
@@ -204,8 +209,9 @@ Dependencies installed.
 === Step 2: pywin32 post-install ===
 pywin32 post-install complete.
 
-=== Step 3: Check .env configuration ===
-.env found.
+=== Step 3: Check configuration files ===
+devices.json found.
+db_config.json found.
 
 === Step 4: Register Windows Service ===
 Installing service ZKTecoAttendancePuller
@@ -219,116 +225,43 @@ Status  : Running
 Startup : Auto
 
 === Installation complete ===
-Schedule : 06:20, 07:20, 09:20, 13:20, 17:10  (SCHEDULER_TIMEZONE in .env)
+Schedule : 06:20, 07:20, 09:20, 13:20, 17:10 NPT
 Logs     : C:\ZKTecePuller\logs\zkteco_puller.log
 Reports  : C:\ZKTecePuller\reports\
 ```
 
 ---
 
-### Step 6 — Verify the Service
+### Step 8 — Verify and Test
 
-In **Services** (`services.msc`):
-
-```
-ZKTeco Attendance Puller   Running   Automatic
-```
-
-Or via PowerShell:
+Check the service is running:
 ```powershell
 Get-Service ZKTecoAttendancePuller
 ```
 
-Check the log:
+Tail the log:
 ```powershell
 Get-Content C:\ZKTecePuller\logs\zkteco_puller.log -Tail 30
 ```
 
----
-
-### Step 7 — Run a Manual Test Pull
-
-To trigger one pull cycle immediately (without waiting for the schedule):
-
+Trigger one immediate pull (without waiting for schedule):
 ```powershell
 cd C:\ZKTecePuller
 python main.py --run-now
 ```
 
-Expected output confirms devices connected, records inserted, and reports generated.
-
 ---
 
-## Changing Database Credentials
+## Day-to-Day Operations
 
-Edit `db_config.json` on the server — **no restart required**:
+### Add a New Device
 
-```powershell
-notepad C:\ZKTecePuller\db_config.json
-```
-
-Change `host`, `dbname`, `user`, or `password` and save. The new credentials are used on the next pull cycle automatically.
-
-> Credentials are never stored in code or committed to git — only in `db_config.json` (or `.env` as fallback).
-
----
-
-## Service Management
-
-All commands require Administrator PowerShell.
-
-```powershell
-# Using the helper script
-powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action start
-powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action stop
-powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action restart
-powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action status
-powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action remove
-
-# Or using built-in Windows commands
-net start  ZKTecoAttendancePuller
-net stop   ZKTecoAttendancePuller
-sc query   ZKTecoAttendancePuller
-
-# Or using python directly (advanced)
-python windows_service.py start
-python windows_service.py stop
-python windows_service.py restart
-python windows_service.py remove
-python windows_service.py debug    # run in foreground for troubleshooting
-```
-
----
-
-## Modifying the Schedule
-
-The schedule is defined in [config.py](config.py):
-
-```python
-SCHEDULE_TIMES = [
-    (6,  20),   # 06:20
-    (7,  20),   # 07:20
-    (9,  20),   # 09:20
-    (13, 20),   # 13:20
-    (17, 10),   # 17:10
-]
-```
-
-After editing, restart the service:
-```powershell
-powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action restart
-```
-
----
-
-## Adding a New Device
-
-Edit `devices.json` on the server — **no restart required**:
+Edit `devices.json` and append a new object — **no restart needed**:
 
 ```json
 {
-  "name": "NewDevice",
-  "ip": "10.10.10.20",
+  "name": "Warehouse",
+  "ip": "10.10.10.22",
   "port": 4370,
   "password": "",
   "model": "SpeedFace-V5L",
@@ -337,9 +270,72 @@ Edit `devices.json` on the server — **no restart required**:
 }
 ```
 
-Append the object to the array and save. The next pull cycle (or `python main.py --run-now`) picks it up and auto-registers it in the `devices` table.
+The next pull cycle (or `python main.py --run-now`) picks it up automatically.
 
-To **disable** a device temporarily without deleting it, set `"is_active": false`.
+### Disable a Device Temporarily
+
+Set `"is_active": false` in `devices.json` — no restart needed.
+
+### Change Database Credentials
+
+Edit `db_config.json` — **no restart needed**:
+
+```powershell
+notepad C:\ZKTecePuller\db_config.json
+```
+
+The new credentials are used on the very next pull cycle.
+
+### Modify the Pull Schedule
+
+Edit `SCHEDULE_TIMES` in [config.py](config.py) and restart the service:
+
+```python
+SCHEDULE_TIMES = [
+    (6,  20),   # 06:20 NPT
+    (7,  20),   # 07:20 NPT
+    (9,  20),   # 09:20 NPT
+    (13, 20),   # 13:20 NPT
+    (17, 10),   # 17:10 NPT
+]
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action restart
+```
+
+### Generate Reports for a Past Date
+
+```powershell
+python main.py --report 2026-06-01
+```
+
+---
+
+## Service Management
+
+All commands require an Administrator PowerShell session.
+
+```powershell
+# Helper script (recommended)
+powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action start
+powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action stop
+powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action restart
+powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action status
+powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action remove
+
+# Built-in Windows commands
+net start  ZKTecoAttendancePuller
+net stop   ZKTecoAttendancePuller
+sc query   ZKTecoAttendancePuller
+
+# Direct Python (advanced / debug)
+python windows_service.py start
+python windows_service.py stop
+python windows_service.py restart
+python windows_service.py remove
+python windows_service.py debug    # run in foreground, Ctrl+C to stop
+```
 
 ---
 
@@ -386,12 +382,6 @@ After each pull cycle, two images are saved in `reports/`:
 | `reports/YYYY-MM-DD.png` | Daily summary: employee name, first check-in, last check-out, duration, device |
 | `reports/YYYY-MM-DD_timeline.png` | Timeline scatter chart: every punch plotted per employee per hour |
 
-Generate reports for a past date manually:
-
-```powershell
-python main.py --report 2026-06-01
-```
-
 ---
 
 ## Project Structure
@@ -407,12 +397,15 @@ ZKTecePuller/
 ├── puller.py                ← ZKTeco SDK connection via pyzk
 ├── report.py                ← Daily summary PNG + timeline chart generator
 ├── test_pull.py             ← Manual one-shot test runner
-├── devices.json             ← [EDIT THIS] ZKTeco device list — gitignored
-├── devices.json.example     ← Template for devices.json
-├── db_config.json           ← [EDIT THIS] DB connection — gitignored
-├── db_config.json.example   ← Template for db_config.json
+│
+├── devices.json             ← [CREATE ON SERVER] ZKTeco device list — gitignored
+├── devices.json.example     ← Template — copy to devices.json and edit
+├── db_config.json           ← [CREATE ON SERVER] DB connection — gitignored
+├── db_config.json.example   ← Template — copy to db_config.json and edit
+│
 ├── requirements.txt
-├── .env.example             ← Template for timezone settings
+├── .env                     ← [CREATE ON SERVER] Timezone settings — gitignored
+├── .env.example             ← Template — copy to .env and set timezones
 └── README.md
 ```
 
@@ -422,16 +415,17 @@ ZKTecePuller/
 
 | Problem | Solution |
 |---|---|
-| Service won't start | Check `logs\zkteco_puller.log` — DB connection errors appear there |
+| Service won't start | Check `logs\zkteco_puller.log` — DB or devices.json errors appear there |
+| `devices.json not found` | Run `Copy-Item devices.json.example devices.json` and edit it |
+| `db_config.json not found` | Run `Copy-Item db_config.json.example db_config.json` and edit it |
 | `Connection timed out` on device | Port 4370 must be open from server to device IP — check firewall |
-| `fe_sendauth: no password supplied` | Set `DB_PASSWORD=` in `.env`, then restart service |
 | `FATAL: database "zkteco" does not exist` | Run `CREATE DATABASE zkteco;` in psql/pgAdmin |
-| Service starts but no pulls at schedule time | Verify `SCHEDULER_TIMEZONE` in `.env` matches the server's local time |
-| `attendance records: 0` on Attn1 | Attn1 log may have been cleared on the device — normal; other devices have data |
+| `password authentication failed` | Check `password` field in `db_config.json` |
+| Service starts but no pulls at schedule time | Check `SCHEDULER_TIMEZONE` in `.env` — must match server's local timezone |
+| `attendance records: 0` on a device | Device log may have been cleared — normal; other devices still pull |
 | pywin32 error on service install | Run `python Scripts\pywin32_postinstall.py -install` as Administrator |
 | Python 3.14 psycopg2 build error | Run `pip install psycopg2-binary --pre` for the pre-built wheel |
-| Reports not generated | Ensure `matplotlib`, `pandas`, `Pillow` are installed (`pip install -r requirements.txt`) |
-| Want to test without waiting for schedule | Run `python main.py --run-now` from the project directory |
+| Reports not generated | Ensure `matplotlib`, `pandas`, `Pillow` are installed: `pip install -r requirements.txt` |
 
 ---
 
