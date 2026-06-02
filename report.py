@@ -80,9 +80,9 @@ def generate_daily_report(date_str: str, summary_rows: list, output_dir: str = R
 
     # summary chips
     chip_texts = [
-        f"👥  Employees Present: {total_employees}",
-        f"🖐  Total Punches: {total_punches}",
-        f"🕒  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        f"Employees Present: {total_employees}",
+        f"Total Punches: {total_punches}",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
     ]
     for i, txt in enumerate(chip_texts):
         x = 0.18 + i * 0.32
@@ -111,8 +111,8 @@ def generate_daily_report(date_str: str, summary_rows: list, output_dir: str = R
         x_cursor += w
 
     # separator line
-    ax_tbl.axhline(y=y_top - 0.03, xmin=0.01, xmax=0.99,
-                   transform=ax_tbl.transAxes, color="#e94560", linewidth=1)
+    ax_tbl.plot([0.01, 0.99], [y_top - 0.03, y_top - 0.03],
+                transform=ax_tbl.transAxes, color="#e94560", linewidth=1)
 
     if not summary_rows:
         ax_tbl.text(0.5, 0.5, "No attendance records for this date.",

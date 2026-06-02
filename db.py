@@ -52,7 +52,7 @@ CREATE INDEX IF NOT EXISTS idx_attendance_device_ts
     ON attendance_logs (device_id, timestamp DESC);
 
 CREATE INDEX IF NOT EXISTS idx_attendance_date
-    ON attendance_logs (DATE(timestamp));
+    ON attendance_logs (timestamp);
 
 CREATE TABLE IF NOT EXISTS pull_sessions (
     id              BIGSERIAL   PRIMARY KEY,
