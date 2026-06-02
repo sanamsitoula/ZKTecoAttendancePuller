@@ -2,7 +2,8 @@ import os
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
-load_dotenv()
+# Use absolute path so the service finds .env regardless of working directory
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 
 @dataclass
@@ -52,8 +53,17 @@ DB_CONFIG = {
 }
 
 # ── Scheduler ────────────────────────────────────────────────────────────────
-# Pull runs at these UTC hours every day (4 times/day)
-SCHEDULE_HOURS = [0, 6, 12, 18]
+# Timezone used to interpret SCHEDULE_TIMES (e.g. "Asia/Dhaka", "Asia/Kathmandu", "UTC")
+SCHEDULER_TIMEZONE = os.getenv("SCHEDULER_TIMEZONE", "UTC")
+
+# Pull schedule — (hour, minute) pairs in SCHEDULER_TIMEZONE
+SCHEDULE_TIMES = [
+    (6,  20),  # 06:20
+    (7,  20),  # 07:20
+    (9,  20),  # 09:20
+    (13, 20),  # 13:20
+    (17, 10),  # 17:10
+]
 
 # ── Connection ───────────────────────────────────────────────────────────────
 CONNECTION_TIMEOUT = 10  # seconds to wait for device TCP handshake

@@ -1,31 +1,54 @@
 # ZKTeco Attendance Puller
 
-A Python daemon that connects to ZKTeco biometric attendance devices, pulls employee and attendance data **4 times per day**, stores everything in **PostgreSQL**, and generates **daily attendance report images** automatically.
+A Python daemon that connects to ZKTeco biometric attendance devices, pulls employee and attendance data **5 times per day**, stores everything in **PostgreSQL**, and generates **daily attendance report images** automatically.
+
+Runs as a proper **Windows Service** — starts automatically on server boot, survives reboots, and is managed via `services.msc` or PowerShell.
+
+---
+
+## Pull Schedule
+
+| Time  | Notes            |
+|-------|------------------|
+| 06:20 | Morning open     |
+| 07:20 | Shift start      |
+| 09:20 | Late check-in    |
+| 13:20 | After lunch      |
+| 17:10 | End of day       |
+
+Times are in **Nepal Time (Asia/Kathmandu, UTC+5:45)** as set by `SCHEDULER_TIMEZONE` in `.env`.
+
+| Nepal Time | UTC Equivalent |
+|------------|----------------|
+| 06:20 NPT  | 00:35 UTC      |
+| 07:20 NPT  | 01:35 UTC      |
+| 09:20 NPT  | 03:35 UTC      |
+| 13:20 NPT  | 07:35 UTC      |
+| 17:10 NPT  | 11:25 UTC      |
 
 ---
 
 ## Features
 
 - Pulls from **multiple ZKTeco devices** simultaneously
-- Runs on schedule: **00:00 / 06:00 / 12:00 / 18:00 UTC** (4×/day via APScheduler)
+- Runs as a **Windows Service** with automatic startup
 - **Idempotent** — re-running never creates duplicate records
 - Stores employee names, user IDs, punch types (Check-In / Check-Out)
 - Generates **daily PNG report** + **timeline chart** after every pull
 - Full **audit trail** in `pull_sessions` table (per device, per run)
 - Graceful error handling — one failed device never blocks the others
-- Rotating log files (`logs/zkteco_puller.log`)
+- Rotating log files in `logs/zkteco_puller.log`
+- All credentials in a single `.env` file — change and restart to apply
 
 ---
 
 ## Devices Configured
 
-| Name   | IP Address   | Port | Model    | Status      |
-|--------|--------------|------|----------|-------------|
-| Attn1  | 10.10.10.18  | 4370 | MB2000   | Connected   |
-| attn2  | 10.10.10.11  | 4370 | iFace302 | Connected   |
-| atn3   | 10.10.10.12  | 4370 | unknown  | Connected   |
-
-All three devices respond on TCP port 4370 (verified via ping and socket test).
+| Name   | IP Address   | Port | Model    |
+|--------|--------------|------|----------|
+| Attn1  | 10.10.10.18  | 4370 | MB2000   |
+| attn2  | 10.10.10.11  | 4370 | iFace302 |
+| atn3   | 10.10.10.12  | 4370 | unknown  |
 
 ---
 
@@ -34,150 +57,254 @@ All three devices respond on TCP port 4370 (verified via ping and socket test).
 | Requirement | Version | Notes |
 |---|---|---|
 | Python | 3.10+ | 3.14 tested and working |
-| PostgreSQL | 13+ | Must be running and accessible |
-| Network | — | Machine must reach `10.10.10.x` subnet |
+| PostgreSQL | 13+ | Must be running and accessible from the server |
+| Network | — | Server must reach `10.10.10.x` subnet |
+| OS | Windows Server 2016+ or Windows 10+ | Required for Windows Service |
 
 ---
 
-## Step-by-Step Setup
+## Server Deployment — Step by Step
 
-### Step 1 — Verify Device Connectivity
+### Step 1 — Clone the Project
 
-```cmd
-ping 10.10.10.18
-ping 10.10.10.11
-ping 10.10.10.12
+On the target server, open PowerShell and clone (or copy) the project:
+
+```powershell
+git clone https://github.com/sanamsitoula/ZKTecoAttendancePuller.git C:\ZKTecePuller
+cd C:\ZKTecePuller
 ```
 
-All should reply. Then verify TCP port 4370 is open:
+> If Git is not installed, copy the project folder to the server via RDP, file share, or USB.
 
-```python
-python -c "
-import socket
-for ip in ['10.10.10.18','10.10.10.11','10.10.10.12']:
-    s = socket.socket()
-    s.settimeout(5)
-    r = s.connect_ex((ip, 4370))
-    s.close()
-    print(ip, '4370 =>', 'OPEN' if r==0 else 'CLOSED')
-"
-```
+---
 
-Expected output:
-```
-10.10.10.18 4370 => OPEN
-10.10.10.11 4370 => OPEN
-10.10.10.12 4370 => OPEN
-```
+### Step 2 — Configure Credentials
 
-### Step 2 — Clone and Install
-
-```cmd
-git clone https://github.com/sanamsitoula/ZKTecoAttendancePuller.git
-cd ZKTecoAttendancePuller
-pip install -r requirements.txt
-```
-
-> **Note for Python 3.14 on Windows:** psycopg2-binary 2.9.12+ includes a pre-built wheel for Python 3.14. If the install fails, run:
-> ```cmd
-> pip install psycopg2-binary --pre
-> ```
-
-### Step 3 — Configure Environment
-
-```cmd
-copy .env.example .env
+```powershell
+Copy-Item .env.example .env
+notepad .env
 ```
 
 Edit `.env` with your actual values:
 
 ```env
-DB_HOST=localhost
+# Database — the only section you need to change for a new server
+DB_HOST=192.168.1.10        # PostgreSQL server IP or hostname
 DB_PORT=5432
 DB_NAME=zkteco
 DB_USER=postgres
-DB_PASSWORD=your_postgres_password
+DB_PASSWORD=your_strong_password
 
-# Device passwords (leave empty if device has no password set)
+# Device passwords (leave empty if devices have no password)
 DEVICE_PASSWORD_ATTN1=
 DEVICE_PASSWORD_ATTN2=
 DEVICE_PASSWORD_ATN3=
 
-# Timezone of the physical devices (for timestamp localisation)
-# Examples: UTC, Asia/Kathmandu, Asia/Dhaka, Asia/Karachi
-DEVICE_TIMEZONE=UTC
+# Nepal timezone (UTC+5:45) — adjust if server is in a different timezone
+DEVICE_TIMEZONE=Asia/Kathmandu
+SCHEDULER_TIMEZONE=Asia/Kathmandu
 ```
 
-### Step 4 — Create the Database
+> **Timezone:** Set to `Asia/Kathmandu` (Nepal, UTC+5:45). Other examples: `UTC` | `Asia/Dhaka` | `Asia/Karachi` | `Asia/Kolkata`
+
+---
+
+### Step 3 — Create the Database
+
+On the PostgreSQL server, run:
 
 ```sql
--- Run in psql or pgAdmin
 CREATE DATABASE zkteco;
 ```
 
 The Python app creates all tables automatically on first run.
 
-### Step 5 — Run a Test Pull
+---
 
-```cmd
-python test_pull.py
+### Step 4 — Verify Device Connectivity
+
+From the server, confirm the ZKTeco devices are reachable:
+
+```powershell
+Test-NetConnection -ComputerName 10.10.10.18 -Port 4370
+Test-NetConnection -ComputerName 10.10.10.11 -Port 4370
+Test-NetConnection -ComputerName 10.10.10.12 -Port 4370
 ```
 
-This will:
-1. Check TCP port 4370 on all 3 devices
-2. Connect via ZKTeco SDK and pull users + attendance
-3. Write to PostgreSQL (devices, employees, attendance_logs, pull_sessions)
-4. Generate today's report PNG in `reports/`
+All should show `TcpTestSucceeded : True`.
+
+---
+
+### Step 5 — Install the Windows Service
+
+Open PowerShell **as Administrator** and run:
+
+```powershell
+cd C:\ZKTecePuller
+powershell -ExecutionPolicy Bypass -File install_service.ps1
+```
+
+This script will:
+1. Install all Python dependencies (`pip install -r requirements.txt`)
+2. Run the `pywin32` post-install step (required for service support)
+3. Check that `.env` exists (prompts you if it does not)
+4. Register `ZKTecoAttendancePuller` as a Windows Service
+5. Set startup type to **Automatic** (starts on boot)
+6. Start the service immediately
 
 Expected output:
 ```
-=======================================================
-  ZKTeco Attendance Puller — Connection Test
-=======================================================
+Python   : C:\Python314\python.exe
+Project  : C:\ZKTecePuller
 
-[1] TCP Port Check (port 4370)
-    Attn1     10.10.10.18:4370  =>  ✓ OPEN
-    attn2     10.10.10.11:4370  =>  ✓ OPEN
-    atn3      10.10.10.12:4370  =>  ✓ OPEN
+=== Step 1: Install Python dependencies ===
+Dependencies installed.
 
-[2] ZKTeco SDK Connection + Data Pull
-    Attn1     (MB2000)    =>  ✓  707 users, 0 attendance records
-    attn2     (iFace302)  =>  ✓  707 users, 194 attendance records
-    atn3      (unknown)   =>  ✓  707 users, 48680 attendance records
+=== Step 2: pywin32 post-install ===
+pywin32 post-install complete.
 
-[3] Full Pull Cycle (DB write + report generation)
-    DB schema: ✓ ready
-    ...
+=== Step 3: Check .env configuration ===
+.env found.
 
-[4] Verification Queries
-    devices            : 3 rows
-    employees          : 707 rows
-    attendance_logs    : 48874 rows
-    pull_sessions (ok) : 3 rows
-    today's records    : 194 rows
+=== Step 4: Register Windows Service ===
+Installing service ZKTecoAttendancePuller
+Service installed
 
-✓ All checks complete. See reports/ for generated PNG images.
+=== Step 5: Start service ===
+Service started.
+
+Service : ZKTeco Attendance Puller
+Status  : Running
+Startup : Auto
+
+=== Installation complete ===
+Schedule : 06:20, 07:20, 09:20, 13:20, 17:10  (SCHEDULER_TIMEZONE in .env)
+Logs     : C:\ZKTecePuller\logs\zkteco_puller.log
+Reports  : C:\ZKTecePuller\reports\
 ```
 
-### Step 6 — Start the Daemon (Scheduler)
+---
 
-```cmd
-python main.py
+### Step 6 — Verify the Service
+
+In **Services** (`services.msc`):
+
+```
+ZKTeco Attendance Puller   Running   Automatic
 ```
 
-The process stays running and fires pulls at **00:00, 06:00, 12:00, 18:00 UTC** every day.
+Or via PowerShell:
+```powershell
+Get-Service ZKTecoAttendancePuller
+```
 
-#### Optional: Run One Cycle Immediately
+Check the log:
+```powershell
+Get-Content C:\ZKTecePuller\logs\zkteco_puller.log -Tail 30
+```
 
-```cmd
+---
+
+### Step 7 — Run a Manual Test Pull
+
+To trigger one pull cycle immediately (without waiting for the schedule):
+
+```powershell
+cd C:\ZKTecePuller
 python main.py --run-now
 ```
 
-#### Optional: Generate Reports for a Past Date
+Expected output confirms devices connected, records inserted, and reports generated.
 
-```cmd
-python main.py --report 2026-06-01
+---
+
+## Changing Database Credentials
+
+1. Edit `.env` on the server:
+   ```powershell
+   notepad C:\ZKTecePuller\.env
+   ```
+
+2. Update `DB_HOST`, `DB_NAME`, `DB_USER`, or `DB_PASSWORD` as needed.
+
+3. Restart the service to apply:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File C:\ZKTecePuller\install_service.ps1 -Action restart
+   ```
+
+> Credentials are never stored in code — only in `.env`.
+
+---
+
+## Service Management
+
+All commands require Administrator PowerShell.
+
+```powershell
+# Using the helper script
+powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action start
+powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action stop
+powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action restart
+powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action status
+powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action remove
+
+# Or using built-in Windows commands
+net start  ZKTecoAttendancePuller
+net stop   ZKTecoAttendancePuller
+sc query   ZKTecoAttendancePuller
+
+# Or using python directly (advanced)
+python windows_service.py start
+python windows_service.py stop
+python windows_service.py restart
+python windows_service.py remove
+python windows_service.py debug    # run in foreground for troubleshooting
 ```
+
+---
+
+## Modifying the Schedule
+
+The schedule is defined in [config.py](config.py):
+
+```python
+SCHEDULE_TIMES = [
+    (6,  20),   # 06:20
+    (7,  20),   # 07:20
+    (9,  20),   # 09:20
+    (13, 20),   # 13:20
+    (17, 10),   # 17:10
+]
+```
+
+After editing, restart the service:
+```powershell
+powershell -ExecutionPolicy Bypass -File install_service.ps1 -Action restart
+```
+
+---
+
+## Adding a New Device
+
+1. Add a `DeviceConfig` entry in [config.py](config.py):
+
+```python
+DeviceConfig(
+    name="NewDevice",
+    ip="10.10.10.20",
+    port=4370,
+    password=os.getenv("DEVICE_PASSWORD_NEWDEVICE", ""),
+    model="SpeedFace-V5L",
+),
+```
+
+2. Add to `.env`:
+
+```env
+DEVICE_PASSWORD_NEWDEVICE=
+```
+
+3. Restart the service — the new device is auto-registered in the `devices` table.
 
 ---
 
@@ -203,15 +330,15 @@ pull_sessions
 
 ### Punch Type Codes
 
-| Code | Label      |
-|------|------------|
-| 0    | Check-In   |
-| 1    | Check-Out  |
-| 2    | Break-Out  |
-| 3    | Break-In   |
-| 4    | OT-In      |
-| 5    | OT-Out     |
-| 255  | Check-In   |
+| Code | Label     |
+|------|-----------|
+| 0    | Check-In  |
+| 1    | Check-Out |
+| 2    | Break-Out |
+| 3    | Break-In  |
+| 4    | OT-In     |
+| 5    | OT-Out    |
+| 255  | Check-In  |
 
 ---
 
@@ -221,43 +348,13 @@ After each pull cycle, two images are saved in `reports/`:
 
 | File | Description |
 |---|---|
-| `reports/YYYY-MM-DD.png` | Daily summary table: employee name, first check-in, last check-out, duration, device(s) |
+| `reports/YYYY-MM-DD.png` | Daily summary: employee name, first check-in, last check-out, duration, device |
 | `reports/YYYY-MM-DD_timeline.png` | Timeline scatter chart: every punch plotted per employee per hour |
 
----
+Generate reports for a past date manually:
 
-## Adding a New Device
-
-1. Add a `DeviceConfig` entry in `config.py`:
-
-```python
-DeviceConfig(
-    name="NewDevice",
-    ip="10.10.10.20",
-    port=4370,
-    password=os.getenv("DEVICE_PASSWORD_NEWDEVICE", ""),
-    model="SpeedFace-V5L",
-),
-```
-
-2. Add to `.env`:
-
-```env
-DEVICE_PASSWORD_NEWDEVICE=
-```
-
-3. Restart `main.py` — the new device is auto-registered in the `devices` table.
-
----
-
-## Running as a Windows Service (Optional)
-
-Use NSSM (Non-Sucking Service Manager) to run as a background Windows service:
-
-```cmd
-nssm install ZKTecoAttendancePuller "C:\Python314\python.exe" "D:\claude_project\ZKTecePuller\main.py"
-nssm set ZKTecoAttendancePuller AppDirectory "D:\claude_project\ZKTecePuller"
-nssm start ZKTecoAttendancePuller
+```powershell
+python main.py --report 2026-06-01
 ```
 
 ---
@@ -265,16 +362,18 @@ nssm start ZKTecoAttendancePuller
 ## Project Structure
 
 ```
-ZKTecoAttendancePuller/
-├── main.py          ← Entry point + pull cycle orchestration
-├── config.py        ← Device list, DB config, schedule hours
-├── db.py            ← Schema, upsert, batch insert, pull sessions
-├── puller.py        ← ZKTeco SDK connection via pyzk
-├── report.py        ← Daily summary PNG + timeline chart generator
-├── scheduler.py     ← APScheduler 4×/day cron setup
-├── test_pull.py     ← Manual one-shot test runner
+ZKTecePuller/
+├── main.py              ← Entry point + pull cycle orchestration
+├── windows_service.py   ← Windows Service wrapper (install/start/stop)
+├── install_service.ps1  ← PowerShell helper: one-command server setup
+├── config.py            ← Devices, DB config, schedule, timezone
+├── scheduler.py         ← APScheduler background scheduler setup
+├── db.py                ← Schema, upsert, batch insert, pull sessions
+├── puller.py            ← ZKTeco SDK connection via pyzk
+├── report.py            ← Daily summary PNG + timeline chart generator
+├── test_pull.py         ← Manual one-shot test runner
 ├── requirements.txt
-├── .env.example
+├── .env.example         ← Template — copy to .env and fill in credentials
 └── README.md
 ```
 
@@ -284,12 +383,16 @@ ZKTecoAttendancePuller/
 
 | Problem | Solution |
 |---|---|
-| `Connection timed out` | Check firewall — port 4370 must be open from this machine to the device |
-| `fe_sendauth: no password supplied` | Set `DB_PASSWORD` in `.env` |
-| `OperationalError: FATAL database not found` | Create the DB: `CREATE DATABASE zkteco;` |
-| `attendance records: 0` on Attn1 | Attn1 log may have been cleared — this is normal; other devices have data |
-| Report images not generated | Ensure `matplotlib`, `pandas`, `Pillow` are installed |
+| Service won't start | Check `logs\zkteco_puller.log` — DB connection errors appear there |
+| `Connection timed out` on device | Port 4370 must be open from server to device IP — check firewall |
+| `fe_sendauth: no password supplied` | Set `DB_PASSWORD=` in `.env`, then restart service |
+| `FATAL: database "zkteco" does not exist` | Run `CREATE DATABASE zkteco;` in psql/pgAdmin |
+| Service starts but no pulls at schedule time | Verify `SCHEDULER_TIMEZONE` in `.env` matches the server's local time |
+| `attendance records: 0` on Attn1 | Attn1 log may have been cleared on the device — normal; other devices have data |
+| pywin32 error on service install | Run `python Scripts\pywin32_postinstall.py -install` as Administrator |
 | Python 3.14 psycopg2 build error | Run `pip install psycopg2-binary --pre` for the pre-built wheel |
+| Reports not generated | Ensure `matplotlib`, `pandas`, `Pillow` are installed (`pip install -r requirements.txt`) |
+| Want to test without waiting for schedule | Run `python main.py --run-now` from the project directory |
 
 ---
 
