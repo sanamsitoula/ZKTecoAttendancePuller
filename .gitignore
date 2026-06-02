@@ -1,0 +1,22 @@
+# Environment — NEVER commit real credentials
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Reports and logs (generated at runtime)
+logs/
+reports/
+
+# IDE
+.vscode/
+.idea/
+*.swp
