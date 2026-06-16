@@ -128,6 +128,21 @@ def jinja_fmt_dt(dt) -> str:
         return str(dt)
 
 
+def bs_to_ad(bs_str: str) -> str | None:
+    """Parse 'YYYY-MM-DD' BS date string → AD ISO date string, or None on failure."""
+    if not bs_str:
+        return None
+    try:
+        import nepali_datetime  # type: ignore
+        parts = str(bs_str).strip().split('-')
+        if len(parts) == 3:
+            nd = nepali_datetime.date(int(parts[0]), int(parts[1]), int(parts[2]))
+            return nd.to_datetime_date().isoformat()
+    except Exception:
+        pass
+    return None
+
+
 def register_filters(templates) -> None:
     """Register all BS Jinja2 filters on a FastAPI Jinja2Templates instance."""
     templates.env.filters['bs_date'] = jinja_bs_date

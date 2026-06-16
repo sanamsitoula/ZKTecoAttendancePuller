@@ -33,6 +33,7 @@ A built-in **Web Management Console** (FastAPI + Jinja2) lets you view attendanc
 - **Sync** — compare device users vs. database; import unknown users or push missing users to device
 - **Pull sessions** — full history of every pull run with start/end times and row counts
 - **Live ping status** — dashboard pings every device in parallel on each page load; shows Online/Offline badge, response time (ms), and last-checked timestamp (NPT + BS)
+- **Report header** — all Excel/PDF exports and print layouts include the organisation name, address, email, and website
 - **Devices** — add, edit, enable/disable ZKTeco devices; test connectivity
 
 ---
@@ -295,7 +296,19 @@ Every time the dashboard loads, all configured devices are **pinged in parallel*
 A filter dropdown lets you view only Online or only Offline devices at a glance.
 
 ### Attendance (`/attendance`)
-Full punch log for all devices. Filter by device, employee name, and date. Every timestamp shows both NPT (Nepal Time) and its Bikram Sambat equivalent. Client-side search on the table.
+Full attendance console with date-range filtering, Nepali calendar support, and export.
+
+| Feature | Details |
+|---|---|
+| Date range filter | From / To with AD date picker; show BS equivalent below each input |
+| BS date search | Type a BS date (YYYY-MM-DD) in "From BS / To BS" fields — auto-converts to AD |
+| Device & name filter | Filter by device and employee name / user ID |
+| SN column | Serial number on every row |
+| Pagination | 100 rows per page on both Summary and Raw Punch Log tables |
+| Punch detail | Every employee row shows all individual check-in/check-out times with BS timestamps |
+| Export Excel | Downloads `.xlsx` with company header, striped rows, frozen header, all punch times |
+| Export PDF | Downloads landscape A4 PDF with company header on every page |
+| Print | Clean print layout with company header, hides filter controls |
 
 ### Users (`/users`)
 

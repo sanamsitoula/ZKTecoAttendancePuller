@@ -1,116 +1,229 @@
 {% extends 'base.html' %}
 
 {% block content %}
-  <section class="page-head">
+
+  {# ── Company header (print / export only) ─────────────────────────────── #}
+  <div class="company-header print-only">
+    <h2>{{ COMPANY_NAME }}</h2>
+    <p>{{ COMPANY_ADDRESS }}</p>
+    <p>Email: {{ COMPANY_EMAIL }} &nbsp;|&nbsp; Website: {{ COMPANY_WEBSITE }}</p>
+    <hr>
+    <p>
+      Attendance Report &nbsp;|&nbsp;
+      {{ from_date }} to {{ to_date }}
+      &nbsp;|&nbsp;
+      {{ from_date | bs_date }} to {{ to_date | bs_date }}
+    </p>
+  </div>
+
+  <section class="page-head no-print">
     <div>
       <p class="eyebrow">Attendance</p>
       <h1>Check-In / Check-Out</h1>
     </div>
-    <div class="head-actions no-print">
+    <div class="head-actions">
+      <a class="btn" href="/attendance/export/excel?{{ filter_qs }}">Export Excel</a>
+      <a class="btn" href="/attendance/export/pdf?{{ filter_qs }}">Export PDF</a>
       <button class="btn" type="button" onclick="window.print()">Print</button>
     </div>
   </section>
 
+  {# ── Filter panel ──────────────────────────────────────────────────────── #}
   <section class="panel no-print">
-    <form class="filter-bar-flex" method="get" action="/attendance">
-      <label>Date (AD)
-        <input type="date" name="date_str" value="{{ selected_date }}">
-        <small class="muted">{{ selected_date | bs_date }}</small>
-      </label>
-      <label>Device
-        <select name="device_id">
-          <option value="">All devices</option>
-          {% for d in devices %}
-          <option value="{{ d.id }}" {% if selected_device_id == d.id %}selected{% endif %}>{{ d.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Name / User ID
-        <input type="text" name="name" value="{{ name_search }}" placeholder="Search person…">
-      </label>
-      <div class="filter-actions">
-        <button class="btn primary" type="submit">Filter</button>
-        <a class="btn" href="/attendance">Reset</a>
-        <button class="btn" type="button" onclick="window.print()">Print</button>
+    <form method="get" action="/attendance">
+      <div class="filter-bar-flex">
+
+        <label style="min-width:140px">From Date (AD)
+          <input type="date" name="from_date" value="{{ from_date }}">
+          <small class="muted">{{ from_date | bs_date }}</small>
+        </label>
+
+        <label style="min-width:140px">From Date (BS)
+          <input type="text" name="from_bs" value="{{ from_bs }}" placeholder="2083-03-01">
+          <small class="muted">YYYY-MM-DD Nepali</small>
+        </label>
+
+        <label style="min-width:140px">To Date (AD)
+          <input type="date" name="to_date" value="{{ to_date }}">
+          <small class="muted">{{ to_date | bs_date }}</small>
+        </label>
+
+        <label style="min-width:140px">To Date (BS)
+          <input type="text" name="to_bs" value="{{ to_bs }}" placeholder="2083-03-30">
+          <small class="muted">YYYY-MM-DD Nepali</small>
+        </label>
+
+        <label>Device
+          <select name="device_id">
+            <option value="">All devices</option>
+            {% for d in devices %}
+            <option value="{{ d.id }}" {% if selected_device_id == d.id %}selected{% endif %}>{{ d.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label>Name / User ID
+          <input type="text" name="name" value="{{ name_search }}" placeholder="Search person…">
+        </label>
+
+        <div class="filter-actions">
+          <button class="btn primary" type="submit">Filter</button>
+          <a class="btn" href="/attendance">Reset</a>
+          <a class="btn" href="/attendance/export/excel?{{ filter_qs }}">Excel</a>
+          <a class="btn" href="/attendance/export/pdf?{{ filter_qs }}">PDF</a>
+          <button class="btn" type="button" onclick="window.print()">Print</button>
+        </div>
       </div>
     </form>
   </section>
 
+  {# ── Daily Shift Summary ───────────────────────────────────────────────── #}
   <section class="panel">
     <div class="panel-head">
       <h2>Daily Shift Summary</h2>
       <span class="muted">
-        <span id="att-summary-count">{{ summary|length }}</span> employees &mdash;
-        {{ selected_date }} &nbsp;|&nbsp; {{ selected_date | bs_date }}
+        <span id="att-summary-count">{{ total_summary }}</span> employees &mdash;
+        {{ from_date }}{% if to_date != from_date %} to {{ to_date }}{% endif %}
+        &nbsp;|&nbsp;
+        {{ from_date | bs_date }}{% if to_date != from_date %} to {{ to_date | bs_date }}{% endif %}
       </span>
     </div>
+
     <div class="no-print" style="margin-bottom:10px">
-      <input class="inline-search" data-table-filter="att-summary-table" placeholder="Quick filter by name…" style="max-width:260px">
+      <input class="inline-search" data-table-filter="att-summary-table"
+             placeholder="Quick filter by name, user ID…" style="max-width:280px">
     </div>
+
     <div class="table-wrap">
       <table class="table" id="att-summary-table">
         <thead>
           <tr>
-            <th>Name</th><th>User ID</th>
-            <th>First check-in (NPT)</th><th>First check-in (BS)</th>
-            <th>Last check-out (NPT)</th><th>Last check-out (BS)</th>
-            <th>Punches</th><th>Devices</th>
+            <th>SN</th><th>Name</th><th>User ID</th>
+            <th>First Check-In (NPT)</th><th>First Check-In (BS)</th>
+            <th>Last Check-Out (NPT)</th><th>Last Check-Out (BS)</th>
+            <th>Punch Detail</th>
+            <th>Total</th><th>Devices</th>
           </tr>
         </thead>
         <tbody>
+          {% set offset = (page - 1) * per_page %}
           {% for s in summary %}
           <tr>
+            <td>{{ offset + loop.index }}</td>
             <td><strong>{{ s.name }}</strong></td>
             <td>{{ s.user_id }}</td>
-            <td><span class="status success">{{ s.first_in | fmt_dt }}</span></td>
+            <td><span class="status success" style="font-size:12px">{{ s.first_in | fmt_dt }}</span></td>
             <td><small>{{ s.first_in | bs_datetime }}</small></td>
-            <td><span class="status info">{{ s.last_out | fmt_dt }}</span></td>
+            <td><span class="status info" style="font-size:12px">{{ s.last_out | fmt_dt }}</span></td>
             <td><small>{{ s.last_out | bs_datetime }}</small></td>
-            <td>{{ s.total_punches }}</td>
+            <td>
+              {% for p in s.punches %}
+                <div style="white-space:nowrap;font-size:11px;line-height:1.6">
+                  <span class="status {{ 'success' if 'In' in (p.label or '') else 'info' }}"
+                        style="font-size:10px;padding:1px 5px;min-height:auto">
+                    {{ p.label or '?' }}
+                  </span>
+                  {{ p.ts | fmt_dt }}
+                  <small style="color:var(--muted)">{{ p.ts | bs_datetime }}</small>
+                </div>
+              {% endfor %}
+            </td>
+            <td style="text-align:center"><strong>{{ s.total_punches }}</strong></td>
             <td>{{ s.devices }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="8" class="empty">No summary data for this date.</td></tr>
+          <tr><td colspan="10" class="empty">No data for this date range.</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+
+    {# Pagination — summary #}
+    {% if total_pages > 1 %}
+    <nav class="pagination no-print" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;align-items:center">
+      <span class="muted" style="margin-right:6px">Page {{ page }} of {{ total_pages }}</span>
+      {% if page > 1 %}
+        <a class="btn small" href="/attendance?{{ filter_qs }}&page={{ page - 1 }}">← Prev</a>
+      {% endif %}
+      {% for p in range(1, total_pages + 1) %}
+        {% if p == page %}
+          <span class="btn small primary">{{ p }}</span>
+        {% elif p <= 2 or p >= total_pages - 1 or (p >= page - 2 and p <= page + 2) %}
+          <a class="btn small" href="/attendance?{{ filter_qs }}&page={{ p }}">{{ p }}</a>
+        {% elif p == 3 or p == total_pages - 2 %}
+          <span class="muted">…</span>
+        {% endif %}
+      {% endfor %}
+      {% if page < total_pages %}
+        <a class="btn small" href="/attendance?{{ filter_qs }}&page={{ page + 1 }}">Next →</a>
+      {% endif %}
+    </nav>
+    {% endif %}
   </section>
 
+  {# ── Raw Punch Log ─────────────────────────────────────────────────────── #}
   <section class="panel">
     <div class="panel-head">
       <h2>Raw Punch Log</h2>
-      <span class="muted"><span id="punch-table-count">{{ records|length }}</span> rows shown.</span>
+      <span class="muted">
+        <span id="punch-table-count">{{ total_records }}</span> total rows
+        (showing {{ records|length }} on page {{ log_page }} of {{ total_log_pages }})
+      </span>
     </div>
     <div class="no-print" style="margin-bottom:10px">
-      <input class="inline-search" data-table-filter="punch-table" placeholder="Quick filter by name, device, time…" style="max-width:320px">
+      <input class="inline-search" data-table-filter="punch-table"
+             placeholder="Quick filter by name, device, time…" style="max-width:320px">
     </div>
     <div class="table-wrap">
       <table class="table compact" id="punch-table">
         <thead>
           <tr>
-            <th>Time (NPT)</th><th>Time (BS)</th>
+            <th>SN</th><th>Time (NPT)</th><th>Time (BS)</th>
             <th>Name</th><th>User ID</th><th>UID</th>
-            <th>Shift status</th><th>Raw codes</th><th>Device</th>
+            <th>Shift Status</th><th>Device</th>
           </tr>
         </thead>
         <tbody>
+          {% set log_offset = (log_page - 1) * per_page %}
           {% for r in records %}
           <tr>
+            <td>{{ log_offset + loop.index }}</td>
             <td>{{ r.timestamp | fmt_dt }}</td>
             <td><small>{{ r.timestamp | bs_datetime }}</small></td>
             <td><strong>{{ r.name }}</strong></td>
             <td>{{ r.user_id }}</td>
             <td>{{ r.uid }}</td>
             <td><span class="status info">{{ r.punch_label or 'Unknown' }}</span></td>
-            <td>status {{ r.status if r.status is not none else '-' }} / punch {{ r.punch if r.punch is not none else '-' }}</td>
             <td>{{ r.device_name }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="8" class="empty">No attendance logs match this filter.</td></tr>
+          <tr><td colspan="8" class="empty">No logs match this filter.</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+
+    {# Pagination — log #}
+    {% if total_log_pages > 1 %}
+    <nav class="pagination no-print" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;align-items:center">
+      <span class="muted" style="margin-right:6px">Page {{ log_page }} of {{ total_log_pages }}</span>
+      {% if log_page > 1 %}
+        <a class="btn small" href="/attendance?{{ filter_qs }}&log_page={{ log_page - 1 }}">← Prev</a>
+      {% endif %}
+      {% for p in range(1, total_log_pages + 1) %}
+        {% if p == log_page %}
+          <span class="btn small primary">{{ p }}</span>
+        {% elif p <= 2 or p >= total_log_pages - 1 or (p >= log_page - 2 and p <= log_page + 2) %}
+          <a class="btn small" href="/attendance?{{ filter_qs }}&log_page={{ p }}">{{ p }}</a>
+        {% elif p == 3 or p == total_log_pages - 2 %}
+          <span class="muted">…</span>
+        {% endif %}
+      {% endfor %}
+      {% if log_page < total_log_pages %}
+        <a class="btn small" href="/attendance?{{ filter_qs }}&log_page={{ log_page + 1 }}">Next →</a>
+      {% endif %}
+    </nav>
+    {% endif %}
   </section>
+
 {% endblock %}

@@ -22,6 +22,8 @@ import time as _time
 import concurrent.futures
 import psycopg2.extras
 from config import SCHEDULE_TIMES, SCHEDULER_TIMEZONE, load_db_config
+from config import COMPANY_NAME, COMPANY_ADDRESS, COMPANY_EMAIL, COMPANY_WEBSITE
+from urllib.parse import urlencode
 from web.flash import redirect_with_flash
 from web.helpers import render, device_config_from_row, attendance_to_dict, action_label
 import nepali_utils
@@ -827,49 +829,326 @@ def import_device_users(
 @app.get("/attendance")
 def attendance_view(
     request: Request,
-    date_str: str | None = None,
+    from_date: str | None = None,
+    to_date:   str | None = None,
+    from_bs:   str | None = None,
+    to_bs:     str | None = None,
+    date_str:  str | None = None,   # legacy compat
     device_id: str | None = None,
-    name: str | None = None,
+    name:      str | None = None,
+    page:      str | None = None,
+    log_page:  str | None = None,
 ):
-    selected_date = date_str or date.today().isoformat()
+    import nepali_utils as _nu
+    # BS date overrides
+    if from_bs:
+        _ad = _nu.bs_to_ad(from_bs)
+        if _ad:
+            from_date = _ad
+    if to_bs:
+        _ad = _nu.bs_to_ad(to_bs)
+        if _ad:
+            to_date = _ad
+    # legacy single-date compat
+    if date_str and not from_date:
+        from_date = date_str
+    if date_str and not to_date:
+        to_date = date_str
+    today = date.today().isoformat()
+    from_date = from_date or today
+    to_date   = to_date   or today
+    if to_date < from_date:
+        to_date = from_date
+
+    per_page      = 100
+    page_num      = max(1, _int_param(page)     or 1)
+    log_page_num  = max(1, _int_param(log_page) or 1)
+    device_id_int = _int_param(device_id)
+    name_clean    = name.strip() if name else None
+
     conn = get_connection()
     try:
         devices = get_devices(conn)
-        where = ["DATE(al.timestamp) = %s"]
-        params: list = [selected_date]
-        device_id_int = _int_param(device_id)
+
+        # ── Summary (all rows, then slice for pagination) ──
+        summary_all  = db_mod.get_attendance_summary_filtered(
+            conn, from_date, to_date, device_id_int, name_clean)
+        total_summary = len(summary_all)
+        total_pages   = max(1, (total_summary + per_page - 1) // per_page)
+        page_num      = min(page_num, total_pages)
+        summary       = summary_all[(page_num - 1) * per_page : page_num * per_page]
+
+        # ── Raw punch log (server-side paginated) ──
+        where:  list = ["DATE(al.timestamp) BETWEEN %s AND %s"]
+        params: list = [from_date, to_date]
         if device_id_int:
             where.append("al.device_id = %s")
             params.append(device_id_int)
-        if name:
+        if name_clean:
             where.append("(COALESCE(al.name, e.name, '') ILIKE %s OR al.user_id ILIKE %s)")
-            params += [f'%{name}%', f'%{name}%']
-        sql = f"""
-            SELECT al.timestamp, al.uid, al.user_id,
-                   COALESCE(al.name, e.name, 'Unknown') AS name,
-                   al.status, al.punch, al.punch_label,
-                   d.name AS device_name
-            FROM attendance_logs al
-            LEFT JOIN employees e ON al.employee_id = e.id
-            JOIN devices d ON al.device_id = d.id
-            WHERE {" AND ".join(where)}
-            ORDER BY al.timestamp DESC
-            LIMIT 1000
-        """
+            params += [f'%{name_clean}%', f'%{name_clean}%']
+
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT COUNT(*) FROM attendance_logs al "
+                f"LEFT JOIN employees e ON al.employee_id = e.id "
+                f"JOIN devices d ON al.device_id = d.id "
+                f"WHERE {' AND '.join(where)}", tuple(params))
+            total_records = cur.fetchone()[0]
+
+        total_log_pages = max(1, (total_records + per_page - 1) // per_page)
+        log_page_num    = min(log_page_num, total_log_pages)
+        log_offset      = (log_page_num - 1) * per_page
+
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-            cur.execute(sql, tuple(params))
-            records = [dict(row) for row in cur.fetchall()]
-        summary = db_mod.get_daily_summary(conn, selected_date)
+            cur.execute(
+                f"SELECT al.timestamp, al.uid, al.user_id, "
+                f"       COALESCE(al.name, e.name, 'Unknown') AS name, "
+                f"       al.status, al.punch, al.punch_label, d.name AS device_name "
+                f"FROM attendance_logs al "
+                f"LEFT JOIN employees e ON al.employee_id = e.id "
+                f"JOIN devices d ON al.device_id = d.id "
+                f"WHERE {' AND '.join(where)} "
+                f"ORDER BY al.timestamp DESC LIMIT %s OFFSET %s",
+                tuple(params) + (per_page, log_offset))
+            records = [dict(r) for r in cur.fetchall()]
+
+        filter_qs = urlencode({
+            'from_date': from_date, 'to_date': to_date,
+            'from_bs': from_bs or '', 'to_bs': to_bs or '',
+            'device_id': device_id or '', 'name': name or '',
+        })
         return render(templates, request, "attendance.html", {
-            "records": records,
-            "summary": summary,
+            "records": records, "summary": summary,
             "devices": devices,
-            "selected_date": selected_date,
+            "from_date": from_date, "to_date": to_date,
+            "from_bs": from_bs or '', "to_bs": to_bs or '',
             "selected_device_id": device_id_int,
             "name_search": name or '',
+            # pagination — summary
+            "page": page_num, "total_pages": total_pages, "total_summary": total_summary,
+            # pagination — log
+            "log_page": log_page_num, "total_log_pages": total_log_pages, "total_records": total_records,
+            "per_page": per_page,
+            "filter_qs": filter_qs,
+            # company
+            "COMPANY_NAME": COMPANY_NAME, "COMPANY_ADDRESS": COMPANY_ADDRESS,
+            "COMPANY_EMAIL": COMPANY_EMAIL, "COMPANY_WEBSITE": COMPANY_WEBSITE,
         })
     finally:
         conn.close()
+
+
+@app.get("/attendance/export/excel")
+def attendance_export_excel(
+    from_date: str | None = None, to_date:   str | None = None,
+    from_bs:   str | None = None, to_bs:     str | None = None,
+    date_str:  str | None = None,
+    device_id: str | None = None, name: str | None = None,
+):
+    import nepali_utils as _nu
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    if from_bs:
+        _ad = _nu.bs_to_ad(from_bs)
+        if _ad: from_date = _ad
+    if to_bs:
+        _ad = _nu.bs_to_ad(to_bs)
+        if _ad: to_date = _ad
+    if date_str and not from_date: from_date = date_str
+    if date_str and not to_date:   to_date   = date_str
+    today = date.today().isoformat()
+    from_date = from_date or today
+    to_date   = to_date   or today
+    device_id_int = _int_param(device_id)
+    name_clean = name.strip() if name else None
+
+    conn = get_connection()
+    try:
+        summary = db_mod.get_attendance_summary_filtered(conn, from_date, to_date, device_id_int, name_clean)
+    finally:
+        conn.close()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Attendance Summary"
+
+    thin = Side(style='thin')
+    bdr  = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    # Company header rows
+    header_font = Font(bold=True, size=14)
+    sub_font    = Font(size=10)
+    ws.merge_cells('A1:J1'); ws['A1'] = COMPANY_NAME
+    ws['A1'].font = header_font; ws['A1'].alignment = Alignment(horizontal='center')
+    ws.merge_cells('A2:J2'); ws['A2'] = COMPANY_ADDRESS
+    ws['A2'].font = sub_font; ws['A2'].alignment = Alignment(horizontal='center')
+    ws.merge_cells('A3:J3'); ws['A3'] = f"Email: {COMPANY_EMAIL}  |  Website: {COMPANY_WEBSITE}"
+    ws['A3'].font = sub_font; ws['A3'].alignment = Alignment(horizontal='center')
+    ws.merge_cells('A4:J4'); ws['A4'] = (
+        f"Attendance Report  |  {from_date} to {to_date}"
+        f"  |  {_nu.bs_date_str(from_date)} BS  to  {_nu.bs_date_str(to_date)} BS")
+    ws['A4'].font = Font(italic=True, size=10)
+    ws['A4'].alignment = Alignment(horizontal='center')
+    ws.append([])  # blank row 5
+
+    col_headers = ['SN', 'Name', 'User ID',
+                   'First Check-In (NPT)', 'First Check-In (BS)',
+                   'Last Check-Out (NPT)', 'Last Check-Out (BS)',
+                   'All Punch Times', 'Total Punches', 'Devices']
+    ws.append(col_headers)
+    hdr_fill = PatternFill("solid", fgColor="1769E0")
+    hdr_font = Font(bold=True, color="FFFFFF")
+    for cell in ws[6]:
+        cell.fill = hdr_fill; cell.font = hdr_font
+        cell.alignment = Alignment(horizontal='center', wrap_text=True)
+        cell.border = bdr
+
+    for i, s in enumerate(summary, 1):
+        punch_str = "\n".join(
+            f"{_nu.jinja_fmt_dt(p['ts'])} {p['label']}" for p in s.get('punches', []))
+        row_data = [
+            i,
+            s['name'], str(s['user_id']),
+            _nu.jinja_fmt_dt(s['first_in']),
+            _nu.jinja_bs_datetime(s['first_in']),
+            _nu.jinja_fmt_dt(s['last_out']),
+            _nu.jinja_bs_datetime(s['last_out']),
+            punch_str,
+            s['total_punches'],
+            s['devices'] or '',
+        ]
+        ws.append(row_data)
+        row_idx = ws.max_row
+        for cell in ws[row_idx]:
+            cell.border = bdr
+            cell.alignment = Alignment(wrap_text=True, vertical='top')
+        if i % 2 == 0:
+            fill = PatternFill("solid", fgColor="EEF6FF")
+            for cell in ws[row_idx]: cell.fill = fill
+
+    col_widths = [6, 30, 12, 22, 28, 22, 28, 40, 10, 24]
+    for idx, w in enumerate(col_widths, 1):
+        ws.column_dimensions[get_column_letter(idx)].width = w
+
+    for r in range(1, 5):
+        ws.row_dimensions[r].height = 18
+    ws.row_dimensions[6].height = 20
+    ws.freeze_panes = 'A7'
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"attendance_{from_date}_to_{to_date}.xlsx"
+    return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@app.get("/attendance/export/pdf")
+def attendance_export_pdf(
+    from_date: str | None = None, to_date:   str | None = None,
+    from_bs:   str | None = None, to_bs:     str | None = None,
+    date_str:  str | None = None,
+    device_id: str | None = None, name: str | None = None,
+):
+    import nepali_utils as _nu
+    from fpdf import FPDF
+    if from_bs:
+        _ad = _nu.bs_to_ad(from_bs)
+        if _ad: from_date = _ad
+    if to_bs:
+        _ad = _nu.bs_to_ad(to_bs)
+        if _ad: to_date = _ad
+    if date_str and not from_date: from_date = date_str
+    if date_str and not to_date:   to_date   = date_str
+    today = date.today().isoformat()
+    from_date = from_date or today
+    to_date   = to_date   or today
+    device_id_int = _int_param(device_id)
+    name_clean = name.strip() if name else None
+
+    conn = get_connection()
+    try:
+        summary = db_mod.get_attendance_summary_filtered(conn, from_date, to_date, device_id_int, name_clean)
+    finally:
+        conn.close()
+
+    # Column widths (mm) for landscape A4 (277mm usable)
+    COL_W = [10, 52, 18, 32, 40, 32, 40, 11, 42]  # total = 277
+    HEADERS = ['SN', 'Name', 'User ID', 'First In (NPT)', 'First In (BS)',
+               'Last Out (NPT)', 'Last Out (BS)', 'Punches', 'Devices']
+    ROW_H = 7
+
+    class AttPDF(FPDF):
+        def header(self):
+            self.set_font('Helvetica', 'B', 13)
+            self.cell(0, 7, COMPANY_NAME, align='C', new_x='LMARGIN', new_y='NEXT')
+            self.set_font('Helvetica', '', 9)
+            self.cell(0, 5, COMPANY_ADDRESS, align='C', new_x='LMARGIN', new_y='NEXT')
+            self.cell(0, 5, f"Email: {COMPANY_EMAIL}  |  Website: {COMPANY_WEBSITE}",
+                      align='C', new_x='LMARGIN', new_y='NEXT')
+            self.set_draw_color(23, 105, 224)
+            self.set_line_width(0.5)
+            self.line(self.l_margin, self.get_y() + 1,
+                      self.w - self.r_margin, self.get_y() + 1)
+            self.ln(4)
+            self.set_font('Helvetica', 'I', 8)
+            bs_from = _nu.bs_date_str(from_date)
+            bs_to   = _nu.bs_date_str(to_date)
+            self.cell(0, 5,
+                f"Attendance Report  |  {from_date}  to  {to_date}"
+                f"   ({bs_from} BS  to  {bs_to} BS)",
+                align='C', new_x='LMARGIN', new_y='NEXT')
+            self.ln(2)
+            # Table header
+            self.set_fill_color(23, 105, 224)
+            self.set_text_color(255, 255, 255)
+            self.set_font('Helvetica', 'B', 7)
+            for h, w in zip(HEADERS, COL_W):
+                self.cell(w, ROW_H, h, border=1, align='C', fill=True)
+            self.set_text_color(0, 0, 0)
+            self.ln()
+
+        def footer(self):
+            self.set_y(-12)
+            self.set_font('Helvetica', 'I', 7)
+            self.cell(0, 5, f"Page {self.page_no()} — Generated by ZKTeco Attendance Console", align='C')
+
+    pdf = AttPDF(orientation='L', unit='mm', format='A4')
+    pdf.set_margins(10, 10, 10)
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font('Helvetica', '', 7)
+
+    for i, s in enumerate(summary, 1):
+        if pdf.get_y() + ROW_H > pdf.page_break_trigger:
+            pdf.add_page()
+        fill = (i % 2 == 0)
+        if fill:
+            pdf.set_fill_color(238, 246, 255)
+        def _t(v):
+            txt = str(v or '')
+            return txt[:40] + '…' if len(txt) > 40 else txt
+        row_vals = [
+            str(i),
+            _t(s['name']),
+            str(s['user_id']),
+            _nu.jinja_fmt_dt(s['first_in']),
+            _nu.jinja_bs_datetime(s['first_in']),
+            _nu.jinja_fmt_dt(s['last_out']),
+            _nu.jinja_bs_datetime(s['last_out']),
+            str(s['total_punches']),
+            _t(s['devices'] or ''),
+        ]
+        for val, w in zip(row_vals, COL_W):
+            pdf.cell(w, ROW_H, val, border=1, fill=fill)
+        pdf.ln()
+
+    buf = io.BytesIO(pdf.output())
+    fname = f"attendance_{from_date}_to_{to_date}.pdf"
+    return StreamingResponse(buf, media_type="application/pdf",
+                             headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @app.get("/pull-sessions")

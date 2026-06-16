@@ -305,6 +305,48 @@ def get_daily_summary(conn, date_str: str) -> list:
         return [dict(row) for row in cur.fetchall()]
 
 
+def get_attendance_summary_filtered(conn, from_date: str, to_date: str,
+                                     device_id=None, name: str | None = None) -> list:
+    """Per-employee summary over a date range with optional device/name filter.
+    Returns each row with extra 'punches' key: list of {ts, label}."""
+    where = ["DATE(al.timestamp) BETWEEN %s AND %s"]
+    params: list = [from_date, to_date]
+    if device_id:
+        where.append("al.device_id = %s")
+        params.append(device_id)
+    if name:
+        where.append("(COALESCE(al.name, e.name, '') ILIKE %s OR al.user_id ILIKE %s)")
+        params += [f'%{name}%', f'%{name}%']
+    sql = f"""
+        SELECT
+            COALESCE(al.name, e.name, 'Unknown') AS name,
+            al.user_id,
+            MIN(al.timestamp)  AS first_in,
+            MAX(al.timestamp)  AS last_out,
+            COUNT(*)           AS total_punches,
+            STRING_AGG(DISTINCT d.name, ', ') AS devices,
+            ARRAY_AGG(al.timestamp  ORDER BY al.timestamp) AS punch_times,
+            ARRAY_AGG(al.punch_label ORDER BY al.timestamp) AS punch_labels
+        FROM attendance_logs al
+        LEFT JOIN employees e ON al.employee_id = e.id
+        JOIN devices d ON al.device_id = d.id
+        WHERE {" AND ".join(where)}
+        GROUP BY al.user_id, COALESCE(al.name, e.name, 'Unknown')
+        ORDER BY MIN(al.timestamp) ASC
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, tuple(params))
+        rows = [dict(row) for row in cur.fetchall()]
+    for r in rows:
+        times  = r.get('punch_times')  or []
+        labels = r.get('punch_labels') or []
+        r['punches'] = [
+            {'ts': ts, 'label': lbl or '—'}
+            for ts, lbl in zip(times, labels + [None] * len(times))
+        ]
+    return rows
+
+
 # ── Convenience DB helpers for web UI ───────────────────────────────────────
 
 

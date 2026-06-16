@@ -16,3 +16,5 @@ python-multipart>=0.0.6
 
 # Nepali calendar (Bikram Sambat) conversion
 nepali-datetime>=1.0.5
+openpyxl>=3.1.0
+fpdf2>=2.7.9

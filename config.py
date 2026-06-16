@@ -117,3 +117,9 @@ PUNCH_LABELS = {
     5:   "OT-Out",
     255: "Check-In",
 }
+
+# ── Company / Report header ───────────────────────────────────────────────────
+COMPANY_NAME    = "JANAK EDUCATION MATERIALS CENTER"
+COMPANY_ADDRESS = "SANOTHIMI, BHAKTAPUR"
+COMPANY_EMAIL   = "info@janakedu.org.np"
+COMPANY_WEBSITE = "www.janakedu.org.np"
