@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ COMPANY_NAME }} — {{ month_name }} {{ bs_year }} BS — All Employees</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    body { background:#fff; font-size:11px; }
+    .no-print { display:none !important; }
+    .emp-block { page-break-after: always; margin-bottom:0; }
+    .emp-block:last-child { page-break-after: auto; }
+    .print-header { position:relative; max-width:1100px; margin:0 auto 6px auto; }
+    .print-time { position:absolute; top:0; right:0; font-size:10px; }
+    h2.emp-title { font-size:13px; margin:4px 0 2px 0; }
+    @media screen {
+      body { background:#f4f6fa; }
+      .emp-block { background:#fff; padding:14px 18px; margin:18px auto; max-width:1100px;
+                   box-shadow:0 1px 4px rgba(0,0,0,.1); border-radius:6px; }
+      .screen-actions { text-align:center; padding:16px 0 4px; }
+      .no-print { display:block !important; }
+    }
+    @media print {
+      .screen-actions { display:none !important; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="screen-actions no-print">
+  <button class="btn primary" onclick="window.print()" style="font-size:14px;padding:8px 28px">
+    Print All Employees
+  </button>
+  <a class="btn" href="/reports/monthly" style="margin-left:12px">Back to List</a>
+</div>
+
+{% if not reports %}
+<div style="text-align:center;padding:40px;color:#64748b">No employee data found for this month.</div>
+{% endif %}
+
+{% for rpt in reports %}
+<div class="emp-block">
+  <div class="print-header">
+    <div class="print-time">Print Time: {{ now_str }}</div>
+    <div style="text-align:center;margin-bottom:4px">
+      <div style="font-size:15px;font-weight:bold">{{ COMPANY_NAME }}</div>
+      <div style="font-size:12px;font-weight:bold">
+        Periodic Attendance Report &mdash; {{ rpt.month_name }} {{ rpt.bs_year }} BS
+      </div>
+      <div style="font-size:11px">{{ rpt.from_bs_disp }} to {{ rpt.to_bs_disp }}</div>
+    </div>
+    <table style="border-collapse:collapse;width:auto;font-size:11px;margin:3px auto">
+      <tr>
+        <td style="border:1px solid #000;padding:2px 8px;font-weight:bold">Employee Id</td>
+        <td style="border:1px solid #000;padding:2px 8px;min-width:80px">{{ rpt.emp_user_id }}</td>
+        <td style="width:20px"></td>
+        <td style="border:1px solid #000;padding:2px 8px;font-weight:bold">Employee Name</td>
+        <td style="border:1px solid #000;padding:2px 8px;min-width:140px">{{ rpt.emp_name }}</td>
+        <td style="width:20px"></td>
+        <td style="border:1px solid #000;padding:2px 8px;font-weight:bold">Device(s)</td>
+        <td style="border:1px solid #000;padding:2px 8px">{{ rpt.device_name }}</td>
+      </tr>
+    </table>
+  </div>
+
+  <div style="overflow-x:auto">
+  <table class="monthly-report-table">
+    <thead>
+      <tr>
+        <th rowspan="2" class="workdate" style="text-align:left;min-width:140px">Work Date</th>
+        <th colspan="2">Planned Time</th>
+        <th rowspan="2">Work<br>Time</th>
+        <th colspan="2">Time</th>
+        <th colspan="2">Break</th>
+        <th rowspan="2">Time</th>
+        <th rowspan="2">Actual</th>
+        <th rowspan="2">OT</th>
+        <th rowspan="2">LateIn</th>
+        <th rowspan="2">EarlyOut</th>
+        <th rowspan="2">EarlyIn</th>
+        <th rowspan="2">LateOut</th>
+        <th rowspan="2">Remark</th>
+      </tr>
+      <tr>
+        <th>In</th><th>Out</th>
+        <th>In</th><th>Out</th>
+        <th>In</th><th>Out</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for day in rpt.days %}
+      <tr>
+        <td class="workdate">{{ day.bs_date }} , {{ day.day_name }}</td>
+        <td>{{ day.planned_in }}</td>
+        <td>{{ day.planned_out }}</td>
+        <td>{{ day.planned_work }}</td>
+        <td style="white-space:nowrap">{{ day.time_in }}</td>
+        <td style="white-space:nowrap">{{ day.time_out }}</td>
+        <td style="white-space:nowrap">{{ day.break_in }}</td>
+        <td style="white-space:nowrap">{{ day.break_out }}</td>
+        <td>{{ day.time_col }}</td>
+        <td>{{ day.actual }}</td>
+        <td>{{ day.ot }}</td>
+        <td>{{ day.late_in }}</td>
+        <td>{{ day.early_out }}</td>
+        <td>{{ day.early_in }}</td>
+        <td>{{ day.late_out }}</td>
+        <td class="remark-{{ day.remark | lower }}">{{ day.remark }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="summary-row">
+        <td class="workdate" colspan="3" style="text-align:left">{{ rpt.emp_name }} &mdash; Summary</td>
+        <td>{{ rpt.totals.planned }}</td>
+        <td></td><td></td><td></td><td></td>
+        <td>{{ rpt.totals.actual }}</td>
+        <td>{{ rpt.totals.actual }}</td>
+        <td>{{ rpt.totals.ot }}</td>
+        <td>{{ rpt.totals.late_in }}</td>
+        <td>{{ rpt.totals.early_out }}</td>
+        <td>{{ rpt.totals.early_in }}</td>
+        <td>{{ rpt.totals.late_out }}</td>
+        <td></td>
+      </tr>
+      <tr class="total-row">
+        <td colspan="2" style="text-align:right">Total</td>
+        <td>Absent = {{ rpt.totals.counts.Absent }}</td>
+        <td>Present = {{ rpt.totals.counts.Present }}</td>
+        <td colspan="2">Weekend = {{ rpt.totals.counts.Weekend }}</td>
+        <td colspan="2">Holiday = {{ rpt.totals.counts.Holiday }}</td>
+        <td colspan="2">Leave = {{ rpt.totals.counts.Leave }}</td>
+        <td colspan="2">Misc = {{ rpt.totals.counts.Misc }}</td>
+        <td colspan="3">Manual = 0</td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <div style="text-align:center;font-size:10px;margin-top:6px">
+    Page {{ loop.index }} of {{ reports | length }}
+  </div>
+</div>
+{% endfor %}
+
+</body>
+</html>

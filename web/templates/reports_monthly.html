@@ -1,84 +1,188 @@
 {% extends 'base.html' %}
-
 {% block content %}
 
-{# ── Company header (print only) ─────────────────────────────────────────── #}
-<div class="company-header print-only" style="margin-bottom:4px">
-  <div style="font-size:15px;font-weight:bold">{{ COMPANY_NAME }}</div>
-  <div>{{ COMPANY_ADDRESS }}</div>
-  <div style="font-size:11px">{{ COMPANY_EMAIL }} | {{ COMPANY_WEBSITE }}</div>
-  {% if report %}
-  <div style="font-weight:bold;margin-top:4px">
-    Periodic Attendance Report — {{ report.month_name }} {{ report.bs_year }} BS
-    ({{ report.from_ad }} to {{ report.to_ad }})
+{% if view == 'list' %}
+{# ════════════════════════════════════════════════════════════════
+   EMPLOYEE LIST VIEW
+   ════════════════════════════════════════════════════════════════ #}
+
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Reports</p>
+    <h1>Monthly Attendance &mdash; Select Employee</h1>
   </div>
+  <div class="head-actions">
+    <a class="btn" href="/reports/monthly/print-all?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}" target="_blank">Print All Employees</a>
+  </div>
+</section>
+
+{# Month picker #}
+<section class="panel">
+  <form method="get" action="/reports/monthly" class="form" style="max-width:none">
+    <div class="filter-bar-flex" style="gap:14px;align-items:flex-end;flex-wrap:wrap">
+      <label style="width:90px">Year (BS)
+        <input type="number" name="bs_year" value="{{ sel_bs_year }}" min="2060" max="2100">
+      </label>
+      <label style="width:170px">Month (BS)
+        <select name="bs_month">
+          {% for mn, ml in [('1','Baisakh'),('2','Jestha'),('3','Ashadh'),('4','Shrawan'),
+                            ('5','Bhadra'),('6','Ashwin'),('7','Kartik'),('8','Mangsir'),
+                            ('9','Poush'),('10','Magh'),('11','Falgun'),('12','Chaitra')] %}
+          <option value="{{ mn }}" {% if sel_bs_month|string == mn %}selected{% endif %}>{{ mn }} &ndash; {{ ml }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="filter-actions" style="padding-top:4px">
+        <button class="btn primary" type="submit">Apply</button>
+      </div>
+    </div>
+  </form>
+</section>
+
+{# Employee table #}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Employees</h2>
+    <span class="muted">{{ total_employees }} total</span>
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th style="width:40px">SN</th>
+          <th>Name</th>
+          <th>Company ID</th>
+          <th>Devices</th>
+          <th style="width:120px">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set offset = (page - 1) * 25 %}
+        {% for emp in page_emps %}
+        <tr>
+          <td>{{ offset + loop.index }}</td>
+          <td><strong>{{ emp.display_name }}</strong></td>
+          <td>{{ emp.company_id or '&mdash;' }}</td>
+          <td>
+            {% for dv in emp.devices %}
+            <span class="status info" style="font-size:11px;margin:1px 2px">{{ dv.device_name }} ({{ dv.user_id }})</span>
+            {% endfor %}
+          </td>
+          <td>
+            <a class="btn small primary"
+               href="/reports/monthly/view?global_id={{ emp.global_id or '' }}&bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}">
+              View Report
+            </a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">No employees found. Pull data from devices first.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if total_pages > 1 %}
+  <nav class="pagination" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;align-items:center">
+    <span class="muted" style="margin-right:6px">Page {{ page }} of {{ total_pages }}</span>
+    {% if page > 1 %}
+      <a class="btn small" href="/reports/monthly?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}&page={{ page - 1 }}">&#8592; Prev</a>
+    {% endif %}
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == page %}
+        <span class="btn small primary">{{ p }}</span>
+      {% elif p <= 2 or p >= total_pages - 1 or (p >= page - 2 and p <= page + 2) %}
+        <a class="btn small" href="/reports/monthly?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}&page={{ p }}">{{ p }}</a>
+      {% elif p == 3 or p == total_pages - 2 %}
+        <span class="muted">&hellip;</span>
+      {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
+      <a class="btn small" href="/reports/monthly?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}&page={{ page + 1 }}">Next &#8594;</a>
+    {% endif %}
+  </nav>
   {% endif %}
-  <hr style="border-top:2px solid #1769e0;margin:4px 0">
+</section>
+
+{% else %}
+{# ════════════════════════════════════════════════════════════════
+   INDIVIDUAL REPORT VIEW
+   ════════════════════════════════════════════════════════════════ #}
+
+{# Print header — only visible when printing #}
+{% if report %}
+<div class="print-only" style="position:relative;max-width:1100px;margin:0 auto 8px auto;font-size:11px">
+  <div style="position:absolute;top:0;right:0">Print Time: {{ now_str }}</div>
+  <div style="text-align:center;margin-bottom:4px">
+    <div style="font-size:15px;font-weight:bold">{{ COMPANY_NAME }}</div>
+    <div style="font-size:12px;font-weight:bold">
+      Periodic Attendance Report &mdash; {{ report.month_name }} {{ report.bs_year }} BS
+    </div>
+    <div style="font-size:11px">{{ report.from_bs_disp }} to {{ report.to_bs_disp }}</div>
+  </div>
+  <table style="border-collapse:collapse;width:auto;font-size:11px;margin:4px auto">
+    <tr>
+      <td style="border:1px solid #000;padding:2px 8px;font-weight:bold">Employee Id</td>
+      <td style="border:1px solid #000;padding:2px 8px;min-width:80px">{{ report.emp_user_id }}</td>
+      <td style="width:24px"></td>
+      <td style="border:1px solid #000;padding:2px 8px;font-weight:bold">Employee Name</td>
+      <td style="border:1px solid #000;padding:2px 8px;min-width:140px">{{ report.emp_name }}</td>
+    </tr>
+  </table>
 </div>
+{% endif %}
 
 <section class="page-head no-print">
   <div>
-    <p class="eyebrow">Reports</p>
-    <h1>Monthly Attendance Report</h1>
+    <p class="eyebrow"><a href="/reports/monthly?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}">Reports</a> &rsaquo; Individual</p>
+    <h1>{{ report.emp_name if report else 'Monthly Report' }}</h1>
   </div>
   {% if report %}
   <div class="head-actions">
-    <button class="btn" type="button" onclick="window.print()">Print</button>
+    <a class="btn" href="/reports/monthly/print-all?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}" target="_blank">Print All</a>
+    <button class="btn primary" type="button" onclick="window.print()">Print This</button>
   </div>
   {% endif %}
 </section>
 
-{# ── Selection form ──────────────────────────────────────────────────────── #}
+{# Employee selector #}
 <section class="panel no-print">
-  <form method="get" action="/reports/monthly/view" class="form" style="max-width:none">
-    <div class="filter-bar-flex" style="align-items:flex-end;flex-wrap:wrap;gap:14px">
+  <form id="rep-form" method="get" action="/reports/monthly/view" class="form" style="max-width:none">
+    <div class="filter-bar-flex" style="gap:14px;align-items:flex-end;flex-wrap:wrap">
 
-      <label style="min-width:180px">Device
-        <select name="device_id" id="sel-device" onchange="filterEmployees()">
-          <option value="">-- select device --</option>
-          {% for d in devices %}
-          <option value="{{ d.id }}" {% if sel_device_id == d.id %}selected{% endif %}>{{ d.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-
-      <label style="min-width:220px">Employee
-        <select name="user_id" id="sel-employee">
+      <label style="min-width:260px">Employee
+        <select name="global_id" id="sel-emp" onchange="this.form.submit()">
           <option value="">-- select employee --</option>
-          {% for e in employees %}
-          <option value="{{ e.user_id }}" data-device="{{ e.device_id }}"
-            {% if sel_user_id == e.user_id and sel_device_id == e.device_id %}selected{% endif %}>
-            {{ e.name or e.user_id }} (ID: {{ e.user_id }}) — {{ e.device_name }}
+          {% for emp in all_emps %}
+          <option value="{{ emp.global_id or '' }}"
+            {% if sel_global_id and emp.global_id == sel_global_id %}selected
+            {% elif not sel_global_id and loop.first %}selected{% endif %}>
+            {{ emp.display_name }}
+            {% if emp.company_id %} ({{ emp.company_id }}){% endif %}
+            &mdash; {% for dv in emp.devices %}{{ dv.device_name }}{% if not loop.last %}, {% endif %}{% endfor %}
           </option>
           {% endfor %}
         </select>
       </label>
 
-      <label>BS Year
-        <input type="number" name="bs_year" value="{{ sel_bs_year or def_year }}" min="2060" max="2100" style="width:80px">
+      <label style="width:90px">Year (BS)
+        <input type="number" name="bs_year" id="inp-year"
+               value="{{ sel_bs_year }}" min="2060" max="2100" onchange="this.form.submit()">
       </label>
 
-      <label>BS Month
-        <select name="bs_month">
+      <label style="width:170px">Month (BS)
+        <select name="bs_month" onchange="this.form.submit()">
           {% for mn, ml in [('1','Baisakh'),('2','Jestha'),('3','Ashadh'),('4','Shrawan'),
                             ('5','Bhadra'),('6','Ashwin'),('7','Kartik'),('8','Mangsir'),
                             ('9','Poush'),('10','Magh'),('11','Falgun'),('12','Chaitra')] %}
-          <option value="{{ mn }}" {% if (sel_bs_month or def_month)|string == mn %}selected{% endif %}>{{ mn }} – {{ ml }}</option>
+          <option value="{{ mn }}" {% if sel_bs_month|string == mn %}selected{% endif %}>{{ mn }} &ndash; {{ ml }}</option>
           {% endfor %}
         </select>
       </label>
 
-      <label>Shift In
-        <input type="time" name="shift_in" value="{{ sel_shift_in or '10:00' }}" style="width:100px">
-      </label>
-
-      <label>Shift Out
-        <input type="time" name="shift_out" value="{{ sel_shift_out or '17:00' }}" style="width:100px">
-      </label>
-
-      <div class="filter-actions">
-        <button class="btn primary" type="submit">Generate Report</button>
-        <a class="btn ghost" href="/reports/monthly">Reset</a>
+      <div class="filter-actions" style="padding-top:4px">
+        <button class="btn" type="submit">Generate</button>
+        <a class="btn ghost" href="/reports/monthly">All Employees</a>
       </div>
     </div>
   </form>
@@ -88,62 +192,40 @@
 <section class="panel"><p class="bad-text">{{ error }}</p></section>
 {% endif %}
 
-{# ── Report ──────────────────────────────────────────────────────────────── #}
 {% if report %}
+{# Info bar #}
+<section class="panel no-print" style="padding:8px 16px">
+  <div style="display:flex;flex-wrap:wrap;gap:20px;font-size:13px">
+    <span><strong>Employee:</strong> {{ report.emp_name }} ({{ report.emp_user_id }})</span>
+    <span><strong>Device(s):</strong> {{ report.device_name }}</span>
+    <span><strong>Period:</strong> {{ report.month_name }} {{ report.bs_year }} BS
+      &nbsp;&mdash;&nbsp; {{ report.from_ad }} &rarr; {{ report.to_ad }}</span>
+  </div>
+</section>
 
+{# 16-column attendance table #}
 <section class="panel" style="overflow-x:auto">
-
-  {# Employee info block #}
-  <table style="border-collapse:collapse;margin-bottom:6px;font-size:12px" class="no-print">
-    <tr>
-      <td style="border:1px solid #bbb;padding:3px 8px;font-weight:700;min-width:110px">Employee</td>
-      <td style="border:1px solid #bbb;padding:3px 8px">{{ report.emp_name }}</td>
-      <td style="border:1px solid #bbb;padding:3px 8px;font-weight:700">User ID</td>
-      <td style="border:1px solid #bbb;padding:3px 8px">{{ report.emp_user_id }}</td>
-      <td style="border:1px solid #bbb;padding:3px 8px;font-weight:700">Device</td>
-      <td style="border:1px solid #bbb;padding:3px 8px">{{ report.device_name }}</td>
-      <td style="border:1px solid #bbb;padding:3px 8px;font-weight:700">Shift</td>
-      <td style="border:1px solid #bbb;padding:3px 8px">{{ report.shift_in }} – {{ report.shift_out }}</td>
-    </tr>
-  </table>
-
-  {# Print-only employee block #}
-  <table style="border-collapse:collapse;margin-bottom:4px;font-size:11px;width:100%" class="print-only">
-    <tr>
-      <td style="border:1px solid #000;padding:2px 6px;font-weight:bold;width:110px">Employee Name</td>
-      <td style="border:1px solid #000;padding:2px 6px">{{ report.emp_name }}</td>
-      <td style="border:none;width:40px"></td>
-      <td style="border:1px solid #000;padding:2px 6px;font-weight:bold;width:90px">Employee ID</td>
-      <td style="border:1px solid #000;padding:2px 6px">{{ report.emp_user_id }}</td>
-    </tr>
-    <tr>
-      <td style="border:1px solid #000;padding:2px 6px;font-weight:bold">Period</td>
-      <td style="border:1px solid #000;padding:2px 6px" colspan="4">
-        {{ report.month_name }} {{ report.bs_year }} BS &nbsp;({{ report.from_ad }} to {{ report.to_ad }})
-      </td>
-    </tr>
-  </table>
-
   <table class="monthly-report-table">
     <thead>
       <tr>
-        <th rowspan="2" class="workdate">Work Date</th>
+        <th rowspan="2" class="workdate" style="text-align:left;min-width:150px">Work Date</th>
         <th colspan="2">Planned Time</th>
-        <th rowspan="2">Work Time</th>
-        <th colspan="2">Actual Time</th>
+        <th rowspan="2">Work<br>Time</th>
+        <th colspan="2">Time</th>
+        <th colspan="2">Break</th>
+        <th rowspan="2">Time</th>
+        <th rowspan="2">Actual</th>
         <th rowspan="2">OT</th>
-        <th rowspan="2">Late In</th>
-        <th rowspan="2">Early Out</th>
-        <th rowspan="2">Early In</th>
-        <th rowspan="2">Late Out</th>
-        <th rowspan="2">Punch Detail</th>
+        <th rowspan="2">LateIn</th>
+        <th rowspan="2">EarlyOut</th>
+        <th rowspan="2">EarlyIn</th>
+        <th rowspan="2">LateOut</th>
         <th rowspan="2">Remark</th>
       </tr>
       <tr>
-        <th>In</th>
-        <th>Out</th>
-        <th>In</th>
-        <th>Out</th>
+        <th>In</th><th>Out</th>
+        <th>In</th><th>Out</th>
+        <th>In</th><th>Out</th>
       </tr>
     </thead>
     <tbody>
@@ -153,68 +235,59 @@
         <td>{{ day.planned_in }}</td>
         <td>{{ day.planned_out }}</td>
         <td>{{ day.planned_work }}</td>
-        <td>{{ day.check_in }}</td>
-        <td>{{ day.check_out }}</td>
+        <td style="white-space:nowrap">{{ day.time_in }}</td>
+        <td style="white-space:nowrap">{{ day.time_out }}</td>
+        <td style="white-space:nowrap">{{ day.break_in }}</td>
+        <td style="white-space:nowrap">{{ day.break_out }}</td>
+        <td>{{ day.time_col }}</td>
+        <td>{{ day.actual }}</td>
         <td>{{ day.ot }}</td>
         <td>{{ day.late_in }}</td>
         <td>{{ day.early_out }}</td>
         <td>{{ day.early_in }}</td>
         <td>{{ day.late_out }}</td>
-        <td style="text-align:left;font-size:10px">{{ day.punch_times | join(', ') }}</td>
         <td class="remark-{{ day.remark | lower }}">{{ day.remark }}</td>
       </tr>
       {% endfor %}
 
       {# Summary row #}
       <tr class="summary-row">
-        <td class="workdate" colspan="3" style="text-align:left">{{ report.emp_name }} Summary</td>
-        <td>{{ report.totals.work }}</td>
-        <td></td><td></td>
+        <td class="workdate" colspan="3" style="text-align:left">{{ report.emp_name }} &mdash; Summary</td>
+        <td>{{ report.totals.planned }}</td>
+        <td></td><td></td><td></td><td></td>
+        <td>{{ report.totals.actual }}</td>
+        <td>{{ report.totals.actual }}</td>
         <td>{{ report.totals.ot }}</td>
         <td>{{ report.totals.late_in }}</td>
         <td>{{ report.totals.early_out }}</td>
         <td>{{ report.totals.early_in }}</td>
         <td>{{ report.totals.late_out }}</td>
-        <td></td><td></td>
+        <td></td>
       </tr>
 
-      {# Total counts #}
+      {# Counts row #}
       <tr class="total-row">
-        <td style="text-align:right" colspan="2">Total</td>
+        <td colspan="2" style="text-align:right">Total</td>
         <td>Absent = {{ report.totals.counts.Absent }}</td>
         <td>Present = {{ report.totals.counts.Present }}</td>
         <td colspan="2">Weekend = {{ report.totals.counts.Weekend }}</td>
         <td colspan="2">Holiday = {{ report.totals.counts.Holiday }}</td>
         <td colspan="2">Leave = {{ report.totals.counts.Leave }}</td>
         <td colspan="2">Misc = {{ report.totals.counts.Misc }}</td>
+        <td colspan="3">Manual = 0</td>
         <td></td>
       </tr>
     </tbody>
   </table>
-
+  <div style="text-align:center;margin-top:36px;font-size:11px" class="print-only">Page - 1</div>
 </section>
 
 {% elif not error %}
 <section class="panel">
-  <p class="muted">Select a device, employee, and BS month above then click <strong>Generate Report</strong>.</p>
+  <p class="muted">Select an employee above to generate their monthly report.</p>
 </section>
 {% endif %}
 
-<script>
-function filterEmployees() {
-  var devId = document.getElementById('sel-device').value;
-  var empSel = document.getElementById('sel-employee');
-  Array.from(empSel.options).forEach(function(opt) {
-    if (!opt.value) return;
-    opt.hidden = devId ? opt.dataset.device !== devId : false;
-  });
-  // reset if hidden
-  if (empSel.selectedOptions[0] && empSel.selectedOptions[0].hidden) {
-    empSel.value = '';
-  }
-}
-// Run on load to filter to pre-selected device
-filterEmployees();
-</script>
+{% endif %}{# end view == report #}
 
 {% endblock %}

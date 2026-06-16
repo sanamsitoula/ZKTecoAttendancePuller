@@ -22,3 +22,6 @@ reports/
 .vscode/
 .idea/
 *.swp
+
+# Claude Code session data
+.claude/

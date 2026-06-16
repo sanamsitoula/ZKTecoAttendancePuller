@@ -106,10 +106,13 @@ def push_global_user_to_device(device: DeviceConfig, global_user: dict) -> dict:
         users = conn.get_users()
 
         # normalize incoming fields
-        g_user_id = str(global_user.get("global_user_id"))
+        g_user_id = str(global_user.get("global_user_id") or "")
         g_name = str(global_user.get("name") or "")
-        g_priv = int(global_user.get("privilege", 0))
-        g_card = str(global_user.get("card") or "")
+        g_priv = int(global_user.get("privilege") or 0)
+        try:
+            g_card = int(global_user.get("card") or 0)
+        except (ValueError, TypeError):
+            g_card = 0
 
         # search for existing by user_id
         existing = None
@@ -129,31 +132,27 @@ def push_global_user_to_device(device: DeviceConfig, global_user: dict) -> dict:
         if existing:
             same_name = str(getattr(existing, 'name', '') or '') == g_name
             same_priv = int(getattr(existing, 'privilege', 0) or 0) == g_priv
-            same_card = str(getattr(existing, 'card', '') or '') == g_card
+            try:
+                same_card = int(getattr(existing, 'card', 0) or 0) == g_card
+            except (ValueError, TypeError):
+                same_card = False
             if same_name and same_priv and same_card:
                 return {"ok": True, "action": "noop", "uid": int(existing.uid), "message": "Already present"}
             uid_to_use = int(existing.uid)
             try:
-                # Try common positional signature
-                conn.set_user(uid_to_use, g_name, g_priv, g_user_id, g_card)
-            except TypeError:
-                # fallback to named args where available
-                try:
-                    conn.set_user(uid_to_use, g_name, g_priv, user_id=g_user_id, card=g_card)
-                except Exception as exc:
-                    return {"ok": False, "message": f"Failed to update user: {exc}"}
-            # verify
+                conn.set_user(uid=uid_to_use, name=g_name, privilege=g_priv,
+                              user_id=str(g_user_id), card=int(g_card or 0))
+            except Exception as exc:
+                return {"ok": False, "message": f"Failed to update user: {exc}"}
             return {"ok": True, "action": "updated", "uid": uid_to_use, "message": "Updated user"}
 
         # Not existing: choose uid (max_uid+1)
         uid_to_use = max_uid + 1 if max_uid >= 0 else 1
         try:
-            conn.set_user(uid_to_use, g_name, g_priv, g_user_id, g_card)
-        except TypeError:
-            try:
-                conn.set_user(uid_to_use, g_name, g_priv, user_id=g_user_id, card=g_card)
-            except Exception as exc:
-                return {"ok": False, "message": f"Failed to create user: {exc}"}
+            conn.set_user(uid=uid_to_use, name=g_name, privilege=g_priv,
+                          user_id=str(g_user_id), card=int(g_card or 0))
+        except Exception as exc:
+            return {"ok": False, "message": f"Failed to create user: {exc}"}
         return {"ok": True, "action": "created", "uid": uid_to_use, "message": "User enrolled"}
 
     except Exception as exc:
@@ -379,10 +378,8 @@ def migrate_users_to_device(
                 action = "created"
 
             try:
-                try:
-                    conn.set_user(target_uid, name, privilege, user_id, card)
-                except TypeError:
-                    conn.set_user(target_uid, name, privilege, user_id=user_id, card=card)
+                conn.set_user(uid=target_uid, name=name, privilege=privilege,
+                              user_id=str(user_id), card=int(card or 0))
 
                 fp_ok = 0
                 fp_fail = 0

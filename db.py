@@ -568,6 +568,116 @@ def get_employees_for_device(conn, device_id: int) -> list:
         return [dict(r) for r in cur.fetchall()]
 
 
+def get_employees_for_report(conn) -> list:
+    """
+    Return employees grouped by global identity for the monthly report picker.
+    Employees linked to global_users are merged into one entry (all devices combined).
+    Unlinked employees are grouped by normalised name.
+    Each item: {key, display_name, company_id, global_id, devices:[{device_id,device_name,user_id}]}
+    """
+    sql = """
+        SELECT
+            COALESCE(gu.name, e.name, e.user_id) AS display_name,
+            gu.id                                  AS global_id,
+            gu.global_user_id                      AS company_id,
+            e.device_id,
+            e.user_id,
+            d.name                                 AS device_name
+        FROM employees e
+        JOIN devices d ON e.device_id = d.id
+        LEFT JOIN global_users gu ON e.global_user_id = gu.id
+        ORDER BY LOWER(COALESCE(gu.name, e.name, e.user_id)), d.name
+    """
+    from collections import OrderedDict
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql)
+        rows = [dict(r) for r in cur.fetchall()]
+
+    groups = OrderedDict()
+    for r in rows:
+        gid = r['global_id']
+        key = f"g{gid}" if gid else f"n:{(r['display_name'] or '').lower().strip()}"
+        if key not in groups:
+            groups[key] = {
+                'key': key,
+                'display_name': r['display_name'] or '(Unknown)',
+                'company_id':   r.get('company_id') or '',
+                'global_id':    gid,
+                'devices':      [],
+            }
+        groups[key]['devices'].append({
+            'device_id':   r['device_id'],
+            'device_name': r['device_name'],
+            'user_id':     str(r['user_id']),
+        })
+    return list(groups.values())
+
+
+def get_employee_daily_attendance_multi(conn, device_user_pairs: list,
+                                        from_date: str, to_date: str) -> list:
+    """
+    Multi-device attendance for one logical employee.
+    Deduplicates punches within 60 seconds (same person, multiple readers).
+    Returns: [{work_date, first_punch, last_punch,
+               all_punch_times, all_punches_with_device}]
+    """
+    if not device_user_pairs:
+        return []
+
+    placeholders = " OR ".join(
+        "(al.device_id = %s AND al.user_id = %s)" for _ in device_user_pairs
+    )
+    pair_params = [x for d, u in device_user_pairs for x in (int(d), str(u))]
+
+    sql = f"""
+        SELECT
+            al.timestamp AT TIME ZONE 'Asia/Kathmandu' AS ts_npt,
+            DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') AS work_date,
+            d.name AS device_name
+        FROM attendance_logs al
+        JOIN devices d ON al.device_id = d.id
+        WHERE ({placeholders})
+          AND DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') BETWEEN %s AND %s
+        ORDER BY ts_npt
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, pair_params + [from_date, to_date])
+        rows = [dict(r) for r in cur.fetchall()]
+
+    from collections import defaultdict
+    by_date = defaultdict(list)
+    for r in rows:
+        by_date[r['work_date']].append(r)
+
+    result = []
+    for work_date in sorted(by_date.keys()):
+        day_rows = sorted(by_date[work_date], key=lambda x: x['ts_npt'])
+
+        # 60-second deduplication
+        deduped = []
+        prev_ts = None
+        for p in day_rows:
+            ts = p['ts_npt']
+            if prev_ts is None or (ts - prev_ts).total_seconds() >= 60:
+                deduped.append(p)
+                prev_ts = ts
+
+        if not deduped:
+            continue
+
+        result.append({
+            'work_date':  work_date,
+            'first_punch': deduped[0]['ts_npt'],
+            'last_punch':  deduped[-1]['ts_npt'],
+            'all_punch_times': [p['ts_npt'].time() for p in deduped],
+            'all_punches_with_device': [
+                {'time': p['ts_npt'].time(), 'device_name': p['device_name']}
+                for p in deduped
+            ],
+        })
+    return result
+
+
 def backfill_bs_dates(conn) -> int:
     """Backfill bs_date in attendance_logs for rows missing it. Safe to run repeatedly."""
     try:

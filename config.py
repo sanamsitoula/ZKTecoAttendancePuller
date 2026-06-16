@@ -86,12 +86,18 @@ def load_db_config() -> dict:
 # ── Scheduler ────────────────────────────────────────────────────────────────
 SCHEDULER_TIMEZONE = os.getenv("SCHEDULER_TIMEZONE", "Asia/Kathmandu")
 
-SCHEDULE_TIMES = [
-    (6,  20),  # 06:20 NPT
-    (7,  20),  # 07:20 NPT
-    (9,  20),  # 09:20 NPT
-    (13, 20),  # 13:20 NPT
-    (17, 10),  # 17:10 NPT
+SCHEDULE_TIMES = [
+
+    (6,  20),  # 06:20 NPT
+
+    (7,  20),  # 07:20 NPT
+
+    (9,  20),  # 09:20 NPT
+
+    (13, 20),  # 13:20 NPT
+
+    (17, 10),  # 17:10 NPT
+
 ]
 
 # ── Connection ───────────────────────────────────────────────────────────────
