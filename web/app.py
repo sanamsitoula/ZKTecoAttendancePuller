@@ -88,6 +88,19 @@ def _restart_web_scheduler():
 
 @asynccontextmanager
 async def _app_lifespan(fastapi_app: FastAPI):
+    # Ensure schema is up to date (idempotent) and backfill missing BS dates
+    try:
+        _conn = get_connection()
+        db_mod.init_schema(_conn)
+        _conn.commit()
+        filled = db_mod.backfill_bs_dates(_conn)
+        if filled:
+            import logging as _lg
+            _lg.getLogger(__name__).info("Backfilled BS dates for %d attendance rows.", filled)
+        _conn.close()
+    except Exception as _e:
+        import logging as _lg
+        _lg.getLogger(__name__).warning("Startup DB init/backfill failed: %s", _e)
     _restart_web_scheduler()
     yield
     if _web_scheduler and _web_scheduler.running:

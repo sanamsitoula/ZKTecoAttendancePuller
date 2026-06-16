@@ -8,6 +8,28 @@ from config import DeviceConfig, load_db_config
 
 logger = logging.getLogger(__name__)
 
+
+def _ts_to_bs(ts) -> str:
+    """Convert a datetime to BS date string 'YYYY-MM-DD' in NPT. Returns '' on failure."""
+    if ts is None:
+        return ''
+    try:
+        import zoneinfo
+        from nepali_utils import ad_to_bs as _a2b
+        NPT = zoneinfo.ZoneInfo('Asia/Kathmandu')
+        if hasattr(ts, 'tzinfo') and ts.tzinfo:
+            ts = ts.astimezone(NPT)
+        return _a2b(ts.strftime('%Y-%m-%d')) or ''
+    except Exception:
+        return ''
+
+
+def _today_bs() -> str:
+    """Return today's BS date string in NPT."""
+    from datetime import datetime
+    return _ts_to_bs(datetime.now())
+
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS devices (
     id          SERIAL PRIMARY KEY,
@@ -92,6 +114,18 @@ END$$;
 
 CREATE INDEX IF NOT EXISTS idx_employees_global_user_id
     ON employees (global_user_id);
+
+-- BS date columns (additive migration)
+ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS bs_date VARCHAR(10) DEFAULT '';
+ALTER TABLE pull_sessions    ADD COLUMN IF NOT EXISTS started_bs  VARCHAR(10) DEFAULT '';
+ALTER TABLE pull_sessions    ADD COLUMN IF NOT EXISTS completed_bs VARCHAR(10) DEFAULT '';
+ALTER TABLE employees        ADD COLUMN IF NOT EXISTS created_bs  VARCHAR(10) DEFAULT '';
+ALTER TABLE employees        ADD COLUMN IF NOT EXISTS updated_bs  VARCHAR(10) DEFAULT '';
+ALTER TABLE devices          ADD COLUMN IF NOT EXISTS created_bs  VARCHAR(10) DEFAULT '';
+ALTER TABLE global_users     ADD COLUMN IF NOT EXISTS created_bs  VARCHAR(10) DEFAULT '';
+ALTER TABLE global_users     ADD COLUMN IF NOT EXISTS updated_bs  VARCHAR(10) DEFAULT '';
+
+CREATE INDEX IF NOT EXISTS idx_attendance_bs_date ON attendance_logs (bs_date);
 """
 
 
@@ -107,19 +141,21 @@ def init_schema(conn) -> None:
 
 def upsert_device(conn, device: DeviceConfig) -> int:
     sql = """
-        INSERT INTO devices (name, ip_address, port, password, model, is_active)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO devices (name, ip_address, port, password, model, is_active, created_bs)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (name) DO UPDATE SET
             ip_address = EXCLUDED.ip_address,
             port       = EXCLUDED.port,
             model      = EXCLUDED.model,
-            is_active  = EXCLUDED.is_active
+            is_active  = EXCLUDED.is_active,
+            created_bs = COALESCE(devices.created_bs, EXCLUDED.created_bs)
         RETURNING id
     """
     with conn.cursor() as cur:
         cur.execute(sql, (
             device.name, device.ip, device.port,
             device.password, device.model, device.is_active,
+            _today_bs(),
         ))
         return cur.fetchone()[0]
 
@@ -132,20 +168,23 @@ def upsert_employee(conn, device_id: int, user) -> int:
         return getattr(user, key, default)
 
     sql = """
-        INSERT INTO employees (device_id, uid, user_id, name, privilege, card, global_user_id)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO employees (device_id, uid, user_id, name, privilege, card, global_user_id, created_bs, updated_bs)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (device_id, uid) DO UPDATE SET
             user_id        = EXCLUDED.user_id,
             name           = EXCLUDED.name,
             privilege      = EXCLUDED.privilege,
             card           = EXCLUDED.card,
             global_user_id = COALESCE(EXCLUDED.global_user_id, employees.global_user_id),
-            updated_at     = NOW()
+            updated_at     = NOW(),
+            updated_bs     = EXCLUDED.updated_bs,
+            created_bs     = COALESCE(employees.created_bs, EXCLUDED.created_bs)
         RETURNING id
     """
     with conn.cursor() as cur:
         privilege = user_value("privilege", 0)
         card = user_value("card")
+        today = _today_bs()
         cur.execute(sql, (
             device_id,
             user_value("uid"),
@@ -154,6 +193,8 @@ def upsert_employee(conn, device_id: int, user) -> int:
             int(privilege) if privilege is not None else 0,
             str(card) if card else None,
             user_value("global_user_id"),
+            today,
+            today,
         ))
         return cur.fetchone()[0]
 
@@ -206,13 +247,14 @@ def insert_attendance_batch(
             r["status"],
             r["punch"],
             r["punch_label"],
+            _ts_to_bs(r["timestamp"]),
         ))
 
     sql = """
         WITH ins AS (
             INSERT INTO attendance_logs
                 (device_id, employee_id, uid, user_id, name,
-                 timestamp, status, punch, punch_label)
+                 timestamp, status, punch, punch_label, bs_date)
             VALUES %s
             ON CONFLICT (device_id, uid, timestamp) DO NOTHING
             RETURNING id
@@ -226,12 +268,12 @@ def insert_attendance_batch(
 
 def start_pull_session(conn, device_id: int, started_at: datetime) -> int:
     sql = """
-        INSERT INTO pull_sessions (device_id, started_at, status)
-        VALUES (%s, %s, 'running')
+        INSERT INTO pull_sessions (device_id, started_at, status, started_bs)
+        VALUES (%s, %s, 'running', %s)
         RETURNING id
     """
     with conn.cursor() as cur:
-        cur.execute(sql, (device_id, started_at))
+        cur.execute(sql, (device_id, started_at, _ts_to_bs(started_at)))
         return cur.fetchone()[0]
 
 
@@ -246,6 +288,7 @@ def complete_pull_session(
     sql = """
         UPDATE pull_sessions
         SET completed_at   = NOW(),
+            completed_bs   = %s,
             records_pulled = %s,
             new_inserts    = %s,
             status         = %s,
@@ -253,7 +296,7 @@ def complete_pull_session(
         WHERE id = %s
     """
     with conn.cursor() as cur:
-        cur.execute(sql, (records_pulled, new_inserts, status, error_message, session_id))
+        cur.execute(sql, (_today_bs(), records_pulled, new_inserts, status, error_message, session_id))
 
 
 def get_attendance_for_date(conn, date_str: str) -> list:
@@ -384,14 +427,15 @@ def get_device(conn, device_id: int):
 
 def create_device(conn, device: dict) -> int:
     sql = """
-        INSERT INTO devices (name, ip_address, port, password, model, is_active)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO devices (name, ip_address, port, password, model, is_active, created_bs)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """
     with conn.cursor() as cur:
         cur.execute(sql, (
             device.get("name"), device.get("ip_address"), device.get("port", 4370),
             device.get("password", ""), device.get("model", ""), bool(device.get("is_active", True)),
+            _today_bs(),
         ))
         return cur.fetchone()[0]
 
@@ -430,12 +474,13 @@ def list_global_users(conn):
 
 def create_global_user(conn, global_user_id: str, name: str, privilege: int = 0, card: str | None = None) -> int:
     sql = """
-        INSERT INTO global_users (global_user_id, name, privilege, card)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO global_users (global_user_id, name, privilege, card, created_bs, updated_bs)
+        VALUES (%s, %s, %s, %s, %s, %s)
         RETURNING id
     """
     with conn.cursor() as cur:
-        cur.execute(sql, (global_user_id, name, int(privilege), card))
+        today = _today_bs()
+        cur.execute(sql, (global_user_id, name, int(privilege), card, today, today))
         return cur.fetchone()[0]
 
 
@@ -521,6 +566,50 @@ def get_employees_for_device(conn, device_id: int) -> list:
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(sql, (device_id,))
         return [dict(r) for r in cur.fetchall()]
+
+
+def backfill_bs_dates(conn) -> int:
+    """Backfill bs_date in attendance_logs for rows missing it. Safe to run repeatedly."""
+    try:
+        import zoneinfo
+        from nepali_utils import ad_to_bs as _a2b
+        NPT = zoneinfo.ZoneInfo('Asia/Kathmandu')
+    except Exception:
+        return 0
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, timestamp FROM attendance_logs "
+            "WHERE bs_date IS NULL OR bs_date = '' LIMIT 20000"
+        )
+        rows = cur.fetchall()
+
+    if not rows:
+        return 0
+
+    updates = []
+    for row_id, ts in rows:
+        if ts:
+            try:
+                if hasattr(ts, 'tzinfo') and ts.tzinfo:
+                    ts = ts.astimezone(NPT)
+                bs = _a2b(ts.strftime('%Y-%m-%d'))
+                if bs:
+                    updates.append((bs, row_id))
+            except Exception:
+                pass
+
+    if updates:
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_batch(
+                cur,
+                "UPDATE attendance_logs SET bs_date = %s WHERE id = %s",
+                updates,
+                page_size=500,
+            )
+        logger.info("backfill_bs_dates: filled %d rows.", len(updates))
+    conn.commit()
+    return len(updates)
 
 
 def get_pull_sessions(conn, limit: int = 100):
