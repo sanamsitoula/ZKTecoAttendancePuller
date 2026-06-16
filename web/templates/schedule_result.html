@@ -1,7 +1,34 @@
 {% extends 'base.html' %}
 
 {% block content %}
-  <h1>Schedule Update</h1>
-  <p>{{ message }}</p>
-  <p><a href="/">Back to devices</a></p>
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Scheduler timing</p>
+      <h1>Schedule Update</h1>
+    </div>
+  </section>
+
+  <section class="panel narrow">
+    <p class="{{ 'ok-text' if 'applied' in message else 'bad-text' }}"><strong>{{ message }}</strong></p>
+
+    {% if jobs %}
+    <h3 style="margin-top:18px">Next Scheduled Runs</h3>
+    <table class="table compact">
+      <thead><tr><th>Job</th><th>Next Run (NPT)</th></tr></thead>
+      <tbody>
+        {% for j in jobs %}
+        <tr>
+          <td>{{ j.name }}</td>
+          <td><strong>{{ j.next_run }}</strong></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    <div style="margin-top:20px;display:flex;gap:10px">
+      <a class="btn primary" href="/schedule">Back to Schedule</a>
+      <a class="btn ghost" href="/">Dashboard</a>
+    </div>
+  </section>
 {% endblock %}

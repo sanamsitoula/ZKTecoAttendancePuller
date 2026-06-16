@@ -1,12 +1,17 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 import csv
 import io
 import os
 import json
 import socket
+import threading as _threading
+import importlib
 from datetime import date, datetime, timezone
 
 from db import get_connection, create_device, update_device, delete_device, get_devices, get_device
@@ -16,11 +21,11 @@ from db import (get_employee_with_device, get_employees_with_device,
                 delete_employee_record, bulk_delete_employee_records)
 import db as db_mod
 import puller as puller_mod
-import subprocess
 import re
 import time as _time
 import concurrent.futures
 import psycopg2.extras
+import config as _cfg_mod
 from config import SCHEDULE_TIMES, SCHEDULER_TIMEZONE, load_db_config
 from config import COMPANY_NAME, COMPANY_ADDRESS, COMPANY_EMAIL, COMPANY_WEBSITE
 from urllib.parse import urlencode
@@ -31,14 +36,76 @@ import nepali_utils
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 
-app = FastAPI(title="ZKTeco Puller — Web UI")
+# ---- In-process scheduler -----------------------------------------------
+_web_scheduler: BackgroundScheduler | None = None
+_pull_lock = _threading.Lock()
+
+
+def _scheduler_jobs_info() -> list:
+    if _web_scheduler is None:
+        return []
+    out = []
+    for j in _web_scheduler.get_jobs():
+        nrt = j.next_run_time
+        out.append({
+            "name": j.name,
+            "next_run": nrt.strftime("%Y-%m-%d %H:%M %Z") if nrt else "—",
+        })
+    return out
+
+
+def _restart_web_scheduler():
+    global _web_scheduler
+    if _web_scheduler and _web_scheduler.running:
+        _web_scheduler.shutdown(wait=False)
+    importlib.reload(_cfg_mod)
+    times = _cfg_mod.SCHEDULE_TIMES
+    tz    = _cfg_mod.SCHEDULER_TIMEZONE
+    from main import run_pull_cycle
+
+    def _safe_pull():
+        if not _pull_lock.acquire(blocking=False):
+            return
+        try:
+            run_pull_cycle()
+        finally:
+            _pull_lock.release()
+
+    sched = BackgroundScheduler(timezone=tz)
+    for hour, minute in times:
+        sched.add_job(
+            _safe_pull,
+            trigger=CronTrigger(hour=hour, minute=minute, timezone=tz),
+            id=f"zkteco_pull_{hour:02d}{minute:02d}",
+            name=f"ZKTeco Pull {hour:02d}:{minute:02d}",
+            max_instances=1,
+            misfire_grace_time=300,
+            coalesce=True,
+        )
+    sched.start()
+    _web_scheduler = sched
+
+
+@asynccontextmanager
+async def _app_lifespan(fastapi_app: FastAPI):
+    _restart_web_scheduler()
+    yield
+    if _web_scheduler and _web_scheduler.running:
+        _web_scheduler.shutdown(wait=False)
+
+
+app = FastAPI(title="ZKTeco Puller — Web UI", lifespan=_app_lifespan)
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 nepali_utils.register_filters(templates)
 
 
 def _fmt_schedule() -> list[str]:
-    return [f"{hour:02d}:{minute:02d}" for hour, minute in SCHEDULE_TIMES]
+    try:
+        importlib.reload(_cfg_mod)
+        return [f"{hour:02d}:{minute:02d}" for hour, minute in _cfg_mod.SCHEDULE_TIMES]
+    except Exception:
+        return [f"{hour:02d}:{minute:02d}" for hour, minute in SCHEDULE_TIMES]
 
 
 def _db_status() -> dict:
@@ -1386,13 +1453,15 @@ def bulk_enroll(request: Request, device_id: int = Form(...), user_ids: str = Fo
 
 @app.get("/schedule")
 def schedule_view(request: Request):
-    # read SCHEDULE_TIMES from config.py via regex
     cfg_path = os.path.join(BASE_DIR, 'config.py')
     with open(cfg_path, 'r', encoding='utf-8') as f:
         txt = f.read()
     m = re.search(r'SCHEDULE_TIMES\s*=\s*(\[[\s\S]*?\])', txt)
     schedule_text = m.group(1) if m else '[]'
-    return render(templates, request, 'schedule.html', {'schedule_text': schedule_text})
+    return render(templates, request, 'schedule.html', {
+        'schedule_text': schedule_text,
+        'jobs': _scheduler_jobs_info(),
+    })
 
 
 @app.post("/schedule")
@@ -1404,11 +1473,12 @@ def schedule_update(request: Request, schedule_text: str = Form(...)):
                      f"SCHEDULE_TIMES = {schedule_text}", txt)
     with open(cfg_path, 'w', encoding='utf-8') as f:
         f.write(new_txt)
-    # attempt restart the Windows Service (best-effort)
     try:
-        subprocess.run(["powershell", "-Command", "Restart-Service -Name 'ZKTecoAttendancePuller' -Force"], check=True)
-        msg = 'Service restart triggered.'
+        _restart_web_scheduler()
+        jobs = _scheduler_jobs_info()
+        msg = 'Schedule saved and applied immediately.'
     except Exception as exc:
-        msg = f'Failed to restart service: {exc}'
-    return render(templates, request, 'schedule_result.html', {'message': msg})
+        jobs = []
+        msg = f'Schedule saved to config.py but scheduler reload failed: {exc}'
+    return render(templates, request, 'schedule_result.html', {'message': msg, 'jobs': jobs})
 

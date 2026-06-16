@@ -8,16 +8,40 @@
     </div>
   </section>
 
+  {% if jobs %}
+  <section class="panel narrow">
+    <div class="panel-head">
+      <h2>Next Scheduled Runs</h2>
+      <span class="status success">Scheduler running</span>
+    </div>
+    <table class="table compact">
+      <thead><tr><th>Job</th><th>Next Run (NPT)</th></tr></thead>
+      <tbody>
+        {% for j in jobs %}
+        <tr>
+          <td>{{ j.name }}</td>
+          <td><strong>{{ j.next_run }}</strong></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% else %}
+  <section class="panel narrow">
+    <p class="muted">Scheduler not running — save a schedule below to start it.</p>
+  </section>
+  {% endif %}
+
   <section class="panel narrow">
     <div class="panel-head">
       <h2>Schedule Times</h2>
-      <span class="muted">Use Python tuple format: hour, minute.</span>
+      <span class="muted">Use Python list-of-tuple format: (hour, minute).</span>
     </div>
     <form class="form" method="post" action="/schedule">
       <label>SCHEDULE_TIMES
         <textarea name="schedule_text" rows="8">{{ schedule_text }}</textarea>
       </label>
-      <button class="btn primary" type="submit">Save and restart service</button>
+      <button class="btn primary" type="submit">Save &amp; Apply Schedule</button>
     </form>
   </section>
 {% endblock %}
