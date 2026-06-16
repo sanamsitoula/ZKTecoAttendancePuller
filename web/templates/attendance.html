@@ -33,24 +33,30 @@
     <form method="get" action="/attendance">
       <div class="filter-bar-flex">
 
-        <label style="min-width:140px">From Date (AD)
-          <input type="date" name="from_date" value="{{ from_date }}">
+        <label style="min-width:150px">From BS Date
+          <input class="bsdp" name="from_bs" id="from_bs"
+                 value="{{ from_bs }}" placeholder="Click to pick BS date"
+                 data-ad-target="from_date">
+          <small class="muted">{{ from_bs }} BS</small>
+        </label>
+
+        <label style="min-width:140px">From AD Date
+          <input type="date" name="from_date" id="from_date"
+                 value="{{ from_date }}" data-bs-target="from_bs">
           <small class="muted">{{ from_date | bs_date }}</small>
         </label>
 
-        <label style="min-width:140px">From Date (BS)
-          <input type="text" name="from_bs" value="{{ from_bs }}" placeholder="2083-03-01">
-          <small class="muted">YYYY-MM-DD Nepali</small>
+        <label style="min-width:150px">To BS Date
+          <input class="bsdp" name="to_bs" id="to_bs"
+                 value="{{ to_bs }}" placeholder="Click to pick BS date"
+                 data-ad-target="to_date">
+          <small class="muted">{{ to_bs }} BS</small>
         </label>
 
-        <label style="min-width:140px">To Date (AD)
-          <input type="date" name="to_date" value="{{ to_date }}">
+        <label style="min-width:140px">To AD Date
+          <input type="date" name="to_date" id="to_date"
+                 value="{{ to_date }}" data-bs-target="to_bs">
           <small class="muted">{{ to_date | bs_date }}</small>
-        </label>
-
-        <label style="min-width:140px">To Date (BS)
-          <input type="text" name="to_bs" value="{{ to_bs }}" placeholder="2083-03-30">
-          <small class="muted">YYYY-MM-DD Nepali</small>
         </label>
 
         <label>Device

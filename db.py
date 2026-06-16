@@ -489,6 +489,40 @@ def bulk_delete_employee_records(conn, emp_ids: list) -> int:
         return cur.rowcount
 
 
+def get_employee_daily_attendance(conn, device_id: int, user_id: str, from_date: str, to_date: str) -> list:
+    """Per-day punch list for one employee in an AD date range.
+
+    Returns list of dicts: {work_date, first_punch, last_punch, all_punches}
+    Timestamps are returned already converted to NPT (Asia/Kathmandu).
+    """
+    sql = """
+        SELECT
+            DATE(timestamp AT TIME ZONE 'Asia/Kathmandu') AS work_date,
+            MIN(timestamp AT TIME ZONE 'Asia/Kathmandu') AS first_punch,
+            MAX(timestamp AT TIME ZONE 'Asia/Kathmandu') AS last_punch,
+            ARRAY_AGG(
+                (timestamp AT TIME ZONE 'Asia/Kathmandu')::time
+                ORDER BY timestamp
+            ) AS all_punch_times
+        FROM attendance_logs
+        WHERE device_id = %s AND user_id = %s
+          AND DATE(timestamp AT TIME ZONE 'Asia/Kathmandu') BETWEEN %s AND %s
+        GROUP BY DATE(timestamp AT TIME ZONE 'Asia/Kathmandu')
+        ORDER BY work_date
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(sql, (device_id, user_id, from_date, to_date))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_employees_for_device(conn, device_id: int) -> list:
+    """Return all employees for a device ordered by name."""
+    sql = "SELECT id, uid, user_id, name FROM employees WHERE device_id = %s ORDER BY name"
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (device_id,))
+        return [dict(r) for r in cur.fetchall()]
+
+
 def get_pull_sessions(conn, limit: int = 100):
     sql = "SELECT ps.*, d.name as device_name FROM pull_sessions ps JOIN devices d ON ps.device_id = d.id ORDER BY ps.started_at DESC LIMIT %s"
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:

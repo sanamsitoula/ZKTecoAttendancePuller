@@ -143,6 +143,57 @@ def bs_to_ad(bs_str: str) -> str | None:
     return None
 
 
+def ad_to_bs(ad_str: str) -> str | None:
+    """Parse 'YYYY-MM-DD' AD date → BS ISO 'YYYY-MM-DD', or None."""
+    if not ad_str:
+        return None
+    try:
+        import nepali_datetime  # type: ignore
+        from datetime import date as _date
+        parts = str(ad_str).strip().split('-')
+        if len(parts) == 3:
+            d = _date(int(parts[0]), int(parts[1]), int(parts[2]))
+            nd = nepali_datetime.date.from_datetime_date(d)
+            return f"{nd.year}-{nd.month:02d}-{nd.day:02d}"
+    except Exception:
+        pass
+    return None
+
+
+def bs_month_info(bs_year: int, bs_month: int) -> dict | None:
+    """Return info for a BS month needed to render a calendar grid.
+
+    Returns: {year, month, month_name, days, first_weekday (0=Sun), first_ad, last_ad}
+    """
+    try:
+        import nepali_datetime  # type: ignore
+        from datetime import timedelta
+        first_bs = nepali_datetime.date(bs_year, bs_month, 1)
+        first_ad = first_bs.to_datetime_date()
+        # Days in month = difference between 1st of this month and 1st of next month in AD
+        if bs_month == 12:
+            next_first_bs = nepali_datetime.date(bs_year + 1, 1, 1)
+        else:
+            next_first_bs = nepali_datetime.date(bs_year, bs_month + 1, 1)
+        next_first_ad = next_first_bs.to_datetime_date()
+        days = (next_first_ad - first_ad).days
+        last_ad = (next_first_ad - timedelta(days=1))
+        # Convert Python's isoweekday (Mon=1..Sun=7) → Nepal week start (Sun=0)
+        nepal_weekday = first_ad.isoweekday() % 7
+        mn = NEPALI_MONTHS[bs_month] if 1 <= bs_month <= 12 else str(bs_month)
+        return {
+            "year": bs_year,
+            "month": bs_month,
+            "month_name": mn,
+            "days": days,
+            "first_weekday": nepal_weekday,
+            "first_ad": first_ad.isoformat(),
+            "last_ad": last_ad.isoformat(),
+        }
+    except Exception:
+        return None
+
+
 def register_filters(templates) -> None:
     """Register all BS Jinja2 filters on a FastAPI Jinja2Templates instance."""
     templates.env.filters['bs_date'] = jinja_bs_date

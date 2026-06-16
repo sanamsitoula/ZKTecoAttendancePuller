@@ -1448,6 +1448,331 @@ def bulk_enroll(request: Request, device_id: int = Form(...), user_ids: str = Fo
         conn.close()
 
 
+# ---- Nepali date conversion API -----------------------------------------
+
+
+@app.get("/api/bs-to-ad")
+def api_bs_to_ad(date: str = ""):
+    """Convert BS date 'YYYY-MM-DD' → AD ISO date."""
+    from nepali_utils import bs_to_ad
+    ad = bs_to_ad(date) if date else None
+    return {"bs": date, "ad": ad}
+
+
+@app.get("/api/ad-to-bs")
+def api_ad_to_bs(date: str = ""):
+    """Convert AD date 'YYYY-MM-DD' → BS ISO date."""
+    from nepali_utils import ad_to_bs
+    bs = ad_to_bs(date) if date else None
+    return {"ad": date, "bs": bs}
+
+
+@app.get("/api/bs-month-info")
+def api_bs_month_info(year: int = 2082, month: int = 1):
+    """Return days count + first weekday (0=Sun) for a BS month."""
+    from nepali_utils import bs_month_info
+    info = bs_month_info(year, month)
+    if info is None:
+        raise HTTPException(status_code=400, detail="Invalid BS year/month")
+    return info
+
+
+# ---- Monthly attendance report ------------------------------------------
+
+
+def _fmt_min(minutes: int | None) -> str:
+    if minutes is None or minutes <= 0:
+        return ''
+    h, m = divmod(int(minutes), 60)
+    return f"{h:02d}:{m:02d}"
+
+
+def _time_to_min(t) -> int | None:
+    """Convert a datetime.time or HH:MM string to minutes since midnight."""
+    if t is None:
+        return None
+    try:
+        if hasattr(t, 'hour'):
+            return t.hour * 60 + t.minute
+        parts = str(t).split(':')
+        return int(parts[0]) * 60 + int(parts[1])
+    except Exception:
+        return None
+
+
+def _compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
+                              shift_in_min: int, shift_out_min: int) -> list:
+    """Build per-day dicts for the monthly report table."""
+    from datetime import date, timedelta
+    from nepali_utils import ad_to_bs_tuple
+
+    NEPAL_DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+
+    punch_map = {r['work_date']: r for r in daily_rows}
+    start = date.fromisoformat(from_ad)
+    end   = date.fromisoformat(to_ad)
+    planned_work = shift_out_min - shift_in_min  # e.g. 420 min
+
+    days = []
+    d = start
+    while d <= end:
+        bs_t = ad_to_bs_tuple(d)
+        bs_str = f"{bs_t[2]:02d}/{bs_t[1]:02d}/{bs_t[0]}" if bs_t else ''
+        # Nepal week: isoweekday Mon=1 … Sat=6 Sun=7 → Sun=0..Sat=6
+        nepal_dow = d.isoweekday() % 7  # 0=Sun … 6=Sat
+        day_name = NEPAL_DAYS[nepal_dow]
+        is_weekend = nepal_dow == 6  # Saturday
+
+        row = punch_map.get(d)
+        first_punch = row['first_punch'] if row else None
+        last_punch  = row['last_punch']  if row else None
+
+        ci_min = _time_to_min(first_punch)
+        co_min = _time_to_min(last_punch) if (last_punch and first_punch and last_punch != first_punch) else None
+
+        check_in  = first_punch.strftime('%H:%M') if first_punch else ''
+        check_out = last_punch.strftime('%H:%M')  if (last_punch and co_min) else ''
+
+        # Work time
+        work_min = (co_min - ci_min) if (ci_min is not None and co_min is not None and co_min > ci_min) else None
+        work_time = _fmt_min(work_min)
+
+        # Shift metrics (only for workdays)
+        late_in = early_out = early_in = late_out = ot = ''
+        if not is_weekend and ci_min is not None:
+            if ci_min > shift_in_min:
+                late_in = _fmt_min(ci_min - shift_in_min)
+            elif ci_min < shift_in_min:
+                early_in = _fmt_min(shift_in_min - ci_min)
+        if not is_weekend and co_min is not None:
+            if co_min < shift_out_min:
+                early_out = _fmt_min(shift_out_min - co_min)
+            elif co_min > shift_out_min:
+                late_out = _fmt_min(co_min - shift_out_min)
+        if not is_weekend and work_min and work_min > planned_work:
+            ot = _fmt_min(work_min - planned_work)
+
+        # Punch detail list
+        punch_times = []
+        if row and row.get('all_punch_times'):
+            for pt in row['all_punch_times']:
+                try:
+                    punch_times.append(pt.strftime('%H:%M') if hasattr(pt, 'strftime') else str(pt)[:5])
+                except Exception:
+                    pass
+
+        # Remark
+        if is_weekend:
+            remark = 'Weekend'
+        elif row:
+            remark = 'Present'
+        else:
+            remark = 'Absent'
+
+        days.append({
+            'bs_date': bs_str,
+            'ad_date': d.isoformat(),
+            'day_name': day_name,
+            'planned_in':  _fmt_min(shift_in_min)  if not is_weekend else '00:00',
+            'planned_out': _fmt_min(shift_out_min) if not is_weekend else '00:00',
+            'planned_work': _fmt_min(planned_work) if not is_weekend else '',
+            'check_in': check_in,
+            'check_out': check_out,
+            'work_time': work_time,
+            'punch_times': punch_times,
+            'ot': ot,
+            'late_in': late_in,
+            'early_out': early_out,
+            'early_in': early_in,
+            'late_out': late_out,
+            'remark': remark,
+        })
+        d += timedelta(days=1)
+
+    return days
+
+
+def _monthly_totals(days: list, planned_work: int) -> dict:
+    tot_work = tot_ot = tot_late_in = tot_early_out = tot_early_in = tot_late_out = 0
+
+    def _parse(s):
+        if not s: return 0
+        try:
+            p = str(s).split(':')
+            return int(p[0]) * 60 + int(p[1])
+        except Exception:
+            return 0
+
+    counts = {'Present': 0, 'Absent': 0, 'Weekend': 0, 'Holiday': 0, 'Leave': 0, 'Misc': 0}
+    for d in days:
+        tot_work     += _parse(d['work_time'])
+        tot_ot       += _parse(d['ot'])
+        tot_late_in  += _parse(d['late_in'])
+        tot_early_out += _parse(d['early_out'])
+        tot_early_in  += _parse(d['early_in'])
+        tot_late_out  += _parse(d['late_out'])
+        r = d['remark']
+        if r in counts:
+            counts[r] += 1
+
+    total_planned = planned_work * counts['Present']
+    return {
+        'planned': _fmt_min(total_planned),
+        'work': _fmt_min(tot_work),
+        'ot': _fmt_min(tot_ot),
+        'late_in': _fmt_min(tot_late_in),
+        'early_out': _fmt_min(tot_early_out),
+        'early_in': _fmt_min(tot_early_in),
+        'late_out': _fmt_min(tot_late_out),
+        'counts': counts,
+    }
+
+
+@app.get("/reports/monthly")
+def reports_monthly_form(request: Request):
+    conn = get_connection()
+    try:
+        devices_raw = get_devices(conn)
+        emp_list = []
+        for dv in devices_raw:
+            from db import get_employees_for_device
+            emps = get_employees_for_device(conn, dv['id'])
+            for e in emps:
+                emp_list.append({**e, 'device_id': dv['id'], 'device_name': dv['name']})
+    finally:
+        conn.close()
+
+    try:
+        import nepali_datetime
+        today_bs = nepali_datetime.date.today()
+        def_year, def_month = today_bs.year, today_bs.month
+    except Exception:
+        def_year, def_month = 2082, 1
+
+    return render(templates, request, 'reports_monthly.html', {
+        'devices': devices_raw,
+        'employees': emp_list,
+        'def_year': def_year,
+        'def_month': def_month,
+        'report': None,
+        'COMPANY_NAME': COMPANY_NAME,
+        'COMPANY_ADDRESS': COMPANY_ADDRESS,
+        'COMPANY_EMAIL': COMPANY_EMAIL,
+        'COMPANY_WEBSITE': COMPANY_WEBSITE,
+    })
+
+
+@app.get("/reports/monthly/view")
+def reports_monthly_view(
+    request: Request,
+    device_id: str | None = None,
+    user_id: str | None = None,
+    bs_year: str | None = None,
+    bs_month: str | None = None,
+    shift_in: str = "10:00",
+    shift_out: str = "17:00",
+):
+    d_id = _int_param(device_id)
+    bs_y = _int_param(bs_year)
+    bs_m = _int_param(bs_month)
+
+    # Build employee list for the form
+    conn = get_connection()
+    try:
+        devices_raw = get_devices(conn)
+        emp_list = []
+        for dv in devices_raw:
+            from db import get_employees_for_device
+            emps = get_employees_for_device(conn, dv['id'])
+            for e in emps:
+                emp_list.append({**e, 'device_id': dv['id'], 'device_name': dv['name']})
+
+        report = None
+        error = None
+        if d_id and user_id and bs_y and bs_m:
+            from nepali_utils import bs_month_info as _bsmi, ad_to_bs as _a2b
+            mi = _bsmi(bs_y, bs_m)
+            if mi is None:
+                error = "Invalid BS year/month"
+            else:
+                from_ad = mi['first_ad']
+                to_ad   = mi['last_ad']
+
+                # Shift times
+                try:
+                    si_parts = shift_in.split(':')
+                    so_parts = shift_out.split(':')
+                    si_min = int(si_parts[0]) * 60 + int(si_parts[1])
+                    so_min = int(so_parts[0]) * 60 + int(so_parts[1])
+                except Exception:
+                    si_min, so_min = 600, 1020  # 10:00, 17:00
+
+                from db import get_employee_daily_attendance
+                daily = get_employee_daily_attendance(conn, d_id, str(user_id), from_ad, to_ad)
+                days  = _compute_monthly_report(daily, from_ad, to_ad, si_min, so_min)
+                totals = _monthly_totals(days, so_min - si_min)
+
+                # Employee name
+                emp_name = user_id
+                for e in emp_list:
+                    if e['device_id'] == d_id and str(e['user_id']) == str(user_id):
+                        emp_name = e.get('name') or user_id
+                        break
+
+                # Device name
+                dev_name = str(d_id)
+                for dv in devices_raw:
+                    if dv['id'] == d_id:
+                        dev_name = dv['name']
+                        break
+
+                report = {
+                    'days': days,
+                    'totals': totals,
+                    'emp_name': emp_name,
+                    'emp_user_id': user_id,
+                    'device_name': dev_name,
+                    'bs_year': bs_y,
+                    'bs_month': bs_m,
+                    'month_name': mi['month_name'],
+                    'from_ad': from_ad,
+                    'to_ad': to_ad,
+                    'shift_in': shift_in,
+                    'shift_out': shift_out,
+                }
+    except Exception as exc:
+        error = str(exc)
+        report = None
+    finally:
+        conn.close()
+
+    try:
+        import nepali_datetime
+        today_bs = nepali_datetime.date.today()
+        def_year, def_month = today_bs.year, today_bs.month
+    except Exception:
+        def_year, def_month = bs_y or 2082, bs_m or 1
+
+    return render(templates, request, 'reports_monthly.html', {
+        'devices': devices_raw,
+        'employees': emp_list,
+        'def_year': def_year,
+        'def_month': def_month,
+        'sel_device_id': d_id,
+        'sel_user_id': user_id,
+        'sel_bs_year': bs_y,
+        'sel_bs_month': bs_m,
+        'sel_shift_in': shift_in,
+        'sel_shift_out': shift_out,
+        'report': report,
+        'error': error,
+        'COMPANY_NAME': COMPANY_NAME,
+        'COMPANY_ADDRESS': COMPANY_ADDRESS,
+        'COMPANY_EMAIL': COMPANY_EMAIL,
+        'COMPANY_WEBSITE': COMPANY_WEBSITE,
+    })
+
+
 # ---- Schedule editor ----------------------------------------------------
 
 

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Janak Education – Attendance Console</title>
     <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/bs-datepicker.js" defer></script>
   </head>
   <body>
     <div class="org-bar">
@@ -26,6 +27,7 @@
         <a href="/pull-sessions" class="{{ 'active' if request.url.path.startswith('/pull-sessions') else '' }}">Runs</a>
         <a href="/schedule" class="{{ 'active' if request.url.path.startswith('/schedule') else '' }}">Schedule</a>
         <a href="/migrate" class="{{ 'active' if request.url.path.startswith('/migrate') else '' }}">Migrate</a>
+        <a href="/reports/monthly" class="{{ 'active' if request.url.path.startswith('/reports') else '' }}">Reports</a>
       </div>
     </nav>
     {% if flashes %}
