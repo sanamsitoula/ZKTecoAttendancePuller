@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Scheduler timing</p>
+      <h1>Pull Schedule</h1>
+    </div>
+  </section>
+
+  <section class="panel narrow">
+    <div class="panel-head">
+      <h2>Schedule Times</h2>
+      <span class="muted">Use Python tuple format: hour, minute.</span>
+    </div>
+    <form class="form" method="post" action="/schedule">
+      <label>SCHEDULE_TIMES
+        <textarea name="schedule_text" rows="8">{{ schedule_text }}</textarea>
+      </label>
+      <button class="btn primary" type="submit">Save and restart service</button>
+    </form>
+  </section>
+{% endblock %}

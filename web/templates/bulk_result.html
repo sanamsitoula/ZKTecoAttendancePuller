@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Bulk enroll result</p>
+      <h1>{{ device.name }}</h1>
+    </div>
+    <div class="head-actions">
+      <a class="btn primary" href="/users">Users</a>
+      <a class="btn ghost" href="/bulk-enroll">New bulk enroll</a>
+      <a class="btn ghost" href="/">Dashboard</a>
+    </div>
+  </section>
+
+  <section class="status-grid">
+    <div class="metric">
+      <span class="metric-label">Created</span>
+      <strong class="ok-text">{{ summary.summary.created }}</strong>
+      <small>New users enrolled</small>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Updated</span>
+      <strong>{{ summary.summary.updated }}</strong>
+      <small>Existing users updated</small>
+    </div>
+    <div class="metric">
+      <span class="metric-label">No-op</span>
+      <strong>{{ summary.summary.noop }}</strong>
+      <small>Already up to date</small>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Failed</span>
+      <strong class="{{ 'bad-text' if summary.summary.failed else '' }}">{{ summary.summary.failed }}</strong>
+      <small>Errors during enroll</small>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Details</h2>
+      <span class="muted"><span id="bulk-result-table-count">{{ summary.results|length }}</span> rows</span>
+    </div>
+    <div class="no-print" style="margin-bottom:10px">
+      <input data-table-filter="bulk-result-table" placeholder="Search by user ID, action…" style="max-width:280px">
+    </div>
+    <div class="table-wrap">
+      <table class="table" id="bulk-result-table">
+        <thead>
+          <tr><th>Global ID</th><th>Status</th><th>Action</th><th>Device UID</th><th>Message</th></tr>
+        </thead>
+        <tbody>
+          {% for r in summary.results %}
+          <tr>
+            <td>{{ r.global_user_id }}</td>
+            <td><span class="status {{ 'success' if r.ok else 'failed' }}">{{ 'OK' if r.ok else 'Error' }}</span></td>
+            <td>
+              {% if r.action %}
+              <span class="status {{ 'success' if r.action == 'created' else 'info' if r.action == 'updated' else 'muted-status' }}">
+                {{ r.action }}
+              </span>
+              {% else %}—{% endif %}
+            </td>
+            <td>{{ r.uid or '—' }}</td>
+            <td>{{ r.message or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="empty">No results.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

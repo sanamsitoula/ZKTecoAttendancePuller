@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Live terminal data</p>
+      <h1>{{ device.name }} Users</h1>
+      <p class="muted">{{ device.ip_address }}:{{ device.port }} · {{ device.model or 'unknown model' }}</p>
+    </div>
+    <div class="head-actions">
+      <a class="btn" href="/devices/{{ device.id }}/backup" download>Download Backup</a>
+      <a class="btn ghost" href="/devices/{{ device.id }}/sync">Open sync</a>
+      <a class="btn ghost" href="/">Back</a>
+    </div>
+  </section>
+
+  {% if error %}
+    <section class="panel error-panel">
+      <h2>Device connection failed</h2>
+      <p>{{ error }}</p>
+    </section>
+  {% else %}
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Users On Device</h2>
+        <span class="muted"><span id="device-users-table-count">{{ users|length }}</span> live users found.</span>
+      </div>
+
+      <div class="filter-bar-flex no-print" style="margin-bottom:10px">
+        <input data-table-filter="device-users-table" placeholder="Search by name, user ID, UID…" style="max-width:300px">
+        <select data-table-filter="device-users-table" data-filter-col="5" style="max-width:180px">
+          <option value="">Any privilege</option>
+          <option value="0">0 — Normal</option>
+          <option value="14">14 — Admin</option>
+        </select>
+      </div>
+
+      <form method="post" action="/devices/{{ device.id }}/import-users">
+        <div class="toolbar no-print">
+          <button class="btn primary" type="submit">Import selected</button>
+          <button class="btn ghost" type="submit" name="all" value="1">Import all shown</button>
+        </div>
+        <div class="table-wrap">
+          <table class="table" id="device-users-table">
+            <thead>
+              <tr>
+                <th class="no-print">Select</th>
+                <th>UID</th><th>User ID</th><th>Name</th><th>Card</th><th>Privilege</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for u in users %}
+              <tr>
+                <td class="no-print"><input type="checkbox" name="selected" value="{{ u.uid }}"></td>
+                <td>{{ u.uid }}</td>
+                <td>{{ u.user_id }}</td>
+                <td><strong>{{ u.name or 'Unknown' }}</strong></td>
+                <td>{{ u.card or '-' }}</td>
+                <td>{{ u.privilege }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6" class="empty">No users returned by this device.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </form>
+    </section>
+  {% endif %}
+{% endblock %}

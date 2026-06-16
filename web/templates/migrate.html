@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Device sync</p>
+      <h1>Migrate Users Between Devices</h1>
+    </div>
+    <div class="head-actions">
+      <a class="btn" href="/users">Back to Users</a>
+    </div>
+  </section>
+
+  <div class="split" style="align-items:start">
+
+    <!-- Step 1: Select source device -->
+    <section class="panel">
+      <div class="panel-head"><h2>Step 1 — Source Device</h2></div>
+      <form method="get" action="/migrate">
+        <div class="form">
+          <label>
+            Source device
+            <select name="source_id" required>
+              <option value="">— select —</option>
+              {% for d in devices %}
+              <option value="{{ d.id }}" {{ 'selected' if source_id == d.id else '' }}>
+                {{ d.name }} ({{ d.ip_address }})
+              </option>
+              {% endfor %}
+            </select>
+          </label>
+          <div><button class="btn primary" type="submit">Load Users</button></div>
+        </div>
+      </form>
+    </section>
+
+    <!-- Step 2: Select target -->
+    <section class="panel">
+      <div class="panel-head"><h2>Step 2 — Target Device</h2></div>
+      {% if source_users is not none %}
+      <form method="post" action="/migrate" id="migrate-form">
+        <input type="hidden" name="source_device_id" value="{{ source_device.id }}">
+        <div class="form">
+          <label>
+            Target device
+            <select name="target_device_id" required>
+              <option value="">— select —</option>
+              {% for d in devices %}
+              {% if d.id != source_device.id %}
+              <option value="{{ d.id }}">{{ d.name }} ({{ d.ip_address }})</option>
+              {% endif %}
+              {% endfor %}
+            </select>
+          </label>
+          <div>
+            <button class="btn primary" type="submit" id="migrate-btn" disabled>
+              Migrate Selected (0)
+            </button>
+          </div>
+        </div>
+      </form>
+      {% else %}
+      <p class="muted">Load users from the source device first.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  {% if error %}
+  <div class="panel error-panel">
+    <p class="error-line"><strong>Could not load device users:</strong> {{ error }}</p>
+  </div>
+  {% endif %}
+
+  {% if source_users is not none %}
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Users on {{ source_device.name }}</h2>
+      <span class="muted">{{ source_users|length }} users — select which to migrate, or select all.</span>
+    </div>
+
+    <div id="migrate-bar" class="bulk-bar" style="margin-bottom:12px">
+      <span id="migrate-count">0 selected</span>
+      <button class="btn small" type="button" onclick="selectAllMigrate(true)">Select All</button>
+      <button class="btn small ghost" type="button" onclick="selectAllMigrate(false)">Clear</button>
+    </div>
+
+    <div class="table-wrap">
+      <table class="table compact">
+        <thead>
+          <tr>
+            <th style="width:36px"><input type="checkbox" id="mig-all" onchange="toggleMigAll(this)"></th>
+            <th>UID</th><th>User ID</th><th>Name</th><th>Card</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in source_users %}
+          <tr>
+            <td><input type="checkbox" name="uids" value="{{ u.uid }}" form="migrate-form" class="mig-cb" onchange="updateMigrateBar()"></td>
+            <td>{{ u.uid }}</td>
+            <td>{{ u.user_id }}</td>
+            <td><strong>{{ u.name or '—' }}</strong></td>
+            <td>{{ u.card or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="empty">No users found on this device.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  <script>
+    function updateMigrateBar() {
+      var checked = document.querySelectorAll('.mig-cb:checked').length;
+      document.getElementById('migrate-count').textContent = checked + ' selected';
+      var btn = document.getElementById('migrate-btn');
+      if (btn) {
+        btn.disabled = checked === 0;
+        btn.textContent = 'Migrate Selected (' + checked + ')';
+      }
+      var all = document.querySelectorAll('.mig-cb').length;
+      var allCb = document.getElementById('mig-all');
+      if (allCb) {
+        allCb.indeterminate = checked > 0 && checked < all;
+        allCb.checked = checked === all && all > 0;
+      }
+    }
+    function toggleMigAll(cb) {
+      document.querySelectorAll('.mig-cb').forEach(function(el) { el.checked = cb.checked; });
+      updateMigrateBar();
+    }
+    function selectAllMigrate(val) {
+      document.querySelectorAll('.mig-cb').forEach(function(el) { el.checked = val; });
+      var allCb = document.getElementById('mig-all');
+      if (allCb) allCb.checked = val;
+      updateMigrateBar();
+    }
+  </script>
+{% endblock %}

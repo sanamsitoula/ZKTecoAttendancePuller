@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Pull result</p>
+      <h1>{{ device.name }}</h1>
+      <p class="muted">{{ device.ip_address }}:{{ device.port }}</p>
+    </div>
+    <div class="head-actions">
+      <a class="btn primary" href="/">Dashboard</a>
+      <a class="btn ghost" href="/pull-sessions">All runs</a>
+      <a class="btn ghost" href="/devices/{{ device.id }}/users">Device users</a>
+    </div>
+  </section>
+
+  <section class="status-grid">
+    <div class="metric">
+      <span class="metric-label">Status</span>
+      <strong class="{{ 'ok-text' if success else 'bad-text' }}">{{ 'Success' if success else 'Failed' }}</strong>
+      <small>Session #{{ session_id or '—' }}</small>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Users on device</span>
+      <strong>{{ user_count }}</strong>
+      <small>Synced to database</small>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Records pulled</span>
+      <strong>{{ records_pulled }}</strong>
+      <small>Attendance rows read</small>
+    </div>
+    <div class="metric">
+      <span class="metric-label">New inserts</span>
+      <strong>{{ new_inserts }}</strong>
+      <small>Rows added this run</small>
+    </div>
+  </section>
+
+  {% if error_message %}
+  <section class="panel error-panel">
+    <div class="panel-head"><h2>Error</h2></div>
+    <p class="error-line">{{ error_message }}</p>
+  </section>
+  {% endif %}
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Run details</h2>
+    </div>
+    <div class="result-box">
+      <table class="table compact" style="max-width:520px">
+        <tbody>
+          <tr>
+            <td><strong>Started (NPT)</strong></td>
+            <td>{{ started_at | fmt_dt }}</td>
+            <td><small>{{ started_at | bs_datetime }}</small></td>
+          </tr>
+          <tr>
+            <td><strong>Completed (NPT)</strong></td>
+            <td>{{ completed_at | fmt_dt if completed_at else '—' }}</td>
+            <td><small>{{ completed_at | bs_datetime if completed_at else '' }}</small></td>
+          </tr>
+          <tr><td><strong>Device</strong></td><td colspan="2">{{ device.name }} ({{ device.model or 'unknown model' }})</td></tr>
+          <tr><td><strong>Active</strong></td><td colspan="2">{{ 'Yes' if device.is_active else 'No' }}</td></tr>
+        </tbody>
+      </table>
+      {% if success %}
+        <p class="muted">Attendance data was stored and is visible under Attendance and on the dashboard.</p>
+      {% else %}
+        <p class="muted">Check network connectivity, device password, and the Runs page for history.</p>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

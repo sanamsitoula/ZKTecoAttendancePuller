@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Device setup</p>
+      <h1>{{ 'Edit Device' if device else 'Add Device' }}</h1>
+    </div>
+  </section>
+
+  <section class="panel narrow">
+    <form class="form" method="post" action="{{ '/devices/' ~ device.id ~ '/edit' if device else '/devices/add' }}">
+      <label>Name
+        <input name="name" value="{{ device.name if device else '' }}" required>
+      </label>
+      <label>IP address
+        <input name="ip" value="{{ device.ip_address if device else '' }}" required>
+      </label>
+      <label>Port
+        <input name="port" value="{{ device.port if device else 4370 }}" required>
+      </label>
+      <label>Password
+        <input name="password" value="{{ device.password if device else '' }}">
+      </label>
+      <label>Model
+        <input name="model" value="{{ device.model if device else '' }}">
+      </label>
+      <label class="check-row">
+        <input type="checkbox" name="is_active" {% if not device or device.is_active %}checked{% endif %}>
+        Active
+      </label>
+      <div class="toolbar">
+        <button class="btn primary" type="submit">Save device</button>
+        <a class="btn ghost" href="/">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

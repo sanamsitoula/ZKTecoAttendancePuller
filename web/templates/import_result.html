@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Import complete</p>
+      <h1>{{ device.name }} User Import</h1>
+    </div>
+    <div class="head-actions">
+      <a class="btn primary" href="/users">View users</a>
+      <a class="btn ghost" href="/devices/{{ device.id }}/users">Back to device users</a>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Results</h2>
+      <span class="muted">{{ results|length }} rows processed.</span>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>UID</th><th>Name</th><th>Status</th><th>Message</th></tr></thead>
+        <tbody>
+          {% for r in results %}
+          <tr>
+            <td>{{ r.uid }}</td>
+            <td>{{ r.name or '-' }}</td>
+            <td><span class="status {{ 'success' if r.ok else 'failed' }}">{{ 'OK' if r.ok else 'Error' }}</span></td>
+            <td>{{ r.message }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="empty">No users were selected.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

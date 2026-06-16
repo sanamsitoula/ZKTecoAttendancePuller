@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Manual user</p>
+      <h1>Add User</h1>
+      <p class="muted">Most users should come from device import. Use this for planned enrollment.</p>
+    </div>
+  </section>
+
+  <section class="panel narrow">
+    <form class="form" method="post" action="/users/add">
+      <label>Global user ID
+        <input name="global_user_id" required>
+      </label>
+      <label>Name
+        <input name="name" required>
+      </label>
+      <label>Privilege
+        <input name="privilege" value="0">
+      </label>
+      <label>Card
+        <input name="card">
+      </label>
+      <label>Enroll devices
+        <input name="enroll_devices" placeholder="Comma-separated device IDs">
+      </label>
+      <div class="toolbar">
+        <button class="btn primary" type="submit">Create user</button>
+        <a class="btn ghost" href="/users">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

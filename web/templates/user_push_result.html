@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Push result</p>
+      <h1>{{ user.name }}</h1>
+      <p class="muted">Global ID {{ user.global_user_id }}</p>
+    </div>
+    <div class="head-actions">
+      <a class="btn primary" href="/users">Back to users</a>
+    </div>
+  </section>
+
+  <section class="panel narrow">
+    <div class="result-box">
+      <span class="status {{ 'success' if result.ok else 'failed' }}">{{ 'OK' if result.ok else 'Error' }}</span>
+      <strong>{{ result.action or 'Device response' }}</strong>
+      <p>{{ result.message }}</p>
+      {% if result.uid is defined %}<small>Device UID: {{ result.uid }}</small>{% endif %}
+    </div>
+  </section>
+{% endblock %}

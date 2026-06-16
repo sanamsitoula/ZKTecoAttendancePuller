@@ -64,6 +64,34 @@ CREATE TABLE IF NOT EXISTS pull_sessions (
     status          VARCHAR(20) NOT NULL DEFAULT 'running',
     error_message   TEXT
 );
+
+-- Additive migration: global_users table and link to employees
+CREATE TABLE IF NOT EXISTS global_users (
+    id              SERIAL PRIMARY KEY,
+    global_user_id  VARCHAR(100) UNIQUE,
+    name            VARCHAR(200),
+    privilege       SMALLINT DEFAULT 0,
+    card            VARCHAR(50),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE employees
+    ADD COLUMN IF NOT EXISTS global_user_id INTEGER;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'employees_global_user_id_fkey'
+    ) THEN
+        ALTER TABLE employees
+            ADD CONSTRAINT employees_global_user_id_fkey
+            FOREIGN KEY (global_user_id) REFERENCES global_users(id) ON DELETE SET NULL;
+    END IF;
+END$$;
+
+CREATE INDEX IF NOT EXISTS idx_employees_global_user_id
+    ON employees (global_user_id);
 """
 
 
@@ -97,27 +125,51 @@ def upsert_device(conn, device: DeviceConfig) -> int:
 
 
 def upsert_employee(conn, device_id: int, user) -> int:
+    # Accept optional global_user_id if present on user object/dict
+    def user_value(key, default=None):
+        if isinstance(user, dict):
+            return user.get(key, default)
+        return getattr(user, key, default)
+
     sql = """
-        INSERT INTO employees (device_id, uid, user_id, name, privilege, card)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO employees (device_id, uid, user_id, name, privilege, card, global_user_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (device_id, uid) DO UPDATE SET
-            user_id    = EXCLUDED.user_id,
-            name       = EXCLUDED.name,
-            privilege  = EXCLUDED.privilege,
-            card       = EXCLUDED.card,
-            updated_at = NOW()
+            user_id        = EXCLUDED.user_id,
+            name           = EXCLUDED.name,
+            privilege      = EXCLUDED.privilege,
+            card           = EXCLUDED.card,
+            global_user_id = COALESCE(EXCLUDED.global_user_id, employees.global_user_id),
+            updated_at     = NOW()
         RETURNING id
     """
     with conn.cursor() as cur:
+        privilege = user_value("privilege", 0)
+        card = user_value("card")
         cur.execute(sql, (
             device_id,
-            user.uid,
-            str(user.user_id),
-            user.name or "",
-            int(user.privilege) if user.privilege is not None else 0,
-            str(user.card) if user.card else None,
+            user_value("uid"),
+            str(user_value("user_id")),
+            user_value("name", "") or "",
+            int(privilege) if privilege is not None else 0,
+            str(card) if card else None,
+            user_value("global_user_id"),
         ))
         return cur.fetchone()[0]
+
+
+def find_global_user_by_global_id(conn, global_user_id: str):
+    sql = "SELECT id, global_user_id, name, privilege, card FROM global_users WHERE global_user_id = %s"
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (str(global_user_id),))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def link_employee_to_global_user(conn, device_id: int, uid: int, global_user_db_id: int) -> None:
+    sql = "UPDATE employees SET global_user_id = %s WHERE device_id = %s AND uid = %s"
+    with conn.cursor() as cur:
+        cur.execute(sql, (global_user_db_id, device_id, uid))
 
 
 def build_employee_map(conn, device_id: int) -> dict:
@@ -250,4 +302,136 @@ def get_daily_summary(conn, date_str: str) -> list:
     """
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(sql, (date_str,))
+        return [dict(row) for row in cur.fetchall()]
+
+
+# ── Convenience DB helpers for web UI ───────────────────────────────────────
+
+
+def get_devices(conn):
+    sql = "SELECT id, name, ip_address, port, password, model, is_active, created_at FROM devices ORDER BY name"
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql)
+        return [dict(row) for row in cur.fetchall()]
+
+
+def get_device(conn, device_id: int):
+    sql = "SELECT id, name, ip_address, port, password, model, is_active FROM devices WHERE id = %s"
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (device_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def create_device(conn, device: dict) -> int:
+    sql = """
+        INSERT INTO devices (name, ip_address, port, password, model, is_active)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (
+            device.get("name"), device.get("ip_address"), device.get("port", 4370),
+            device.get("password", ""), device.get("model", ""), bool(device.get("is_active", True)),
+        ))
+        return cur.fetchone()[0]
+
+
+def update_device(conn, device_id: int, device: dict) -> None:
+    sql = """
+        UPDATE devices SET
+            name = %s,
+            ip_address = %s,
+            port = %s,
+            password = %s,
+            model = %s,
+            is_active = %s
+        WHERE id = %s
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (
+            device.get("name"), device.get("ip_address"), device.get("port", 4370),
+            device.get("password", ""), device.get("model", ""), bool(device.get("is_active", True)),
+            device_id,
+        ))
+
+
+def delete_device(conn, device_id: int) -> None:
+    sql = "DELETE FROM devices WHERE id = %s"
+    with conn.cursor() as cur:
+        cur.execute(sql, (device_id,))
+
+
+def list_global_users(conn):
+    sql = "SELECT id, global_user_id, name, privilege, card, created_at, updated_at FROM global_users ORDER BY name"
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql)
+        return [dict(row) for row in cur.fetchall()]
+
+
+def create_global_user(conn, global_user_id: str, name: str, privilege: int = 0, card: str | None = None) -> int:
+    sql = """
+        INSERT INTO global_users (global_user_id, name, privilege, card)
+        VALUES (%s, %s, %s, %s)
+        RETURNING id
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (global_user_id, name, int(privilege), card))
+        return cur.fetchone()[0]
+
+
+def delete_global_user(conn, global_user_id: int) -> None:
+    sql = "DELETE FROM global_users WHERE id = %s"
+    with conn.cursor() as cur:
+        cur.execute(sql, (global_user_id,))
+
+
+def get_employee_with_device(conn, emp_id: int):
+    """Return employee row joined with device info (ip_address, port, password, name)."""
+    sql = """
+        SELECT e.id, e.uid, e.user_id, e.name, e.privilege, e.card, e.device_id,
+               d.ip_address, d.port, d.password, d.model, d.name AS device_name, d.is_active
+        FROM employees e
+        JOIN devices d ON e.device_id = d.id
+        WHERE e.id = %s
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (emp_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def get_employees_with_device(conn, emp_ids: list):
+    """Return multiple employee rows joined with device info."""
+    if not emp_ids:
+        return []
+    sql = """
+        SELECT e.id, e.uid, e.user_id, e.name, e.privilege, e.card, e.device_id,
+               d.ip_address, d.port, d.password, d.model, d.name AS device_name, d.is_active
+        FROM employees e
+        JOIN devices d ON e.device_id = d.id
+        WHERE e.id = ANY(%s)
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (emp_ids,))
+        return [dict(row) for row in cur.fetchall()]
+
+
+def delete_employee_record(conn, emp_id: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM employees WHERE id = %s", (emp_id,))
+
+
+def bulk_delete_employee_records(conn, emp_ids: list) -> int:
+    if not emp_ids:
+        return 0
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM employees WHERE id = ANY(%s)", (emp_ids,))
+        return cur.rowcount
+
+
+def get_pull_sessions(conn, limit: int = 100):
+    sql = "SELECT ps.*, d.name as device_name FROM pull_sessions ps JOIN devices d ON ps.device_id = d.id ORDER BY ps.started_at DESC LIMIT %s"
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (limit,))
         return [dict(row) for row in cur.fetchall()]

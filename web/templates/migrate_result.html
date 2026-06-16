@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Device sync</p>
+      <h1>Migration Result</h1>
+    </div>
+    <div class="head-actions">
+      <a class="btn" href="/migrate">New Migration</a>
+      <a class="btn" href="/users">Back to Users</a>
+    </div>
+  </section>
+
+  <section class="panel {{ 'error-panel' if not result.ok else '' }}">
+    <div class="panel-head">
+      <h2>{{ source_device.name }} → {{ target_device.name }}</h2>
+      <span class="status {{ 'success' if result.ok else 'failed' }}">
+        {{ 'Success' if result.ok else 'Failed' }}
+      </span>
+    </div>
+
+    {% if result.message and not result.results %}
+      <p class="{{ 'error-line' if not result.ok else '' }}">{{ result.message }}</p>
+    {% else %}
+      <div class="run-summary" style="margin-bottom:16px">
+        <span class="status success">{{ result.succeeded }} migrated</span>
+        {% if result.failed %}
+        <span class="status failed">{{ result.failed }} failed</span>
+        {% endif %}
+        <span class="muted">of {{ result.total }} total</span>
+      </div>
+
+      <div class="table-wrap">
+        <table class="table compact">
+          <thead>
+            <tr>
+              <th>User ID</th><th>Name</th><th>Action</th>
+              <th>Fingerprints</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in result.results %}
+            <tr>
+              <td>{{ r.user_id }}</td>
+              <td><strong>{{ r.name or '—' }}</strong></td>
+              <td>
+                {% if r.ok %}
+                  <span class="status {{ 'success' if r.action == 'created' else 'info' }}">{{ r.action|capitalize }}</span>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if r.ok %}
+                  {% if r.fingerprints_ok or r.fingerprints_fail %}
+                    <span class="{{ 'ok-text' if r.fingerprints_fail == 0 else 'bad-text' }}">
+                      {{ r.fingerprints_ok }} ok{% if r.fingerprints_fail %}, {{ r.fingerprints_fail }} failed{% endif %}
+                    </span>
+                  {% else %}
+                    <span class="muted">None</span>
+                  {% endif %}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if r.ok %}
+                  <span class="status success">OK</span>
+                {% else %}
+                  <span class="status failed" title="{{ r.message }}">Error</span>
+                  <small class="error-line">{{ r.message }}</small>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

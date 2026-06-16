@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Run monitor</p>
+      <h1>Pull Sessions</h1>
+    </div>
+    <div class="head-actions no-print">
+      <button class="btn" type="button" onclick="window.print()">Print</button>
+    </div>
+  </section>
+
+  <section class="panel no-print">
+    <form class="filter-bar" method="get" action="/pull-sessions">
+      <label>Device
+        <select name="device_id">
+          <option value="">All devices</option>
+          {% for d in devices %}
+          <option value="{{ d.id }}" {% if selected_device_id == d.id %}selected{% endif %}>{{ d.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Status
+        <select name="status">
+          <option value="">Any</option>
+          {% for s in ['running', 'success', 'failed'] %}
+          <option value="{{ s }}" {% if selected_status == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Days
+        <input name="days" value="{{ selected_days }}" inputmode="numeric">
+      </label>
+      <button class="btn primary" type="submit">Filter</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Success &amp; Error History</h2>
+      <span class="muted">{{ sessions|length }} runs shown.</span>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Started (NPT)</th><th>Started (BS)</th>
+            <th>Completed (NPT)</th><th>Completed (BS)</th>
+            <th>Device</th><th>Records</th><th>New</th><th>Status</th><th>Error</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in sessions %}
+          <tr>
+            <td>{{ s.started_at | fmt_dt }}</td>
+            <td><small>{{ s.started_at | bs_datetime }}</small></td>
+            <td>{{ s.completed_at | fmt_dt if s.completed_at else '-' }}</td>
+            <td><small>{{ s.completed_at | bs_datetime if s.completed_at else '' }}</small></td>
+            <td><strong>{{ s.device_name }}</strong></td>
+            <td>{{ s.records_pulled }}</td>
+            <td>{{ s.new_inserts }}</td>
+            <td><span class="status {{ s.status }}">{{ s.status }}</span></td>
+            <td class="{{ 'bad-text' if s.error_message else '' }}">{{ s.error_message or '-' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="9" class="empty">No pull sessions match this filter.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

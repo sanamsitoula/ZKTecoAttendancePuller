@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <h1>Bulk Enroll</h1>
+  <form method="post" action="/bulk-enroll">
+    <label>Device
+      <select name="device_id">
+        {% for d in devices %}
+        <option value="{{ d.id }}">{{ d.name }} — {{ d.ip_address }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Users (comma-separated IDs) — leave blank for all users<br>
+      <input name="user_ids" placeholder="e.g. 1,2,3">
+    </label>
+    <button type="submit">Enroll</button>
+  </form>
+{% endblock %}

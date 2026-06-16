@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Delete result</p>
+      <h1>{{ device_name }}</h1>
+      <p class="muted">Removed from database and devices.json</p>
+    </div>
+    <div class="head-actions">
+      <a class="btn primary" href="/">Dashboard</a>
+      <a class="btn ghost" href="/devices/add">Add device</a>
+    </div>
+  </section>
+
+  <section class="status-grid">
+    <div class="metric">
+      <span class="metric-label">Status</span>
+      <strong class="ok-text">Deleted</strong>
+      <small>Device record removed</small>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Network</span>
+      <strong>{{ ip_address }}:{{ port }}</strong>
+      <small>Former endpoint</small>
+    </div>
+    <div class="metric">
+      <span class="metric-label">devices.json</span>
+      <strong class="ok-text">Updated</strong>
+      <small>Service will skip this device</small>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Related data</span>
+      <strong>Cascaded</strong>
+      <small>Employees &amp; logs removed via FK</small>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>What happened</h2>
+    </div>
+    <div class="result-box">
+      <p><strong>{{ device_name }}</strong> was permanently deleted from the management database.</p>
+      <p class="muted">Pull history, employees, and attendance linked to this device were removed. The Windows Service will no longer pull from this terminal on the next scheduled run.</p>
+    </div>
+  </section>
+{% endblock %}

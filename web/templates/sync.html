@@ -1,0 +1,118 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Data sync</p>
+      <h1>{{ device.name }} Sync</h1>
+      <p class="muted">{{ device.ip_address }}:{{ device.port }}</p>
+    </div>
+    <div class="head-actions">
+      <a class="btn ghost" href="/devices/{{ device.id }}/users">Live users</a>
+      <a class="btn ghost" href="/">Back</a>
+    </div>
+  </section>
+
+  {% if error %}
+    <section class="panel error-panel">
+      <h2>Unable to read device users</h2>
+      <p>{{ error }}</p>
+    </section>
+  {% else %}
+    <section class="status-grid">
+      <div class="metric">
+        <span class="metric-label">On device only</span>
+        <strong>{{ only_on_device|length }}</strong>
+        <small>Can be imported into DB</small>
+      </div>
+      <div class="metric">
+        <span class="metric-label">In DB only</span>
+        <strong>{{ only_in_db|length }}</strong>
+        <small>Can be pushed to device</small>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Device users</span>
+        <strong>{{ device_users|length }}</strong>
+        <small>Read live from terminal</small>
+      </div>
+      <div class="metric">
+        <span class="metric-label">DB employees</span>
+        <strong>{{ db_employees|length }}</strong>
+        <small>Stored for this device</small>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Device Only</h2>
+        <span class="muted">
+          <span id="sync-device-table-count">{{ only_on_device|length }}</span> users — import unknown terminal users into global users and employees.
+        </span>
+      </div>
+      <div class="no-print" style="margin-bottom:10px">
+        <input data-table-filter="sync-device-table" placeholder="Search by name, user ID…" style="max-width:280px">
+      </div>
+      <form method="post" action="/devices/{{ device.id }}/sync">
+        <input type="hidden" name="action" value="import_unknown">
+        <div class="toolbar no-print"><button class="btn primary" type="submit">Import selected</button></div>
+        <div class="table-wrap">
+          <table class="table" id="sync-device-table">
+            <thead><tr><th class="no-print">Select</th><th>UID</th><th>User ID</th><th>Name</th><th>Privilege</th></tr></thead>
+            <tbody>
+            {% for u in only_on_device %}
+            <tr>
+              <td class="no-print"><input type="checkbox" name="selected" value="{{ u.uid }}"></td>
+              <td>{{ u.uid }}</td>
+              <td>{{ u.user_id }}</td>
+              <td><strong>{{ u.name or 'Unknown' }}</strong></td>
+              <td>{{ u.privilege }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="empty">No device-only users.</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Database Only</h2>
+        <span class="muted">
+          <span id="sync-db-table-count">{{ only_in_db|length }}</span> users — push stored users that are missing on this terminal.
+        </span>
+      </div>
+      <div class="no-print" style="margin-bottom:10px">
+        <input data-table-filter="sync-db-table" placeholder="Search by name, user ID…" style="max-width:280px">
+      </div>
+      <form method="post" action="/devices/{{ device.id }}/sync">
+        <input type="hidden" name="action" value="push_missing">
+        <div class="toolbar no-print"><button class="btn primary" type="submit">Push selected</button></div>
+        <div class="table-wrap">
+          <table class="table" id="sync-db-table">
+            <thead><tr><th class="no-print">Select</th><th>User ID</th><th>Name</th><th>Privilege</th></tr></thead>
+            <tbody>
+            {% for u in only_in_db %}
+            <tr>
+              <td class="no-print">
+                {% if u.global_user_id %}
+                <input type="checkbox" name="selected" value="{{ u.global_user_id }}">
+                {% else %}
+                <input type="checkbox" disabled title="Link to a global user first">
+                {% endif %}
+              </td>
+              <td>{{ u.user_id }}</td>
+              <td><strong>{{ u.name or 'Unknown' }}</strong></td>
+              <td>{{ u.privilege }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="empty">No DB-only users.</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </form>
+    </section>
+  {% endif %}
+{% endblock %}

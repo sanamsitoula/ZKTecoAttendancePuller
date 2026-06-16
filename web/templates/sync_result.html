@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Sync result</p>
+      <h1>{{ device.name }}</h1>
+      <p class="muted">{{ action_label }} · {{ device.ip_address }}:{{ device.port }}</p>
+    </div>
+    <div class="head-actions">
+      <a class="btn primary" href="/">Dashboard</a>
+      <a class="btn ghost" href="/devices/{{ device.id }}/sync">Back to sync</a>
+      <a class="btn ghost" href="/users">Users</a>
+    </div>
+  </section>
+
+  <section class="status-grid">
+    <div class="metric">
+      <span class="metric-label">Action</span>
+      <strong>{{ action_label }}</strong>
+      <small>{{ action }}</small>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Processed</span>
+      <strong>{{ results|length }}</strong>
+      <small>Rows in this run</small>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Succeeded</span>
+      <strong class="ok-text">{{ ok_count }}</strong>
+      <small>Completed without error</small>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Failed</span>
+      <strong class="{{ 'bad-text' if fail_count else '' }}">{{ fail_count }}</strong>
+      <small>Needs review</small>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Results</h2>
+      <span class="muted">Review each row before leaving this page.</span>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>ID</th><th>Status</th><th>Details</th></tr></thead>
+        <tbody>
+        {% for r in results %}
+          {% set ok = r.result.ok if r.result else r.ok %}
+          <tr>
+            <td>{{ r.global_user_id or r.uid }}</td>
+            <td><span class="status {{ 'success' if ok else 'failed' }}">{{ 'OK' if ok else 'Error' }}</span></td>
+            <td>{{ r.result.message if r.result else (r.error if r.error else (r.message or '')) }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3" class="empty">No rows were selected.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

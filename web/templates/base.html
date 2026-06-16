@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ZKTeco Attendance Console</title>
+    <link rel="stylesheet" href="/static/style.css">
+  </head>
+  <body>
+    <nav class="topbar">
+      <a class="brand" href="/">
+        <span class="brand-mark">ZK</span>
+        <span>
+          <strong>Attendance Console</strong>
+          <small>ZKTeco device sync</small>
+        </span>
+      </a>
+      <div class="nav-links">
+        <a href="/" class="{{ 'active' if request.url.path == '/' else '' }}">Dashboard</a>
+        <a href="/users" class="{{ 'active' if request.url.path.startswith('/users') else '' }}">Users</a>
+        <a href="/attendance" class="{{ 'active' if request.url.path.startswith('/attendance') else '' }}">Attendance</a>
+        <a href="/pull-sessions" class="{{ 'active' if request.url.path.startswith('/pull-sessions') else '' }}">Runs</a>
+        <a href="/schedule" class="{{ 'active' if request.url.path.startswith('/schedule') else '' }}">Schedule</a>
+        <a href="/migrate" class="{{ 'active' if request.url.path.startswith('/migrate') else '' }}">Migrate</a>
+      </div>
+    </nav>
+    {% if flashes %}
+    <div class="toast-stack" id="toast-stack" aria-live="polite">
+      {% for flash in flashes %}
+      <div class="toast toast-{{ flash.category }}" data-toast>
+        <strong>{{ flash.category|capitalize }}</strong>
+        <span>{{ flash.message }}</span>
+        <button type="button" class="toast-close" aria-label="Dismiss">&times;</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <main class="container">
+      {% block content %}{% endblock %}
+    </main>
+    <script>
+      /* ── Toast auto-dismiss ──────────────────────────────── */
+      (function () {
+        var stack = document.getElementById("toast-stack");
+        if (!stack) return;
+        stack.querySelectorAll("[data-toast]").forEach(function (toast) {
+          var close = toast.querySelector(".toast-close");
+          var hide = function () {
+            toast.classList.add("toast-hide");
+            setTimeout(function () { toast.remove(); }, 220);
+          };
+          if (close) close.addEventListener("click", hide);
+          setTimeout(hide, 6000);
+        });
+      })();
+
+      /* ── Reusable client-side table filter ───────────────────
+         Usage:
+           <input data-table-filter="my-table" placeholder="Search…">
+           <select data-table-filter="my-table" data-filter-col="2">
+           <table id="my-table">…</table>
+           <span id="my-table-count"></span>   ← optional live count
+         Multiple filter elements sharing the same data-table-filter
+         are ANDed together.
+      ──────────────────────────────────────────────────────── */
+      (function () {
+        function applyFilters(tableId) {
+          var table = document.getElementById(tableId);
+          if (!table) return;
+          var tbody = table.querySelector('tbody');
+          if (!tbody) return;
+          var filters = document.querySelectorAll('[data-table-filter="' + tableId + '"]');
+          var rows = tbody.querySelectorAll('tr');
+          var visible = 0;
+          rows.forEach(function (row) {
+            var show = true;
+            filters.forEach(function (f) {
+              var val = f.value.trim().toLowerCase();
+              if (!val) return;
+              if (f.dataset.filterCol !== undefined) {
+                var col = parseInt(f.dataset.filterCol, 10);
+                var cell = row.cells[col];
+                if (cell && !cell.textContent.toLowerCase().includes(val)) show = false;
+              } else {
+                if (!row.textContent.toLowerCase().includes(val)) show = false;
+              }
+            });
+            row.style.display = show ? '' : 'none';
+            if (show) visible++;
+          });
+          var countEl = document.getElementById(tableId + '-count');
+          if (countEl) countEl.textContent = visible + ' shown';
+        }
+
+        function bindFilter(el) {
+          var ev = el.tagName === 'SELECT' ? 'change' : 'input';
+          el.addEventListener(ev, function () { applyFilters(this.dataset.tableFilter); });
+        }
+
+        document.querySelectorAll('[data-table-filter]').forEach(bindFilter);
+
+        // Also expose globally so templates can call it for dynamic content
+        window.applyTableFilter = applyFilters;
+        window.bindTableFilter  = bindFilter;
+      })();
+    </script>
+  </body>
+</html>

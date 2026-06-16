@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <section class="page-head">
+    <div>
+      <p class="eyebrow">Device enrollment</p>
+      <h1>Push {{ user.name }}</h1>
+      <p class="muted">Global ID {{ user.global_user_id }}</p>
+    </div>
+  </section>
+
+  <section class="panel narrow">
+    <form class="form" method="post" action="/users/{{ user.id }}/push">
+      <label>Device
+        <select name="device_id">
+          {% for d in devices %}
+          <option value="{{ d.id }}">{{ d.name }} - {{ d.ip_address }}:{{ d.port }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="btn primary" type="submit">Push to device</button>
+    </form>
+  </section>
+{% endblock %}
