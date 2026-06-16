@@ -120,7 +120,11 @@ def _dashboard_data(conn) -> dict:
             SELECT al.timestamp, COALESCE(al.name, e.name, 'Unknown') AS name,
                    al.user_id, al.punch_label, d.name AS device_name
             FROM attendance_logs al
-            LEFT JOIN employees e ON al.employee_id = e.id
+            LEFT JOIN LATERAL (
+                SELECT name FROM employees
+                WHERE device_id = al.device_id AND user_id = al.user_id
+                ORDER BY id LIMIT 1
+            ) e ON TRUE
             JOIN devices d ON al.device_id = d.id
             ORDER BY al.timestamp DESC
             LIMIT 12
@@ -885,13 +889,22 @@ def attendance_view(
             where.append("al.device_id = %s")
             params.append(device_id_int)
         if name_clean:
-            where.append("(COALESCE(al.name, e.name, '') ILIKE %s OR al.user_id ILIKE %s)")
-            params += [f'%{name_clean}%', f'%{name_clean}%']
+            where.append(
+                "(al.name ILIKE %s OR al.user_id ILIKE %s "
+                "OR EXISTS (SELECT 1 FROM employees _e "
+                "           WHERE _e.device_id = al.device_id AND _e.user_id = al.user_id "
+                "           AND _e.name ILIKE %s))"
+            )
+            params += [f'%{name_clean}%', f'%{name_clean}%', f'%{name_clean}%']
+
+        _lat = ("LEFT JOIN LATERAL (SELECT name FROM employees "
+                "WHERE device_id = al.device_id AND user_id = al.user_id "
+                "ORDER BY id LIMIT 1) e ON TRUE ")
 
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT COUNT(*) FROM attendance_logs al "
-                f"LEFT JOIN employees e ON al.employee_id = e.id "
+                + _lat +
                 f"JOIN devices d ON al.device_id = d.id "
                 f"WHERE {' AND '.join(where)}", tuple(params))
             total_records = cur.fetchone()[0]
@@ -906,7 +919,7 @@ def attendance_view(
                 f"       COALESCE(al.name, e.name, 'Unknown') AS name, "
                 f"       al.status, al.punch, al.punch_label, d.name AS device_name "
                 f"FROM attendance_logs al "
-                f"LEFT JOIN employees e ON al.employee_id = e.id "
+                + _lat +
                 f"JOIN devices d ON al.device_id = d.id "
                 f"WHERE {' AND '.join(where)} "
                 f"ORDER BY al.timestamp DESC LIMIT %s OFFSET %s",

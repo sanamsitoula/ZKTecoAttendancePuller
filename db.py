@@ -271,7 +271,11 @@ def get_attendance_for_date(conn, date_str: str) -> list:
             al.punch_label,
             d.name AS device_name
         FROM attendance_logs al
-        LEFT JOIN employees e ON al.employee_id = e.id
+        LEFT JOIN LATERAL (
+            SELECT name FROM employees
+            WHERE device_id = al.device_id AND user_id = al.user_id
+            ORDER BY id LIMIT 1
+        ) e ON TRUE
         JOIN devices d ON al.device_id = d.id
         WHERE DATE(al.timestamp) = %s
         ORDER BY al.timestamp ASC
@@ -294,7 +298,11 @@ def get_daily_summary(conn, date_str: str) -> list:
             COUNT(*) AS total_punches,
             STRING_AGG(DISTINCT d.name, ', ') AS devices
         FROM attendance_logs al
-        LEFT JOIN employees e ON al.employee_id = e.id
+        LEFT JOIN LATERAL (
+            SELECT name FROM employees
+            WHERE device_id = al.device_id AND user_id = al.user_id
+            ORDER BY id LIMIT 1
+        ) e ON TRUE
         JOIN devices d ON al.device_id = d.id
         WHERE DATE(al.timestamp) = %s
         GROUP BY al.user_id, COALESCE(al.name, e.name, 'Unknown')
@@ -315,8 +323,13 @@ def get_attendance_summary_filtered(conn, from_date: str, to_date: str,
         where.append("al.device_id = %s")
         params.append(device_id)
     if name:
-        where.append("(COALESCE(al.name, e.name, '') ILIKE %s OR al.user_id ILIKE %s)")
-        params += [f'%{name}%', f'%{name}%']
+        where.append(
+            "(al.name ILIKE %s OR al.user_id ILIKE %s "
+            "OR EXISTS (SELECT 1 FROM employees _e "
+            "           WHERE _e.device_id = al.device_id AND _e.user_id = al.user_id "
+            "           AND _e.name ILIKE %s))"
+        )
+        params += [f'%{name}%', f'%{name}%', f'%{name}%']
     sql = f"""
         SELECT
             COALESCE(al.name, e.name, 'Unknown') AS name,
@@ -328,7 +341,11 @@ def get_attendance_summary_filtered(conn, from_date: str, to_date: str,
             ARRAY_AGG(al.timestamp  ORDER BY al.timestamp) AS punch_times,
             ARRAY_AGG(al.punch_label ORDER BY al.timestamp) AS punch_labels
         FROM attendance_logs al
-        LEFT JOIN employees e ON al.employee_id = e.id
+        LEFT JOIN LATERAL (
+            SELECT name FROM employees
+            WHERE device_id = al.device_id AND user_id = al.user_id
+            ORDER BY id LIMIT 1
+        ) e ON TRUE
         JOIN devices d ON al.device_id = d.id
         WHERE {" AND ".join(where)}
         GROUP BY al.user_id, COALESCE(al.name, e.name, 'Unknown')
