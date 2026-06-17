@@ -145,11 +145,11 @@ def run_pull_cycle() -> None:
                 )
                 conn.commit()
 
-                # Settle attendance_daily for the past 7 days
+                # Settle attendance_daily for the past 45 days (covers current + previous month)
                 try:
                     from datetime import date as _settle_date, timedelta as _settle_td
                     _settle_to   = _settle_date.today().isoformat()
-                    _settle_from = (_settle_date.today() - _settle_td(days=7)).isoformat()
+                    _settle_from = (_settle_date.today() - _settle_td(days=45)).isoformat()
                     _sr = db.settle_all_attendance_daily(conn, _settle_from, _settle_to)
                     conn.commit()
                     logger.info("[%s] attendance_daily settled: %d days for %d users",

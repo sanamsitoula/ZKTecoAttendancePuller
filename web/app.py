@@ -1174,11 +1174,11 @@ def device_pull(request: Request, device_id: int):
                 conn.commit()
                 success = True
 
-                # Settle attendance_daily for recent days
+                # Settle attendance_daily for past 45 days (covers current + previous month)
                 try:
                     from datetime import date as _sd, timedelta as _std
                     _to   = _sd.today().isoformat()
-                    _from = (_sd.today() - _std(days=7)).isoformat()
+                    _from = (_sd.today() - _std(days=45)).isoformat()
                     _sr = db_mod.settle_all_attendance_daily(conn, _from, _to)
                     conn.commit()
                 except Exception as _se:
@@ -2470,9 +2470,10 @@ def reports_hajiri(
                      if (u.get('emp_status') or 'ACTIVE') == 'ACTIVE']
 
         # ── Load attendance_daily for the month ───────────────────────────────
-        user_ids = [u['id'] for u in all_users]
-        att_map: dict = {}   # {global_user_id: {date_str: row}}
-        if user_ids:
+        def _load_att_map(conn, user_ids, from_ad, to_ad):
+            result: dict = {}
+            if not user_ids:
+                return result
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
                 cur.execute("""
                     SELECT global_user_id,
@@ -2488,9 +2489,23 @@ def reports_hajiri(
                 """, (user_ids, from_ad, to_ad))
                 for r in cur.fetchall():
                     gid = r['global_user_id']
-                    if gid not in att_map:
-                        att_map[gid] = {}
-                    att_map[gid][r['work_date']] = dict(r)
+                    if gid not in result:
+                        result[gid] = {}
+                    result[gid][r['work_date']] = dict(r)
+            return result
+
+        user_ids = [u['id'] for u in all_users]
+        att_map = _load_att_map(conn, user_ids, from_ad, to_ad)
+
+        # Auto-settle if attendance_daily has no rows for this period
+        if user_ids and not any(att_map.values()):
+            try:
+                db_mod.settle_all_attendance_daily(conn, from_ad, to_ad)
+                conn.commit()
+                att_map = _load_att_map(conn, user_ids, from_ad, to_ad)
+            except Exception as _se:
+                conn.rollback()
+                logger.warning("hajiri auto-settle failed: %s", _se)
 
         # ── Build per-employee summary ────────────────────────────────────────
         employees = []
