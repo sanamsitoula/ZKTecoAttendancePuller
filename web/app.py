@@ -3023,6 +3023,14 @@ async def add_holiday_route(request: Request):
     if not holiday_ad:
         return redirect_with_flash(redirect_to, 'error', 'Invalid BS date — cannot convert to AD.')
 
+    # Redirect to the calendar month that contains the added holiday, not the current view
+    hbs_parts = holiday_bs.replace('/', '-').split('-')
+    if len(hbs_parts) >= 2:
+        try:
+            redirect_to = f"/calendar?bs_year={int(hbs_parts[0])}&bs_month={int(hbs_parts[1])}"
+        except ValueError:
+            pass
+
     conn = get_connection()
     try:
         create_holiday(conn, name, holiday_ad, holiday_bs, holiday_type, description,

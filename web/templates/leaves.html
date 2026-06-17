@@ -491,7 +491,9 @@
     {% endfor %}
   ];
 
-  function makeSearchable(inputId, hiddenId, dropdownId, onSelect) {
+  /* prefix='g' for the filter bar (sends emp_key=g5); prefix='' for add form (sends global_user_id=5) */
+  function makeSearchable(inputId, hiddenId, dropdownId, prefix) {
+    var pfx  = (prefix !== undefined) ? prefix : 'g';
     var inp  = document.getElementById(inputId);
     var hid  = document.getElementById(hiddenId);
     var drop = document.getElementById(dropdownId);
@@ -520,9 +522,8 @@
           d.dataset.eid  = e.eid;
           d.addEventListener('click', function() {
             inp.value = (e.eid ? e.eid + ' — ' : '') + e.name;
-            hid.value = 'g' + e.id;
+            hid.value = pfx + e.id;
             drop.style.display = 'none';
-            if (onSelect) onSelect(e);
           });
           drop.appendChild(d);
         });
@@ -538,25 +539,23 @@
     document.addEventListener('click', function(ev) {
       if (!inp.contains(ev.target) && !drop.contains(ev.target)) {
         drop.style.display = 'none';
-        /* If user typed but didn't select, clear hidden so filter is not sent */
         if (!hid.value && inp.value) {
-          /* check if text matches any entry exactly */
           var match = EMP_DATA.find(function(e) {
             var label = (e.eid ? e.eid + ' — ' : '') + e.name;
             return label === inp.value || e.name === inp.value;
           });
-          if (match) { hid.value = 'g' + match.id; }
+          if (match) { hid.value = pfx + match.id; }
           else { inp.value = ''; }
         }
       }
     });
   }
 
-  /* Filter bar employee search */
-  makeSearchable('emp-search-input', 'emp-key-hidden', 'emp-dropdown');
+  /* Filter bar: sends emp_key=g5 */
+  makeSearchable('emp-search-input', 'emp-key-hidden', 'emp-dropdown', 'g');
 
-  /* Add form employee search */
-  makeSearchable('add-emp-search', 'add-emp-hidden', 'add-emp-dropdown');
+  /* Add form: sends global_user_id=5 (plain integer, no prefix) */
+  makeSearchable('add-emp-search', 'add-emp-hidden', 'add-emp-dropdown', '');
 
   /* Clear month filter when date range is used and vice-versa */
   var monthSel = document.getElementById('filter-month');

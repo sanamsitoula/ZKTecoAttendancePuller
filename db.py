@@ -964,8 +964,8 @@ def get_employees_for_report(conn) -> list:
             e.user_id,
             d.name                                 AS device_name
         FROM employees e
-        JOIN devices d     ON e.device_id       = d.id
-        LEFT JOIN global_users gu  ON e.global_user_id  = gu.id
+        JOIN devices d ON e.device_id = d.id
+        JOIN global_users gu   ON e.global_user_id    = gu.id
         LEFT JOIN departments dept ON gu.department_id   = dept.id
         LEFT JOIN directorates dir ON dept.directorate_id = dir.id
         LEFT JOIN sections    sect ON gu.section_id      = sect.id
