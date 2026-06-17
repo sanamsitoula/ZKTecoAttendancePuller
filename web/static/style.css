@@ -953,3 +953,33 @@ td input[type="checkbox"] {
 .rule-emp-opt.selected { background: #eff6ff; }
 .emp-opt-check { font-size: 14px; color: #64748b; min-width: 16px; }
 .rule-emp-opt.selected .emp-opt-check { color: #2563eb; }
+
+/* ── Settings tabs ──────────────────────────────────────────────────── */
+.settings-tabs {
+  display: flex; gap: 0; margin: 0 0 4px;
+  border-bottom: 2px solid var(--line);
+}
+.tab-btn {
+  padding: 10px 22px; font-size: 14px; font-weight: 600;
+  background: none; border: none; border-bottom: 3px solid transparent;
+  cursor: pointer; color: var(--muted); margin-bottom: -2px;
+  transition: color .15s, border-color .15s;
+}
+.tab-btn:hover { color: var(--blue); }
+.tab-btn.active { color: var(--blue); border-bottom-color: var(--blue); }
+
+/* ── Two-column form grid ───────────────────────────────────────────── */
+.form-grid-2 {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  margin-bottom: 14px;
+}
+@media (max-width: 700px) { .form-grid-2 { grid-template-columns: 1fr; } }
+
+/* ── Searchable select ──────────────────────────────────────────────── */
+.ss-display {
+  border: 1px solid #cbd5e1; border-radius: 6px;
+  padding: 6px 10px; cursor: pointer; background: #fff;
+  font-size: 13px; display: flex; justify-content: space-between; align-items: center;
+  user-select: none;
+}
+.ss-display:hover { border-color: var(--blue); }

@@ -28,14 +28,14 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 | **Daily Report** | Present employees with check-in times, department-wise absent list, on-leave list |
 | **Leave Management** | Employee leave applications; approve/reject; annual leave allocation; BS datepicker |
 | **Holiday Calendar** | Monthly BS calendar grid with public/festival/other holidays; working-day count |
-| **Users** | Employee list with filter, sort, CSV export, per-row and bulk delete |
+| **Users** | Global user management: employee ID, bank, email, phone, org, shift; pagination (25/page); full search/filter |
 | **Devices** | Add / edit / delete ZKTeco devices; test TCP connectivity |
 | **Device Backup** | Download full user + fingerprint backup as JSON |
 | **Migrate** | Copy users and fingerprints between two devices |
 | **Sync** | Compare device users vs DB; import unknown or push missing |
 | **Pull Sessions** | History of every pull run (start, end, rows, status) |
 | **Schedule** | View and edit the pull schedule — applies immediately, no restart |
-| **Settings** | Manage directorates, departments, sections, units, shifts, and shift rules |
+| **Settings** | Three tabs: Org Hierarchy (Directorates → Departments → Sections → Units), Shifts & Shift Rules, Employee Org Assignment |
 
 ### Bikram Sambat (BS) Calendar
 
@@ -127,13 +127,45 @@ CREATE DATABASE zkteco;
 
 All tables are created automatically on first startup.
 
-### 5. Start the Web UI
+### 5. Create Authentication Credentials
+
+```powershell
+Copy-Item users.json.example users.json
+notepad users.json
+```
+
+Generate a bcrypt hash for each user's password:
+
+```powershell
+.venv\Scripts\python.exe -c "import bcrypt; print(bcrypt.hashpw(b'your_password', bcrypt.gensalt(12)).decode())"
+```
+
+Edit `users.json`:
+
+```json
+{
+  "secret_key": "replace-with-a-long-random-string",
+  "users": [
+    {
+      "id": 1,
+      "username": "admin",
+      "display_name": "Admin",
+      "role": "admin",
+      "password_hash": "<paste bcrypt hash here>"
+    }
+  ]
+}
+```
+
+> `users.json` is gitignored — **never commit it**. Roles: `"admin"` (full access), `"user"` (read-only, future).
+
+### 6. Start the Web UI
 
 ```powershell
 .\start_web.bat
 ```
 
-Then open: **http://localhost:8097**
+Then open: **http://localhost:8097** and log in with your credentials.
 
 Add your ZKTeco devices via **Dashboard → Add Device**, then click **Pull** to import employees and attendance.
 
@@ -307,10 +339,22 @@ Times are in **Nepal Time (NPT, UTC+5:45)**. Edit via the web UI at `/schedule` 
 | File | What it controls | In git? | Notes |
 |---|---|---|---|
 | `db_config.json` | PostgreSQL connection | **No** — gitignored | Copy from `db_config.json.example` |
+| `users.json` | Login credentials + session secret | **No** — gitignored | Copy from `users.json.example`; generate bcrypt hashes |
 | `devices.json` | ZKTeco device list (legacy) | **No** — gitignored | Devices are now managed via web UI + DB |
 | `config.py` | Schedule, company info, timezones | **Yes** | Edit and commit changes |
 
-`db_config.json` is the **only file** that needs to be created on a new machine. Everything else is either in git or in the database.
+`db_config.json` and `users.json` **must be created** on every new machine. Everything else is either in git or in the database.
+
+### Role-Based Access
+
+Two roles are defined in `users.json`:
+
+| Role | Access |
+|---|---|
+| `"admin"` | Full access — create, edit, delete, approve, all reports |
+| `"user"` | Read-only (prepared for future general login) |
+
+Add `"role": "admin"` or `"role": "user"` to each entry in `users.json`. All current users default to `"admin"` if the field is absent.
 
 ---
 
@@ -348,28 +392,36 @@ git pull
 
 ## Database Schema
 
-```
-devices           — id, name, ip_address, port, model, is_active, created_at, created_bs
-employees         — id, device_id, uid, user_id, name, privilege, card, created_at, created_bs, updated_bs
-global_users      — id, global_user_id, name, department_id, section_id, unit_id, ...
-attendance_logs   — id, device_id, employee_id, uid, user_id, name, timestamp (UTC), bs_date,
-                    status, punch, punch_label
-                    UNIQUE (device_id, uid, timestamp)  ← idempotency key
-pull_sessions     — id, device_id, started_at, completed_at, records_pulled, new_inserts,
-                    status, error_message, started_bs, completed_bs
-directorates      — id, name
-departments       — id, name, directorate_id
-sections          — id, name, department_id
-units             — id, name, section_id
-shifts            — id, name, start_time, end_time
-shift_rules       — id, shift_id, global_user_id / department_id / section_id / unit_id / directorate_id, from_date, to_date
-leave_types       — id, name, code, days_per_year, max_accumulate, carry_forward, is_paid
-leave_balances    — id, global_user_id, leave_type_id, bs_year, opening_balance, days_earned, days_taken
-leave_applications — id, global_user_id, leave_type_id, from_bs, to_bs, from_ad, to_ad, days, status
-holidays          — id, name, holiday_ad, holiday_bs, holiday_type, description
-```
+| Table | Key Columns |
+|---|---|
+| `devices` | id, name, ip_address, port, model, is_active, created_at/bs, created_by, updated_by |
+| `employees` | id, device_id, uid, user_id, name, privilege, card, global_user_id (FK), created_at/bs |
+| `global_users` | id, **global_user_id** (att. device ID), **employee_id** (HR ID), name, privilege, card, **bank_number**, **email**, **phone**, department_id, section_id, unit_id, **shift_id**, **fingerprint_data**, created_by, updated_by |
+| `attendance_logs` | id, device_id, employee_id, uid, user_id, name, timestamp (UTC), bs_date, status, punch, punch_label — UNIQUE (device_id, uid, timestamp) |
+| `pull_sessions` | id, device_id, started_at, completed_at, records_pulled, new_inserts, status, error_message, started_bs |
+| `directorates` | id, name |
+| `departments` | id, name, directorate_id |
+| `sections` | id, name, department_id |
+| `units` | id, name, section_id |
+| `shifts` | id, name, start_time, end_time |
+| `shift_rules` | id, shift_id, global_user_id / department_id / section_id / unit_id / directorate_id, from_date, to_date |
+| `leave_types` | id, name, code, days_per_year, max_accumulate, carry_forward, is_paid |
+| `leave_balances` | id, global_user_id, leave_type_id, bs_year, opening_balance, days_earned, days_taken |
+| `leave_applications` | id, global_user_id, leave_type_id, from_bs, to_bs, from_ad, to_ad, days, status, approved_by, created_by, updated_by |
+| `holidays` | id, name, holiday_ad, holiday_bs, holiday_type, description |
 
-All tables store a Bikram Sambat date column (e.g. `bs_date`, `created_bs`) alongside the AD timestamp.
+**Bold** columns were added in the extended migration (auto-applied on startup). All tables store a BS date column (`bs_date`, `created_bs`, etc.) alongside AD timestamps.
+
+### Migration Notes (Upgrading from an Earlier Version)
+
+All schema changes are additive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` — safe to run against an existing database. The web server applies them automatically on startup via `init_schema`. No manual SQL needed.
+
+To verify the new columns exist:
+```sql
+SELECT column_name FROM information_schema.columns
+WHERE table_name = 'global_users'
+ORDER BY ordinal_position;
+```
 
 ---
 
@@ -425,11 +477,14 @@ ZKTecePuller/
 | Problem | Solution |
 |---|---|
 | `db_config.json not found` | `Copy-Item db_config.json.example db_config.json` then edit credentials |
+| `users.json not found` | `Copy-Item users.json.example users.json` then add bcrypt hashes and secret_key |
 | `FATAL: database "zkteco" does not exist` | `createdb -U postgres zkteco` |
 | `password authentication failed` | Check `password` in `db_config.json` |
+| Login says "Invalid username or password" | Re-generate bcrypt hash: `.venv\Scripts\python.exe -c "import bcrypt; print(bcrypt.hashpw(b'pw', bcrypt.gensalt(12)).decode())"` |
 | Web UI won't start on port 8097 | `start_web.bat` kills any existing process on that port automatically |
 | Pages show Internal Server Error after update | Run `start_web.bat` to restart — the server is running old code |
 | Leave / Calendar / Daily Report pages give 500 | Schema not applied yet — restart server with `start_web.bat` |
+| `AssertionError: SessionMiddleware must be installed` | Upgrade to latest code and restart — middleware ordering was fixed |
 | Daily report shows no data | Reports default to yesterday; pull data via Dashboard first |
 | Device shows Offline on Dashboard | Port 4370 must be reachable from the server — check firewall / network |
 | `Connection timed out` on pull | Verify `Test-NetConnection -ComputerName <ip> -Port 4370` succeeds |
@@ -437,6 +492,7 @@ ZKTecePuller/
 | `pg_dump` / `psql` not found | Use full path: `C:\Program Files\PostgreSQL\16\bin\pg_dump.exe` |
 | Python package install fails | Ensure `.venv\Scripts\activate` was run before `pip install` |
 | `pywin32` error (service only) | Run `python .venv\Scripts\pywin32_postinstall.py -install` as Administrator |
+| New global_users columns missing | Restart the server — `init_schema` adds them automatically via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` |
 
 ---
 

@@ -4,22 +4,23 @@
 <section class="page-head">
   <div>
     <p class="eyebrow">Settings</p>
-    <h1>Org Hierarchy, Shifts &amp; Shift Rules</h1>
+    <h1>Organisation &amp; Shifts</h1>
   </div>
 </section>
 
-{# ── Quick navigation ─────────────────────────────────────────────────────── #}
-<nav class="settings-quicknav" aria-label="Section navigation">
-  <a href="#sec-directorates">Directorates</a>
-  <a href="#sec-departments">Departments</a>
-  <a href="#sec-sections">Sections</a>
-  <a href="#sec-units">Units</a>
-  <a href="#sec-shifts">Shifts</a>
-  <a href="#sec-shift-rules">Shift Rules</a>
-  <a href="#sec-emp-org">Employee Org</a>
-</nav>
+{# ── Tabs ────────────────────────────────────────────────────────────────────── #}
+<div class="settings-tabs" id="settings-tabs">
+  <button class="tab-btn active" data-tab="org" type="button">Org Hierarchy</button>
+  <button class="tab-btn"        data-tab="shifts" type="button">Shifts &amp; Shift Rules</button>
+  <button class="tab-btn"        data-tab="emp-org" type="button">Employee Org</button>
+</div>
 
-{# ── Directorates ─────────────────────────────────────────────────────────── #}
+{# ════════════════════════════════════════════════════════════════════════════
+   TAB 1 — Org Hierarchy
+   ════════════════════════════════════════════════════════════════════════════ #}
+<div class="tab-pane active" id="tab-org">
+
+{# ── Directorates ───────────────────────────────────────────────────────────── #}
 <section class="panel" id="sec-directorates">
   <div class="panel-head">
     <h2>Directorates</h2>
@@ -53,14 +54,12 @@
       <label style="flex:1;max-width:280px">New Directorate Name
         <input type="text" name="name" placeholder="e.g. Finance Directorate" required>
       </label>
-      <div class="filter-actions" style="padding-top:4px">
-        <button class="btn primary" type="submit">Add Directorate</button>
-      </div>
+      <button class="btn primary" type="submit">Add Directorate</button>
     </div>
   </form>
 </section>
 
-{# ── Departments ──────────────────────────────────────────────────────────── #}
+{# ── Departments ─────────────────────────────────────────────────────────────── #}
 <section class="panel" id="sec-departments">
   <div class="panel-head">
     <h2>Departments</h2>
@@ -75,7 +74,7 @@
         <tr>
           <td>{{ loop.index }}</td>
           <td>{{ d.name }}</td>
-          <td>{{ d.directorate_name or '&mdash;' }}</td>
+          <td>{{ d.directorate_name or '—' }}</td>
           <td>
             <form method="post" action="/settings/departments/{{ d.id }}/delete"
                   onsubmit="return confirm('Delete department {{ d.name }}?')">
@@ -103,14 +102,12 @@
           {% endfor %}
         </select>
       </label>
-      <div class="filter-actions" style="padding-top:4px">
-        <button class="btn primary" type="submit">Add Department</button>
-      </div>
+      <button class="btn primary" type="submit">Add Department</button>
     </div>
   </form>
 </section>
 
-{# ── Sections ─────────────────────────────────────────────────────────────── #}
+{# ── Sections ─────────────────────────────────────────────────────────────────── #}
 <section class="panel" id="sec-sections">
   <div class="panel-head">
     <h2>Sections</h2>
@@ -125,8 +122,8 @@
         <tr>
           <td>{{ loop.index }}</td>
           <td>{{ s.name }}</td>
-          <td>{{ s.department_name or '&mdash;' }}</td>
-          <td>{{ s.directorate_name or '&mdash;' }}</td>
+          <td>{{ s.department_name or '—' }}</td>
+          <td>{{ s.directorate_name or '—' }}</td>
           <td>
             <form method="post" action="/settings/sections/{{ s.id }}/delete"
                   onsubmit="return confirm('Delete section {{ s.name }}?')">
@@ -154,7 +151,7 @@
           {% endfor %}
         </select>
       </label>
-      <label style="flex:1;max-width:220px">Department
+      <label style="flex:1;max-width:220px">Department <span style="color:red">*</span>
         <select name="department_id" id="sec-dept-select" required>
           <option value="">-- select department --</option>
           {% for d in departments %}
@@ -162,14 +159,12 @@
           {% endfor %}
         </select>
       </label>
-      <div class="filter-actions" style="padding-top:4px">
-        <button class="btn primary" type="submit">Add Section</button>
-      </div>
+      <button class="btn primary" type="submit">Add Section</button>
     </div>
   </form>
 </section>
 
-{# ── Units ────────────────────────────────────────────────────────────────── #}
+{# ── Units ───────────────────────────────────────────────────────────────────── #}
 <section class="panel" id="sec-units">
   <div class="panel-head">
     <h2>Units</h2>
@@ -184,8 +179,8 @@
         <tr>
           <td>{{ loop.index }}</td>
           <td>{{ u.name }}</td>
-          <td>{{ u.section_name or '&mdash;' }}</td>
-          <td>{{ u.department_name or '&mdash;' }}</td>
+          <td>{{ u.section_name or '—' }}</td>
+          <td>{{ u.department_name or '—' }}</td>
           <td>
             <form method="post" action="/settings/units/{{ u.id }}/delete"
                   onsubmit="return confirm('Delete unit {{ u.name }}?')">
@@ -205,7 +200,7 @@
       <label style="flex:1;max-width:220px">New Unit Name
         <input type="text" name="name" placeholder="e.g. Revenue Unit" required>
       </label>
-      <label style="flex:1;max-width:220px">Section
+      <label style="flex:1;max-width:220px">Section <span style="color:red">*</span>
         <select name="section_id" required>
           <option value="">-- select section --</option>
           {% for s in sections %}
@@ -213,14 +208,20 @@
           {% endfor %}
         </select>
       </label>
-      <div class="filter-actions" style="padding-top:4px">
-        <button class="btn primary" type="submit">Add Unit</button>
-      </div>
+      <button class="btn primary" type="submit">Add Unit</button>
     </div>
   </form>
 </section>
 
-{# ── Shifts ───────────────────────────────────────────────────────────────── #}
+</div>{# /tab-org #}
+
+
+{# ════════════════════════════════════════════════════════════════════════════
+   TAB 2 — Shifts & Shift Rules
+   ════════════════════════════════════════════════════════════════════════════ #}
+<div class="tab-pane" id="tab-shifts" style="display:none">
+
+{# ── Shifts ──────────────────────────────────────────────────────────────────── #}
 <section class="panel" id="sec-shifts">
   <div class="panel-head">
     <h2>Shifts</h2>
@@ -230,25 +231,18 @@
   <div class="table-wrap" style="margin-bottom:14px">
     <table class="table">
       <thead>
-        <tr>
-          <th>#</th><th>Name</th><th>Start</th><th>End</th>
-          <th>Work Hours</th><th style="width:80px">Action</th>
-        </tr>
+        <tr><th>#</th><th>Name</th><th>Start</th><th>End</th><th>Duration</th><th style="width:80px">Action</th></tr>
       </thead>
       <tbody>
         {% for s in shifts %}
-        {% set sh = s.start_time[:5] %}
-        {% set eh = s.end_time[:5] %}
+        {% set sm = s.start_time[:2]|int * 60 + s.start_time[3:5]|int %}
+        {% set em = s.end_time[:2]|int  * 60 + s.end_time[3:5]|int  %}
         <tr>
           <td>{{ loop.index }}</td>
           <td><strong>{{ s.name }}</strong></td>
-          <td>{{ sh }}</td>
-          <td>{{ eh }}</td>
-          <td>
-            {% set sm = s.start_time[:2]|int * 60 + s.start_time[3:5]|int %}
-            {% set em = s.end_time[:2]|int  * 60 + s.end_time[3:5]|int  %}
-            {{ ((em - sm) // 60) }}h {{ ((em - sm) % 60) }}m
-          </td>
+          <td>{{ s.start_time[:5] }}</td>
+          <td>{{ s.end_time[:5] }}</td>
+          <td>{{ ((em - sm) // 60) }}h {{ ((em - sm) % 60) }}m</td>
           <td>
             <form method="post" action="/settings/shifts/{{ s.id }}/delete"
                   onsubmit="return confirm('Delete shift {{ s.name }}?')">
@@ -274,21 +268,18 @@
       <label style="width:120px">End Time
         <input type="time" name="end_time" value="17:00" required>
       </label>
-      <div class="filter-actions" style="padding-top:4px">
-        <button class="btn primary" type="submit">Add Shift</button>
-      </div>
+      <button class="btn primary" type="submit">Add Shift</button>
     </div>
   </form>
 </section>
 
-{# ── Shift Rules ──────────────────────────────────────────────────────────── #}
+{# ── Shift Rules ─────────────────────────────────────────────────────────────── #}
 <section class="panel" id="sec-shift-rules">
   <div class="panel-head">
     <h2>Shift Rules</h2>
     <span class="muted">Priority: Employee &gt; Unit &gt; Section &gt; Department &gt; Directorate</span>
   </div>
 
-  {# Current rules table #}
   <div class="table-wrap" style="margin-bottom:20px">
     <input data-table-filter="shift-rules-table" placeholder="Filter rules…"
            style="margin-bottom:8px;padding:5px 10px;width:260px;font-size:13px">
@@ -315,7 +306,7 @@
             {% elif r.directorate_name %}
               <span class="status info" style="font-size:11px">Dir</span> {{ r.directorate_name }}
             {% else %}
-              <span class="muted">&mdash;</span>
+              <span class="muted">—</span>
             {% endif %}
           </td>
           <td>
@@ -323,7 +314,7 @@
             <span class="muted" style="font-size:11px">{{ r.start_time[:5] }}&ndash;{{ r.end_time[:5] }}</span>
           </td>
           <td>{{ r.from_date }}</td>
-          <td>{{ r.to_date or '&mdash;' }}</td>
+          <td>{{ r.to_date or '—' }}</td>
           <td>
             <form method="post" action="/settings/shift-rules/{{ r.id }}/delete"
                   onsubmit="return confirm('Delete this shift rule?')">
@@ -332,27 +323,25 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="empty">No shift rules yet. Add one below.</td></tr>
+        <tr><td colspan="6" class="empty">No shift rules yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
-  {# ── Add Rule Form ─────────────────────────────────────────────────────── #}
   <div class="add-rule-card">
-    <h3 style="margin:0 0 16px;font-size:14px;font-weight:700;color:#1e293b;border-bottom:1px solid #e2e8f0;padding-bottom:8px">
-      ＋ Add New Shift Rule
+    <h3 style="margin:0 0 16px;font-size:14px;font-weight:700;border-bottom:1px solid #e2e8f0;padding-bottom:8px">
+      Add New Shift Rule
     </h3>
     <form method="post" action="/settings/shift-rules/add" id="rule-form">
       <div class="rule-form-grid">
 
-        {# Col 1: Shift + Dates #}
         <div class="rule-form-col">
           <label>Shift <span style="color:red">*</span>
             <select name="shift_id" required style="margin-top:4px">
               <option value="">— select shift —</option>
               {% for s in shifts %}
-              <option value="{{ s.id }}">{{ s.name }} &nbsp;({{ s.start_time[:5] }}&ndash;{{ s.end_time[:5] }})</option>
+              <option value="{{ s.id }}">{{ s.name }} ({{ s.start_time[:5] }}–{{ s.end_time[:5] }})</option>
               {% endfor %}
             </select>
           </label>
@@ -362,13 +351,12 @@
             <input type="hidden" name="from_date" id="rule_from_ad">
           </label>
 
-          <label style="margin-top:14px">To Date (BS) <small class="muted">(optional — leave blank for open-ended)</small>
+          <label style="margin-top:14px">To Date (BS) <small class="muted">(optional)</small>
             <input class="bsdp" data-ad-target="rule_to_ad" placeholder="Pick BS date" style="margin-top:4px">
             <input type="hidden" name="to_date" id="rule_to_ad">
           </label>
         </div>
 
-        {# Col 2: Target Type + Selector #}
         <div class="rule-form-col">
           <label style="display:block;margin-bottom:8px">Target Type</label>
           <div class="target-type-pills">
@@ -383,7 +371,6 @@
             {% endfor %}
           </div>
 
-          {# Employee tags multi-picker #}
           <div id="rule-emp-wrap" style="margin-top:12px">
             <div class="emp-tags-picker">
               <div id="rule-emp-tags" class="emp-tags-display" onclick="document.getElementById('rule-emp-search').focus()">
@@ -410,7 +397,6 @@
                 {% endfor %}
               </div>
             </div>
-            {# Hidden checkboxes submitted with form #}
             <div id="rule-emp-hidden" style="display:none">
               {% for emp in employees %}
               <input type="checkbox" name="global_user_id[]" value="{{ emp.id }}" id="rule-emp-cb-{{ emp.id }}">
@@ -418,7 +404,6 @@
             </div>
           </div>
 
-          {# Org single-selects #}
           <div id="rule-dept-wrap" style="display:none;margin-top:12px">
             <label>Department <span style="color:red">*</span>
               <select name="department_id" id="rule-dept-select" style="margin-top:4px">
@@ -463,29 +448,41 @@
             </label>
           </div>
 
-        </div>{# /rule-form-col #}
-      </div>{# /rule-form-grid #}
+        </div>
+      </div>
 
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid #e2e8f0;display:flex;gap:10px;align-items:center">
-        <button class="btn primary" type="submit" style="padding:9px 22px">Add Shift Rule</button>
+        <button class="btn primary" type="submit">Add Shift Rule</button>
         <span id="rule-emp-count-badge" class="muted" style="font-size:13px"></span>
       </div>
     </form>
   </div>
 </section>
 
-{# ── Employee Org Assignment ──────────────────────────────────────────────── #}
+</div>{# /tab-shifts #}
+
+
+{# ════════════════════════════════════════════════════════════════════════════
+   TAB 3 — Employee Org Assignment
+   ════════════════════════════════════════════════════════════════════════════ #}
+<div class="tab-pane" id="tab-emp-org" style="display:none">
+
 <section class="panel" id="sec-emp-org">
   <div class="panel-head">
     <h2>Employee Org Assignment</h2>
     <span class="muted">Assign department, section and unit per employee</span>
   </div>
 
+  <div style="margin-bottom:12px">
+    <input data-table-filter="emp-org-table" placeholder="Search employees…"
+           style="padding:6px 12px;width:260px;font-size:13px;border:1px solid #cbd5e1;border-radius:6px">
+  </div>
+
   <div class="table-wrap">
-    <table class="table">
+    <table class="table" id="emp-org-table">
       <thead>
         <tr>
-          <th>#</th><th>Employee</th><th>Company ID</th>
+          <th>#</th><th>Employee</th><th>Emp ID</th><th>Att. ID</th>
           <th>Department</th><th>Section</th><th>Unit</th>
           <th style="width:60px">Save</th>
         </tr>
@@ -495,7 +492,8 @@
         <tr>
           <td>{{ loop.index }}</td>
           <td>{{ emp.name or '(no name)' }}</td>
-          <td>{{ emp.company_id or '&mdash;' }}</td>
+          <td>{{ emp.company_id or '—' }}</td>
+          <td><code style="font-size:11px">{{ emp.global_user_id or '—' }}</code></td>
           <td colspan="4">
             <form method="post" action="/settings/employees/{{ emp.id }}/org"
                   style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
@@ -522,15 +520,44 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="empty">No employees found in global_users.</td></tr>
+        <tr><td colspan="8" class="empty">No employees in global_users yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </section>
 
+</div>{# /tab-emp-org #}
+
+
 <script>
-/* ── Target type toggle ─────────────────────────────────────────────────── */
+/* ── Tab switching ──────────────────────────────────────────────────── */
+(function () {
+  var active = 'org';
+  // Check URL hash on load to restore tab
+  var hash = window.location.hash.replace('#', '');
+  if (hash === 'shifts' || hash === 'emp-org') active = hash;
+
+  function switchTab(name) {
+    active = name;
+    document.querySelectorAll('.tab-btn').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.tab === name);
+    });
+    document.querySelectorAll('.tab-pane').forEach(function (p) {
+      p.style.display = p.id === 'tab-' + name ? '' : 'none';
+    });
+    history.replaceState(null, '', '#' + name);
+  }
+
+  document.querySelectorAll('.tab-btn').forEach(function (b) {
+    b.addEventListener('click', function () { switchTab(b.dataset.tab); });
+  });
+
+  // If redirected from a settings action, check flash then stay on right tab
+  switchTab(active);
+})();
+
+/* ── Target type toggle ─────────────────────────────────────────────── */
 function ruleTargetChange(v) {
   var map = { employee: 'emp', department: 'dept', section: 'sec', unit: 'unit', directorate: 'dir' };
   ['emp','dept','sec','unit','dir'].forEach(function (k) {
@@ -539,23 +566,19 @@ function ruleTargetChange(v) {
   });
 }
 
-/* ── Tags-style multi-employee picker ───────────────────────────────────── */
+/* ── Tags-style multi-employee picker ───────────────────────────────── */
 (function () {
-  var selected = {};   // {id: name}
+  var selected = {};
 
   function updateTags() {
     var tagsEl = document.getElementById('rule-emp-tags');
     var ph     = document.getElementById('rule-emp-placeholder');
     var badge  = document.getElementById('rule-emp-count-badge');
     if (!tagsEl) return;
-
-    // Remove old tags (keep placeholder)
     tagsEl.querySelectorAll('.emp-tag').forEach(function (t) { t.remove(); });
-
     var count = Object.keys(selected).length;
     ph.style.display = count ? 'none' : '';
     if (badge) badge.textContent = count ? count + ' employee(s) selected' : '';
-
     Object.keys(selected).forEach(function (id) {
       var tag = document.createElement('span');
       tag.className = 'emp-tag';
@@ -565,10 +588,10 @@ function ruleTargetChange(v) {
   }
 
   window.ruleEmpToggle = function (el) {
-    var id   = el.getAttribute('data-id');
+    var id = el.getAttribute('data-id');
     var name = el.getAttribute('data-name');
-    var cb   = document.getElementById('rule-emp-cb-' + id);
-    var ck   = document.getElementById('rule-emp-ck-' + id);
+    var cb = document.getElementById('rule-emp-cb-' + id);
+    var ck = document.getElementById('rule-emp-ck-' + id);
     if (selected[id]) {
       delete selected[id];
       if (cb) cb.checked = false;
@@ -585,8 +608,8 @@ function ruleTargetChange(v) {
 
   window.ruleEmpRemove = function (id) {
     delete selected[id];
-    var cb  = document.getElementById('rule-emp-cb-' + id);
-    var ck  = document.getElementById('rule-emp-ck-' + id);
+    var cb = document.getElementById('rule-emp-cb-' + id);
+    var ck = document.getElementById('rule-emp-ck-' + id);
     var opt = document.querySelector('.rule-emp-opt[data-id="' + id + '"]');
     if (cb) cb.checked = false;
     if (ck) ck.textContent = '□';
@@ -608,15 +631,14 @@ function ruleTargetChange(v) {
     if (d) d.style.display = '';
   };
 
-  // Close dropdown on outside click
   document.addEventListener('click', function (e) {
     var wrap = document.getElementById('rule-emp-wrap');
-    var dd   = document.getElementById('rule-emp-dropdown');
+    var dd = document.getElementById('rule-emp-dropdown');
     if (wrap && dd && !wrap.contains(e.target)) dd.style.display = 'none';
   });
 })();
 
-/* ── Add Section form: filter departments by directorate ─────────────────── */
+/* ── Add Section form: filter departments by directorate ─────────────── */
 window.secFilterDept = function (dirId) {
   var sel = document.getElementById('sec-dept-select');
   Array.from(sel.options).forEach(function (opt) {

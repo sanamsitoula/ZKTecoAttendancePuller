@@ -4,8 +4,16 @@
     {
       "id": 1,
       "username": "admin",
-      "display_name": "Admin",
+      "display_name": "Admin User",
+      "role": "admin",
       "password_hash": "<run: python -c \"import bcrypt; print(bcrypt.hashpw(b'your_password', bcrypt.gensalt(12)).decode())\">"
+    },
+    {
+      "id": 2,
+      "username": "viewer",
+      "display_name": "View Only User",
+      "role": "user",
+      "password_hash": "<bcrypt hash>"
     }
   ]
 }

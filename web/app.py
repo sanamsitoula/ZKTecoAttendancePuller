@@ -16,7 +16,8 @@ import importlib
 from datetime import date, datetime, timezone
 
 from db import get_connection, create_device, update_device, delete_device, get_devices, get_device
-from db import list_global_users, create_global_user, delete_global_user, find_global_user_by_global_id
+from db import (list_global_users, create_global_user, update_global_user, delete_global_user,
+                find_global_user_by_global_id, get_global_user)
 from db import upsert_employee
 from db import (get_employee_with_device, get_employees_with_device,
                 delete_employee_record, bulk_delete_employee_records)
@@ -110,14 +111,11 @@ async def _app_lifespan(fastapi_app: FastAPI):
 
 
 app = FastAPI(title="ZKTeco Puller — Web UI", lifespan=_app_lifespan)
-app.add_middleware(SessionMiddleware, secret_key=get_secret_key(), session_cookie="zk_session", max_age=86400 * 7)
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 nepali_utils.register_filters(templates)
 
 # ─── Auth helpers ──────────────────────────────────────────────────────────────
-
-_PUBLIC_PATHS = {"/login", "/static"}
 
 
 def _current_user(request: Request) -> dict | None:
@@ -129,8 +127,7 @@ def _current_user_id(request: Request) -> int:
     return u['id'] if u else 0
 
 
-@app.middleware("http")
-async def _auth_gate(request: Request, call_next):
+async def _auth_gate_dispatch(request: Request, call_next):
     path = request.url.path
     if path == "/login" or path.startswith("/static"):
         return await call_next(request)
@@ -139,6 +136,16 @@ async def _auth_gate(request: Request, call_next):
             return JSONResponse({"error": "Not authenticated"}, status_code=401)
         return RedirectResponse(url=f"/login?next={path}", status_code=302)
     return await call_next(request)
+
+
+# Middleware registration order matters for Starlette's LIFO stack:
+# add_middleware(A) then add_middleware(B) → stack is B(A(router))
+# We want: Session(AuthGate(router)) — Session runs first to set up request.session,
+# then AuthGate can safely read it.
+# So: register AuthGate FIRST, Session SECOND.
+from starlette.middleware.base import BaseHTTPMiddleware
+app.add_middleware(BaseHTTPMiddleware, dispatch=_auth_gate_dispatch)
+app.add_middleware(SessionMiddleware, secret_key=get_secret_key(), session_cookie="zk_session", max_age=86400 * 7)
 
 
 # ─── Login / Logout ────────────────────────────────────────────────────────────
@@ -157,6 +164,7 @@ def login_post(request: Request, username: str = Form(...), password: str = Form
         request.session["user_id"]      = user["id"]
         request.session["username"]     = user["username"]
         request.session["display_name"] = user.get("display_name", user["username"])
+        request.session["role"]         = user.get("role", "user")
         dest = next if next and next not in ("/login", "") else "/"
         return RedirectResponse(url=dest, status_code=302)
     return templates.TemplateResponse("login.html", {
@@ -481,32 +489,80 @@ def _build_emp_query(device_id, search, date_str, sort_by, sort_dir, limit=1000)
     return sql, params
 
 
+_USERS_PER_PAGE = 25
+
+
 @app.get("/users")
 def users_index(
     request: Request,
-    device_id: str | None = None,
-    search: str | None = None,
-    date_str: str | None = None,
-    sort_by: str = 'name',
-    sort_dir: str = 'asc',
+    # global user filters
+    gu_search:        str | None = None,
+    gu_directorate:   str | None = None,
+    gu_department:    str | None = None,
+    gu_section:       str | None = None,
+    gu_unit:          str | None = None,
+    page:             str | None = None,
+    # device employee filters
+    device_id:        str | None = None,
+    search:           str | None = None,
+    date_str:         str | None = None,
+    sort_by:          str = 'name',
+    sort_dir:         str = 'asc',
 ):
     conn = get_connection()
     try:
-        users = list_global_users(conn)
+        from db import (get_all_directorates, get_all_departments,
+                        get_all_sections, get_all_units, get_all_shifts)
+        # Global users with filters + pagination
+        all_users = list_global_users(
+            conn,
+            search=gu_search or None,
+            directorate_id=_int_param(gu_directorate),
+            department_id=_int_param(gu_department),
+            section_id=_int_param(gu_section),
+            unit_id=_int_param(gu_unit),
+        )
+        total_users   = len(all_users)
+        page_num      = max(1, _int_param(page) or 1)
+        total_pages   = max(1, (total_users + _USERS_PER_PAGE - 1) // _USERS_PER_PAGE)
+        page_num      = min(page_num, total_pages)
+        users         = all_users[(page_num - 1) * _USERS_PER_PAGE : page_num * _USERS_PER_PAGE]
+
+        # Device employees (for migration / device view)
         sql, params = _build_emp_query(_int_param(device_id), search, date_str, sort_by, sort_dir)
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(sql, params)
             employees = [dict(row) for row in cur.fetchall()]
-        devices = get_devices(conn)
+
+        devices      = get_devices(conn)
+        directorates = get_all_directorates(conn)
+        departments  = get_all_departments(conn)
+        sections     = get_all_sections(conn)
+        units        = get_all_units(conn)
+        shifts       = get_all_shifts(conn)
+
         return render(templates, request, "users.html", {
-            "users": users,
-            "employees": employees,
-            "devices": devices,
+            "users":          users,
+            "total_users":    total_users,
+            "page":           page_num,
+            "total_pages":    total_pages,
+            "gu_search":      gu_search or '',
+            "gu_directorate": gu_directorate or '',
+            "gu_department":  gu_department or '',
+            "gu_section":     gu_section or '',
+            "gu_unit":        gu_unit or '',
+            "employees":      employees,
+            "devices":        devices,
+            "directorates":   directorates,
+            "departments":    departments,
+            "sections":       sections,
+            "units":          units,
+            "shifts":         shifts,
             "selected_device_id": device_id,
-            "search": search or '',
-            "date_str": date_str or '',
-            "sort_by": sort_by,
-            "sort_dir": sort_dir,
+            "search":         search or '',
+            "date_str":       date_str or '',
+            "sort_by":        sort_by,
+            "sort_dir":       sort_dir,
         })
     finally:
         conn.close()
@@ -556,22 +612,53 @@ def users_export(
 
 @app.get("/users/add")
 def user_add_form(request: Request):
-    return render(templates, request, "user_form.html", {"user": None})
+    conn = get_connection()
+    try:
+        from db import (get_all_directorates, get_all_departments,
+                        get_all_sections, get_all_units, get_all_shifts)
+        return render(templates, request, "user_form.html", {
+            "user":         None,
+            "directorates": get_all_directorates(conn),
+            "departments":  get_all_departments(conn),
+            "sections":     get_all_sections(conn),
+            "units":        get_all_units(conn),
+            "shifts":       get_all_shifts(conn),
+        })
+    finally:
+        conn.close()
 
 
 @app.post("/users/add")
-def user_add(request: Request,
-             global_user_id: str = Form(...),
-             name: str = Form(...),
-             privilege: int = Form(0),
-             card: str = Form(None),
-             enroll_devices: str = Form(None)):
-    # enroll_devices is optional CSV of device ids
+async def user_add(request: Request):
+    form            = await request.form()
+    global_user_id  = (form.get('global_user_id') or '').strip()
+    name            = (form.get('name') or '').strip()
+    privilege       = int(form.get('privilege') or 0)
+    card            = (form.get('card') or '').strip() or None
+    employee_id     = (form.get('employee_id') or '').strip() or None
+    bank_number     = (form.get('bank_number') or '').strip() or None
+    email           = (form.get('email') or '').strip() or None
+    phone           = (form.get('phone') or '').strip() or None
+    department_id   = _int_param(form.get('department_id'))
+    section_id      = _int_param(form.get('section_id'))
+    unit_id         = _int_param(form.get('unit_id'))
+    shift_id        = _int_param(form.get('shift_id'))
+    enroll_devices  = (form.get('enroll_devices') or '').strip()
+
+    if not global_user_id or not name:
+        return redirect_with_flash('/users/add', 'error', 'Attendance ID and name are required.')
+
     conn = get_connection()
     try:
-        gid = create_global_user(conn, global_user_id, name, int(privilege), card, app_user_id=_current_user_id(request))
+        gid = create_global_user(
+            conn, global_user_id, name, privilege, card,
+            app_user_id=_current_user_id(request),
+            employee_id=employee_id, bank_number=bank_number,
+            email=email, phone=phone,
+            department_id=department_id, section_id=section_id,
+            unit_id=unit_id, shift_id=shift_id,
+        )
         conn.commit()
-        # push to selected devices
         if enroll_devices:
             ids = [int(x) for x in enroll_devices.split(",") if x.strip()]
             for did in ids:
@@ -580,10 +667,63 @@ def user_add(request: Request,
                     continue
                 device_cfg = device_config_from_row(d)
                 try:
-                    puller_mod.push_global_user_to_device(device_cfg, {"global_user_id": global_user_id, "name": name, "privilege": privilege, "card": card})
+                    puller_mod.push_global_user_to_device(
+                        device_cfg,
+                        {"global_user_id": global_user_id, "name": name,
+                         "privilege": privilege, "card": card}
+                    )
                 except Exception:
                     pass
         return redirect_with_flash("/users", "success", f'User "{name}" was created.')
+    finally:
+        conn.close()
+
+
+@app.get("/users/{global_id}/edit")
+def user_edit_form(request: Request, global_id: int):
+    conn = get_connection()
+    try:
+        from db import (get_all_directorates, get_all_departments,
+                        get_all_sections, get_all_units, get_all_shifts)
+        user = get_global_user(conn, global_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return render(templates, request, "user_form.html", {
+            "user":          user,
+            "directorates":  get_all_directorates(conn),
+            "departments":   get_all_departments(conn),
+            "sections":      get_all_sections(conn),
+            "units":         get_all_units(conn),
+            "shifts":        get_all_shifts(conn),
+        })
+    finally:
+        conn.close()
+
+
+@app.post("/users/{global_id}/edit")
+async def user_edit(request: Request, global_id: int):
+    form = await request.form()
+    data = {
+        'global_user_id': (form.get('global_user_id') or '').strip(),
+        'employee_id':    (form.get('employee_id') or '').strip() or None,
+        'name':           (form.get('name') or '').strip(),
+        'privilege':      int(form.get('privilege') or 0),
+        'card':           (form.get('card') or '').strip() or None,
+        'bank_number':    (form.get('bank_number') or '').strip() or None,
+        'email':          (form.get('email') or '').strip() or None,
+        'phone':          (form.get('phone') or '').strip() or None,
+        'department_id':  _int_param(form.get('department_id')),
+        'section_id':     _int_param(form.get('section_id')),
+        'unit_id':        _int_param(form.get('unit_id')),
+        'shift_id':       _int_param(form.get('shift_id')),
+    }
+    if not data['global_user_id'] or not data['name']:
+        return redirect_with_flash(f'/users/{global_id}/edit', 'error', 'Attendance ID and name are required.')
+    conn = get_connection()
+    try:
+        update_global_user(conn, global_id, data, app_user_id=_current_user_id(request))
+        conn.commit()
+        return redirect_with_flash('/users', 'success', f'User "{data["name"]}" updated.')
     finally:
         conn.close()
 
@@ -946,6 +1086,12 @@ def import_device_users(
         selected_uids = {int(uid) for uid in selected} if selected else set()
         import_all = all == "1"
         results = []
+        # Try to get fingerprint data if available
+        fp_map = {}
+        try:
+            fp_map = puller_mod.get_fingerprint_map(device_cfg)
+        except Exception:
+            pass
         for user in puller_mod.list_device_users(device_cfg):
             uid = int(getattr(user, "uid", 0))
             if not import_all and uid not in selected_uids:
@@ -961,7 +1107,13 @@ def import_device_users(
             if global_user:
                 global_user_id = global_user["id"]
             else:
-                global_user_id = create_global_user(conn, user_id, name, privilege, card)
+                fp_data = fp_map.get(uid)
+                fp_json = json.dumps(fp_data) if fp_data else None
+                global_user_id = create_global_user(
+                    conn, user_id, name, privilege, card,
+                    app_user_id=_current_user_id(request),
+                    fingerprint_data=fp_json,
+                )
                 conn.commit()
             setattr(user, "global_user_id", global_user_id)
             upsert_employee(conn, device_id, user)
@@ -2677,6 +2829,8 @@ def daily_report(request: Request,
 
     summary['sel_date_bs'] = date_bs
     summary['sel_date_ad'] = date_ad
+    summary['date_bs']     = date_bs   # used in print header and PDF filename
+    summary['date_ad']     = date_ad
     summary['COMPANY_NAME'] = COMPANY_NAME
     return render(templates, request, 'reports_daily.html', summary)
 
@@ -2711,6 +2865,18 @@ def monthly_summary_report(request: Request,
     finally:
         conn.close()
 
+    from nepali_utils import NEPALI_MONTHS as _NM
+    summary.setdefault('bs_year',       y)
+    summary.setdefault('bs_month',      m)
+    summary.setdefault('month_name',    _NM[m] if 1 <= m <= 12 else '')
+    summary.setdefault('from_ad',       '')
+    summary.setdefault('to_ad',         '')
+    summary.setdefault('total_days',    0)
+    summary.setdefault('working_days',  0)
+    summary.setdefault('holiday_count', 0)
+    summary.setdefault('weekend_count', 0)
+    summary.setdefault('holidays',      [])
+    summary.setdefault('employees',     [])
     summary['nepali_months'] = NEPALI_MONTHS
     summary['today_bs']      = today_bs
     summary['COMPANY_NAME']  = COMPANY_NAME

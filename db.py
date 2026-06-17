@@ -310,6 +310,26 @@ ALTER TABLE holidays        ADD COLUMN IF NOT EXISTS created_by  INTEGER;
 """
 
 
+_GLOBAL_USERS_EXTRA_SQL = """
+-- ── Extended global_users fields ─────────────────────────────────────────────
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS employee_id      VARCHAR(50);
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS bank_number      VARCHAR(100);
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS email            VARCHAR(200);
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS phone            VARCHAR(50);
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS fingerprint_data TEXT;
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS shift_id         INTEGER;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'global_users_shift_id_fkey') THEN
+        ALTER TABLE global_users
+            ADD CONSTRAINT global_users_shift_id_fkey
+            FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE SET NULL;
+    END IF;
+END$$;
+CREATE INDEX IF NOT EXISTS idx_global_users_employee_id ON global_users (employee_id);
+"""
+
+
 _LEAVE_TYPES_SEED = """
 INSERT INTO leave_types (name, code, days_per_year, max_accumulate, carry_forward, is_paid, description)
 VALUES
@@ -342,7 +362,15 @@ def init_schema(conn) -> None:
     except Exception as e:
         conn.rollback()
         logger.warning("Audit columns migration skipped: %s", e)
-    # Phase 3: seed leave types
+    # Phase 3: extended global_users columns
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_GLOBAL_USERS_EXTRA_SQL)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("global_users extra columns migration skipped: %s", e)
+    # Phase 4: seed leave types
     try:
         with conn.cursor() as cur:
             cur.execute(_LEAVE_TYPES_SEED)
@@ -680,25 +708,152 @@ def delete_device(conn, device_id: int) -> None:
         cur.execute(sql, (device_id,))
 
 
-def list_global_users(conn):
-    sql = "SELECT id, global_user_id, name, privilege, card, created_at, updated_at FROM global_users ORDER BY name"
+def list_global_users(conn, search: str | None = None,
+                      directorate_id: int | None = None,
+                      department_id: int | None = None,
+                      section_id: int | None = None,
+                      unit_id: int | None = None):
+    where = []
+    params = []
+    if search:
+        where.append("""(
+            gu.name ILIKE %s OR gu.global_user_id ILIKE %s OR gu.employee_id ILIKE %s
+            OR gu.email ILIKE %s OR gu.phone ILIKE %s OR gu.bank_number ILIKE %s
+            OR d.name ILIKE %s OR dr.name ILIKE %s OR s.name ILIKE %s OR u.name ILIKE %s
+        )""")
+        p = f'%{search}%'
+        params += [p, p, p, p, p, p, p, p, p, p]
+    if directorate_id:
+        where.append("d.directorate_id = %s")
+        params.append(directorate_id)
+    if department_id:
+        where.append("gu.department_id = %s")
+        params.append(department_id)
+    if section_id:
+        where.append("gu.section_id = %s")
+        params.append(section_id)
+    if unit_id:
+        where.append("gu.unit_id = %s")
+        params.append(unit_id)
+    w = f"WHERE {' AND '.join(where)}" if where else ""
+    sql = f"""
+        SELECT
+            gu.id, gu.global_user_id, gu.employee_id, gu.name,
+            gu.privilege, gu.card, gu.bank_number, gu.email, gu.phone,
+            gu.shift_id, sh.name AS shift_name,
+            to_char(sh.start_time,'HH24:MI') AS shift_start,
+            to_char(sh.end_time,  'HH24:MI') AS shift_end,
+            gu.department_id, d.name  AS department_name,
+            d.directorate_id,  dr.name AS directorate_name,
+            gu.section_id,    s.name   AS section_name,
+            gu.unit_id,       u.name   AS unit_name,
+            gu.created_at, gu.updated_at, gu.created_bs
+        FROM global_users gu
+        LEFT JOIN departments  d  ON d.id  = gu.department_id
+        LEFT JOIN directorates dr ON dr.id = d.directorate_id
+        LEFT JOIN sections     s  ON s.id  = gu.section_id
+        LEFT JOIN units        u  ON u.id  = gu.unit_id
+        LEFT JOIN shifts       sh ON sh.id = gu.shift_id
+        {w}
+        ORDER BY
+            CASE WHEN gu.employee_id ~ '^[0-9]+$' THEN gu.employee_id::INTEGER ELSE NULL END NULLS LAST,
+            gu.employee_id, gu.name
+    """
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-        cur.execute(sql)
+        cur.execute(sql, params)
         return [dict(row) for row in cur.fetchall()]
 
 
-def create_global_user(conn, global_user_id: str, name: str, privilege: int = 0,
-                        card: str | None = None, app_user_id: int = 0) -> int:
+def get_global_user(conn, db_id: int) -> dict | None:
     sql = """
-        INSERT INTO global_users (global_user_id, name, privilege, card, created_bs, updated_bs, created_by, updated_by)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        SELECT
+            gu.id, gu.global_user_id, gu.employee_id, gu.name,
+            gu.privilege, gu.card, gu.bank_number, gu.email, gu.phone,
+            gu.shift_id, sh.name AS shift_name,
+            gu.department_id, d.name AS department_name,
+            d.directorate_id, dr.name AS directorate_name,
+            gu.section_id, s.name AS section_name,
+            gu.unit_id, u.name AS unit_name,
+            gu.created_at, gu.updated_at
+        FROM global_users gu
+        LEFT JOIN departments  d  ON d.id  = gu.department_id
+        LEFT JOIN directorates dr ON dr.id = d.directorate_id
+        LEFT JOIN sections     s  ON s.id  = gu.section_id
+        LEFT JOIN units        u  ON u.id  = gu.unit_id
+        LEFT JOIN shifts       sh ON sh.id = gu.shift_id
+        WHERE gu.id = %s
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (db_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def create_global_user(conn, global_user_id: str, name: str, privilege: int = 0,
+                        card: str | None = None, app_user_id: int = 0,
+                        employee_id: str | None = None, bank_number: str | None = None,
+                        email: str | None = None, phone: str | None = None,
+                        department_id: int | None = None, section_id: int | None = None,
+                        unit_id: int | None = None, shift_id: int | None = None,
+                        fingerprint_data: str | None = None) -> int:
+    sql = """
+        INSERT INTO global_users
+            (global_user_id, employee_id, name, privilege, card,
+             bank_number, email, phone, department_id, section_id, unit_id,
+             shift_id, fingerprint_data, created_bs, updated_bs, created_by, updated_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """
     with conn.cursor() as cur:
         today = _today_bs()
-        cur.execute(sql, (global_user_id, name, int(privilege), card, today, today,
-                          app_user_id or None, app_user_id or None))
+        cur.execute(sql, (
+            global_user_id, employee_id or None, name, int(privilege), card,
+            bank_number or None, email or None, phone or None,
+            department_id or None, section_id or None, unit_id or None,
+            shift_id or None, fingerprint_data or None,
+            today, today, app_user_id or None, app_user_id or None,
+        ))
         return cur.fetchone()[0]
+
+
+def update_global_user(conn, db_id: int, data: dict, app_user_id: int = 0) -> None:
+    sql = """
+        UPDATE global_users SET
+            global_user_id   = %s,
+            employee_id      = %s,
+            name             = %s,
+            privilege        = %s,
+            card             = %s,
+            bank_number      = %s,
+            email            = %s,
+            phone            = %s,
+            department_id    = %s,
+            section_id       = %s,
+            unit_id          = %s,
+            shift_id         = %s,
+            updated_at       = NOW(),
+            updated_bs       = %s,
+            updated_by       = %s
+        WHERE id = %s
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (
+            data.get('global_user_id'),
+            data.get('employee_id') or None,
+            data.get('name'),
+            int(data.get('privilege', 0)),
+            data.get('card') or None,
+            data.get('bank_number') or None,
+            data.get('email') or None,
+            data.get('phone') or None,
+            data.get('department_id') or None,
+            data.get('section_id') or None,
+            data.get('unit_id') or None,
+            data.get('shift_id') or None,
+            _today_bs(),
+            app_user_id or None,
+            db_id,
+        ))
 
 
 def delete_global_user(conn, global_user_id: int) -> None:
@@ -1104,7 +1259,8 @@ def set_employee_org(conn, global_user_id: int, department_id=None,
 
 def get_all_global_users_with_dept(conn) -> list:
     sql = """
-        SELECT gu.id, gu.global_user_id AS company_id, gu.name,
+        SELECT gu.id, gu.global_user_id, gu.global_user_id AS company_id,
+               gu.employee_id, gu.name,
                gu.department_id, d.name  AS department_name,
                d.directorate_id, dr.name AS directorate_name,
                gu.section_id,   s.name   AS section_name,

@@ -77,8 +77,7 @@
 {% if sel_gid and emp_balance %}
 <section class="panel no-print">
   <div class="panel-head">
-    <h2>Leave Balance &mdash; {{ emp_balance[0].leave_type_name | replace(emp_balance[0].leave_type_name, '') }}
-      {% for eb in emp_balance %}{% if loop.first %}{% set _ = namespace(name='') %}{% endif %}{% endfor %}
+    <h2>Leave Balance &mdash;
       {% for emp in all_emps %}{% if emp.id == sel_gid %}{{ emp.name }}{% endif %}{% endfor %}
     </h2>
     <span class="muted">BS Year {{ sel_year }}</span>
@@ -200,11 +199,11 @@
     <div class="form-grid">
 
       <label>Employee <span style="color:var(--red)">*</span>
-        <select name="employee_id" id="add-emp-select" required>
+        <select name="global_user_id" id="add-emp-select" required>
           <option value="">— Select employee —</option>
           {% for emp in all_emps %}
           <option value="{{ emp.id }}">
-            {{ emp.name }}{% if emp.department_name %} — {{ emp.department_name }}{% endif %}
+            {% if emp.company_id %}{{ emp.company_id }} — {% endif %}{{ emp.name }}{% if emp.department_name %} ({{ emp.department_name }}){% endif %}
           </option>
           {% endfor %}
         </select>

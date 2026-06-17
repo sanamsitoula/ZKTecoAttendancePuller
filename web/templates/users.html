@@ -1,264 +1,442 @@
 {% extends 'base.html' %}
 
 {% block content %}
-  <section class="page-head">
-    <div>
-      <p class="eyebrow">User management</p>
-      <h1>Users From Device Data</h1>
-    </div>
-    <div class="head-actions">
-      <a class="btn" href="/migrate">Migrate Between Devices</a>
-      <a class="btn primary" href="/users/add">Add manual user</a>
-    </div>
-  </section>
+<section class="page-head">
+  <div>
+    <p class="eyebrow">User management</p>
+    <h1>Global Users</h1>
+    <p class="muted">{{ total_users }} user{% if total_users != 1 %}s{% endif %} total</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn" href="/migrate">Migrate Between Devices</a>
+    <a class="btn primary" href="/users/add">Add User</a>
+  </div>
+</section>
 
-  <section class="panel no-print">
-    <div class="panel-head">
-      <h2>Import From Devices</h2>
-      <span class="muted">Inspect a device's live user list, download a full backup, or import users into the database.</span>
+{# ── Search / Filter bar ──────────────────────────────────────────────────────── #}
+<section class="panel no-print" style="padding:14px 18px">
+  <form method="get" action="/users" id="gu-filter-form" class="filter-bar-flex" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+    <label style="flex:1;min-width:180px">Search
+      <input type="text" name="gu_search" value="{{ gu_search }}"
+             placeholder="Name, ID, email, phone, bank…">
+    </label>
+    <label style="min-width:160px">Directorate
+      <select name="gu_directorate" class="searchable-select">
+        <option value="">All directorates</option>
+        {% for dr in directorates %}
+        <option value="{{ dr.id }}" {{ 'selected' if gu_directorate == dr.id|string else '' }}>{{ dr.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label style="min-width:160px">Department
+      <select name="gu_department" class="searchable-select">
+        <option value="">All departments</option>
+        {% for d in departments %}
+        <option value="{{ d.id }}" {{ 'selected' if gu_department == d.id|string else '' }}>{{ d.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label style="min-width:150px">Section
+      <select name="gu_section" class="searchable-select">
+        <option value="">All sections</option>
+        {% for s in sections %}
+        <option value="{{ s.id }}" {{ 'selected' if gu_section == s.id|string else '' }}>{{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label style="min-width:140px">Unit
+      <select name="gu_unit" class="searchable-select">
+        <option value="">All units</option>
+        {% for u in units %}
+        <option value="{{ u.id }}" {{ 'selected' if gu_unit == u.id|string else '' }}>{{ u.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div style="display:flex;gap:8px;align-items:flex-end">
+      <button class="btn primary" type="submit">Filter</button>
+      <a class="btn" href="/users">Reset</a>
     </div>
-    <div class="device-strip">
-      {% for d in devices %}
-        <div class="device-pill-card">
-          <div class="device-pill-info">
-            <strong>{{ d.name }}</strong>
-            <span>{{ d.ip_address }}:{{ d.port }}</span>
-          </div>
-          <div class="device-pill-actions">
-            <a class="btn small" href="/devices/{{ d.id }}/users">Inspect Users</a>
-            <a class="btn small" href="/devices/{{ d.id }}/backup" download>Download Backup</a>
-          </div>
-        </div>
-      {% endfor %}
-    </div>
-  </section>
+  </form>
+</section>
 
-  <section class="panel no-print">
-    <div class="panel-head">
-      <h2>Global Users</h2>
-      <span class="muted">{{ users|length }} users ready to sync to devices.</span>
+{# ── Global Users table ──────────────────────────────────────────────────────── #}
+<section class="panel">
+  <div class="table-wrap">
+    <table class="table" id="gu-table">
+      <thead>
+        <tr>
+          <th style="width:36px">SN</th>
+          <th>Emp ID</th>
+          <th>Att. Device ID</th>
+          <th>Name</th>
+          <th>Department</th>
+          <th>Section</th>
+          <th>Unit</th>
+          <th>Shift</th>
+          <th>Phone</th>
+          <th>Bank Number</th>
+          <th style="width:120px">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        {% set sn = (page - 1) * 25 + loop.index %}
+        <tr>
+          <td class="muted">{{ sn }}</td>
+          <td>{{ u.employee_id or '—' }}</td>
+          <td><code style="font-size:12px">{{ u.global_user_id }}</code></td>
+          <td><strong>{{ u.name or '—' }}</strong>
+            {% if u.email %}<br><small class="muted">{{ u.email }}</small>{% endif %}
+          </td>
+          <td>{{ u.department_name or '—' }}
+            {% if u.directorate_name %}<br><small class="muted">{{ u.directorate_name }}</small>{% endif %}
+          </td>
+          <td>{{ u.section_name or '—' }}</td>
+          <td>{{ u.unit_name or '—' }}</td>
+          <td>
+            {% if u.shift_name %}
+            <span style="white-space:nowrap">{{ u.shift_name }}</span>
+            <br><small class="muted">{{ u.shift_start }}–{{ u.shift_end }}</small>
+            {% else %}—{% endif %}
+          </td>
+          <td>{{ u.phone or '—' }}</td>
+          <td><small>{{ u.bank_number or '—' }}</small></td>
+          <td class="actions">
+            <a class="btn small" href="/users/{{ u.id }}/edit">Edit</a>
+            <a class="btn small" href="/users/{{ u.id }}/push">Push</a>
+            <button class="btn small danger" type="button"
+              onclick="openGlobalDelModal({{ u.id }}, '{{ u.name|replace("'", "\\'") }}')">Del</button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="11" class="empty">No users match the current filter.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# ── Pagination ──────────────────────────────────────────────────────────── #}
+  {% if total_pages > 1 %}
+  <div class="pagination" style="margin-top:14px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    {% set base_qs = '&gu_search=' + gu_search + '&gu_directorate=' + gu_directorate + '&gu_department=' + gu_department + '&gu_section=' + gu_section + '&gu_unit=' + gu_unit %}
+    {% if page > 1 %}
+    <a class="btn small" href="/users?page={{ page - 1 }}{{ base_qs }}">&laquo; Prev</a>
+    {% endif %}
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == page %}
+      <span class="btn small active" style="background:#1769E0;color:#fff">{{ p }}</span>
+      {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+      <a class="btn small" href="/users?page={{ p }}{{ base_qs }}">{{ p }}</a>
+      {% elif p == 2 or p == total_pages - 1 %}
+      <span class="muted" style="padding:0 4px">…</span>
+      {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
+    <a class="btn small" href="/users?page={{ page + 1 }}{{ base_qs }}">Next &raquo;</a>
+    {% endif %}
+    <span class="muted" style="font-size:13px;margin-left:6px">
+      Page {{ page }} of {{ total_pages }} &middot; {{ total_users }} users
+    </span>
+  </div>
+  {% endif %}
+</section>
+
+{# ── Device Import section ──────────────────────────────────────────────────── #}
+<section class="panel no-print">
+  <div class="panel-head">
+    <h2>Import From Devices</h2>
+    <span class="muted">Inspect a device's live user list, download a full backup, or import users into the database.</span>
+  </div>
+  <div class="device-strip">
+    {% for d in devices %}
+    <div class="device-pill-card">
+      <div class="device-pill-info">
+        <strong>{{ d.name }}</strong>
+        <span>{{ d.ip_address }}:{{ d.port }}</span>
+      </div>
+      <div class="device-pill-actions">
+        <a class="btn small" href="/devices/{{ d.id }}/users">Inspect Users</a>
+        <a class="btn small" href="/devices/{{ d.id }}/backup" download>Backup</a>
+      </div>
     </div>
+    {% endfor %}
+  </div>
+</section>
+
+{# ── Device Employees section ──────────────────────────────────────────────── #}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Device Employees</h2>
+    <span class="muted">Raw device user records. Link them to global users via import.</span>
+  </div>
+
+  <form class="filter-bar-flex no-print" method="get" action="/users" id="filter-form"
+        style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+    {# Preserve global-user filters when changing emp filters #}
+    <input type="hidden" name="gu_search"      value="{{ gu_search }}">
+    <input type="hidden" name="gu_directorate" value="{{ gu_directorate }}">
+    <input type="hidden" name="gu_department"  value="{{ gu_department }}">
+    <input type="hidden" name="gu_section"     value="{{ gu_section }}">
+    <input type="hidden" name="gu_unit"        value="{{ gu_unit }}">
+    <label>Device
+      <select name="device_id">
+        <option value="">All devices</option>
+        {% for d in devices %}
+        <option value="{{ d.id }}" {{ 'selected' if selected_device_id == d.id|string else '' }}>{{ d.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Name / ID
+      <input type="text" name="search" value="{{ search }}" placeholder="Name or user ID…">
+    </label>
+    <label>Sort by
+      <select name="sort_by">
+        <option value="name"       {{ 'selected' if sort_by == 'name'       else '' }}>Name</option>
+        <option value="user_id"    {{ 'selected' if sort_by == 'user_id'    else '' }}>User ID</option>
+        <option value="uid"        {{ 'selected' if sort_by == 'uid'        else '' }}>UID</option>
+        <option value="created_at" {{ 'selected' if sort_by == 'created_at' else '' }}>Date added</option>
+        <option value="device"     {{ 'selected' if sort_by == 'device'     else '' }}>Device</option>
+      </select>
+    </label>
+    <label>Order
+      <select name="sort_dir">
+        <option value="asc"  {{ 'selected' if sort_dir == 'asc'  else '' }}>A → Z</option>
+        <option value="desc" {{ 'selected' if sort_dir == 'desc' else '' }}>Z → A</option>
+      </select>
+    </label>
+    <div style="display:flex;gap:8px;align-items:flex-end">
+      <button class="btn primary" type="submit">Filter</button>
+      <a class="btn" href="/users">Reset</a>
+      <a class="btn" href="/users/export?device_id={{ selected_device_id or '' }}&search={{ search }}&sort_by={{ sort_by }}&sort_dir={{ sort_dir }}" download>Export CSV</a>
+    </div>
+  </form>
+
+  <div id="bulk-bar" class="bulk-bar no-print" hidden>
+    <span id="bulk-count">0 selected</span>
+    <button class="btn small danger" type="button" onclick="openBulkDelModal()">Delete Selected</button>
+    <button class="btn small ghost" type="button" onclick="clearSelection()">Clear</button>
+  </div>
+
+  <form id="bulk-form" method="post" action="/employees/bulk-delete">
     <div class="table-wrap">
-      <table class="table">
+      <table class="table compact">
         <thead>
-          <tr><th>Name</th><th>Global ID</th><th>Privilege</th><th>Card</th><th>Actions</th></tr>
+          <tr>
+            <th class="no-print" style="width:32px">
+              <input type="checkbox" id="select-all" title="Select all" onchange="toggleAll(this)">
+            </th>
+            <th>Device</th><th>UID</th><th>User ID</th><th>Name</th>
+            <th>Privilege</th><th>Card</th><th>Linked</th>
+            <th>Created</th>
+            <th class="no-print">Actions</th>
+          </tr>
         </thead>
         <tbody>
-          {% for u in users %}
+          {% for e in employees %}
           <tr>
-            <td><strong>{{ u.name }}</strong></td>
-            <td>{{ u.global_user_id }}</td>
-            <td>{{ u.privilege }}</td>
-            <td>{{ u.card or '-' }}</td>
-            <td class="actions">
-              <a class="btn small" href="/users/{{ u.id }}/push">Push to device</a>
+            <td class="no-print">
+              <input type="checkbox" name="ids" value="{{ e.id }}" class="emp-cb" onchange="updateBulkBar()">
+            </td>
+            <td>{{ e.device_name }}</td>
+            <td>{{ e.uid }}</td>
+            <td>{{ e.user_id }}</td>
+            <td><strong>{{ e.name or 'Unknown' }}</strong></td>
+            <td>{{ e.privilege }}</td>
+            <td>{{ e.card or '—' }}</td>
+            <td>
+              <span class="status {{ 'success' if e.global_user_id else 'warning' }}">
+                {{ 'Global' if e.global_user_id else 'Device only' }}
+              </span>
+            </td>
+            <td><small>{{ e.created_at | bs_datetime if e.created_at else '—' }}</small></td>
+            <td class="actions no-print">
               <button class="btn small danger" type="button"
-                onclick="openGlobalDelModal({{ u.id }}, '{{ u.name|replace("'", "\\'") }}')">Delete</button>
+                onclick="openEmpDelModal({{ e.id }}, '{{ (e.name or e.user_id)|replace("'", "\\'") }}', '{{ e.device_name }}')">Delete</button>
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="5" class="empty">No global users yet. Import users from a device to start.</td></tr>
+          <tr><td colspan="10" class="empty">No device employees match the current filter.</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-  </section>
+  </form>
+  <p class="muted no-print" style="margin-top:8px">{{ employees|length }} record(s) shown.</p>
+</section>
 
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Device Employees</h2>
-      <span class="muted print-only">{{ employees|length }} records</span>
-    </div>
-
-    <!-- Filter bar (hidden when printing) -->
-    <form class="filter-bar-flex no-print" method="get" action="/users" id="filter-form">
-      <label>Device
-        <select name="device_id">
-          <option value="">All devices</option>
-          {% for d in devices %}
-          <option value="{{ d.id }}" {{ 'selected' if selected_device_id == d.id else '' }}>{{ d.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Name / ID search
-        <input type="text" name="search" value="{{ search }}" placeholder="Name or user ID…">
-      </label>
-      <label>Created date (AD)
-        <input type="date" name="date_str" value="{{ date_str }}">
-        {% if date_str %}<small class="muted">{{ date_str | bs_date }}</small>{% endif %}
-      </label>
-      <label>Sort by
-        <select name="sort_by">
-          <option value="name"       {{ 'selected' if sort_by == 'name'       else '' }}>Name</option>
-          <option value="user_id"    {{ 'selected' if sort_by == 'user_id'    else '' }}>User ID</option>
-          <option value="uid"        {{ 'selected' if sort_by == 'uid'        else '' }}>UID</option>
-          <option value="created_at" {{ 'selected' if sort_by == 'created_at' else '' }}>Date added</option>
-          <option value="device"     {{ 'selected' if sort_by == 'device'     else '' }}>Device</option>
-        </select>
-      </label>
-      <label>Order
-        <select name="sort_dir">
-          <option value="asc"  {{ 'selected' if sort_dir == 'asc'  else '' }}>A → Z</option>
-          <option value="desc" {{ 'selected' if sort_dir == 'desc' else '' }}>Z → A</option>
-        </select>
-      </label>
-      <div class="filter-actions">
-        <button class="btn primary" type="submit">Filter</button>
-        <a class="btn" href="/users">Reset</a>
-        <a class="btn" href="/users/export?device_id={{ selected_device_id or '' }}&search={{ search }}&date_str={{ date_str }}&sort_by={{ sort_by }}&sort_dir={{ sort_dir }}" download>Export CSV</a>
-        <button class="btn" type="button" onclick="window.print()">Print</button>
-      </div>
-    </form>
-
-    <div id="bulk-bar" class="bulk-bar no-print" hidden>
-      <span id="bulk-count">0 selected</span>
-      <button class="btn small danger" type="button" onclick="openBulkDelModal()">Delete Selected</button>
-      <button class="btn small ghost" type="button" onclick="clearSelection()">Clear</button>
-    </div>
-
-    <p class="muted print-show" style="display:none">
-      Filtered: device={{ selected_device_id or 'all' }}{% if search %}, search="{{ search }}"{% endif %}{% if date_str %}, date={{ date_str }} ({{ date_str | bs_date }}){% endif %}
-    </p>
-
-    <form id="bulk-form" method="post" action="/employees/bulk-delete">
-      <div class="table-wrap">
-        <table class="table compact">
-          <thead>
-            <tr>
-              <th class="no-print" style="width:36px">
-                <input type="checkbox" id="select-all" title="Select all" onchange="toggleAll(this)">
-              </th>
-              <th>Device</th><th>UID</th><th>User ID</th><th>Name</th>
-              <th>Privilege</th><th>Card</th><th>Linked</th>
-              <th>Created (AD)</th><th>Created (BS)</th>
-              <th class="no-print">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for e in employees %}
-            <tr>
-              <td class="no-print">
-                <input type="checkbox" name="ids" value="{{ e.id }}" class="emp-cb" onchange="updateBulkBar()">
-              </td>
-              <td>{{ e.device_name }}</td>
-              <td>{{ e.uid }}</td>
-              <td>{{ e.user_id }}</td>
-              <td><strong>{{ e.name or 'Unknown' }}</strong></td>
-              <td>{{ e.privilege }}</td>
-              <td>{{ e.card or '-' }}</td>
-              <td>
-                <span class="status {{ 'success' if e.global_user_id else 'warning' }}">
-                  {{ 'Global' if e.global_user_id else 'Device only' }}
-                </span>
-              </td>
-              <td>{{ e.created_at | fmt_dt if e.created_at else '-' }}</td>
-              <td><small>{{ e.created_at | bs_datetime if e.created_at else '-' }}</small></td>
-              <td class="actions no-print">
-                <button class="btn small danger" type="button"
-                  onclick="openEmpDelModal({{ e.id }}, '{{ (e.name or e.user_id)|replace("'", "\\'") }}', '{{ e.device_name }}')">Delete</button>
-              </td>
-            </tr>
-            {% else %}
-            <tr><td colspan="11" class="empty">No device employees match the current filter.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </form>
-    <p class="muted no-print" style="margin-top:8px">{{ employees|length }} record(s) shown.</p>
-  </section>
-
-  <!-- ── Modals ───────────────────────────────────────────────────────── -->
-
-  <div id="global-del-modal" class="modal-overlay" hidden>
-    <div class="modal-box">
-      <h3 class="modal-title">Delete Global User</h3>
-      <p>Remove <strong id="gdel-name"></strong> from the database and all devices?</p>
-      <p class="muted" style="margin-top:4px">This cannot be undone.</p>
-      <div class="modal-actions">
-        <button class="btn" type="button" onclick="closeModal('global-del-modal')">Cancel</button>
-        <form id="gdel-form" method="post" style="display:inline">
-          <button class="btn danger" type="submit">Delete</button>
-        </form>
-      </div>
+{# ── Modals ─────────────────────────────────────────────────────────────────── #}
+<div id="global-del-modal" class="modal-overlay" hidden>
+  <div class="modal-box">
+    <h3 class="modal-title">Delete Global User</h3>
+    <p>Remove <strong id="gdel-name"></strong> from the database and all devices?</p>
+    <p class="muted" style="margin-top:4px">This cannot be undone.</p>
+    <div class="modal-actions">
+      <button class="btn" type="button" onclick="closeModal('global-del-modal')">Cancel</button>
+      <form id="gdel-form" method="post" style="display:inline">
+        <button class="btn danger" type="submit">Delete</button>
+      </form>
     </div>
   </div>
+</div>
 
-  <div id="emp-del-modal" class="modal-overlay" hidden>
-    <div class="modal-box">
-      <h3 class="modal-title">Delete Employee From Device</h3>
-      <p>Remove <strong id="edel-name"></strong> from device <strong id="edel-device"></strong>?</p>
-      <p class="muted" style="margin-top:4px">Removes the database record and erases fingerprints on the device.</p>
-      <div class="modal-actions">
-        <button class="btn" type="button" onclick="closeModal('emp-del-modal')">Cancel</button>
-        <form id="edel-form" method="post" style="display:inline">
-          <button class="btn danger" type="submit">Delete</button>
-        </form>
-      </div>
+<div id="emp-del-modal" class="modal-overlay" hidden>
+  <div class="modal-box">
+    <h3 class="modal-title">Delete Employee From Device</h3>
+    <p>Remove <strong id="edel-name"></strong> from device <strong id="edel-device"></strong>?</p>
+    <p class="muted" style="margin-top:4px">Removes DB record and erases fingerprints on device.</p>
+    <div class="modal-actions">
+      <button class="btn" type="button" onclick="closeModal('emp-del-modal')">Cancel</button>
+      <form id="edel-form" method="post" style="display:inline">
+        <button class="btn danger" type="submit">Delete</button>
+      </form>
     </div>
   </div>
+</div>
 
-  <div id="bulk-del-modal" class="modal-overlay" hidden>
-    <div class="modal-box">
-      <h3 class="modal-title">Bulk Delete</h3>
-      <p>Delete <strong id="bulk-del-count"></strong> selected employee(s) from their devices?</p>
-      <p class="muted" style="margin-top:4px">All fingerprint data on the devices will be erased. Cannot be undone.</p>
-      <div class="modal-actions">
-        <button class="btn" type="button" onclick="closeModal('bulk-del-modal')">Cancel</button>
-        <button class="btn danger" type="button" onclick="submitBulkDelete()">Delete All</button>
-      </div>
+<div id="bulk-del-modal" class="modal-overlay" hidden>
+  <div class="modal-box">
+    <h3 class="modal-title">Bulk Delete</h3>
+    <p>Delete <strong id="bulk-del-count"></strong> selected employee(s) from their devices?</p>
+    <p class="muted" style="margin-top:4px">Fingerprint data will be erased. Cannot be undone.</p>
+    <div class="modal-actions">
+      <button class="btn" type="button" onclick="closeModal('bulk-del-modal')">Cancel</button>
+      <button class="btn danger" type="button" onclick="submitBulkDelete()">Delete All</button>
     </div>
   </div>
+</div>
 
-  <script>
-    function openGlobalDelModal(userId, name) {
-      document.getElementById('gdel-name').textContent = name;
-      document.getElementById('gdel-form').action = '/users/' + userId + '/delete';
-      showModal('global-del-modal');
+<script>
+/* ── Modals ────────────────────────────────────────────────────────── */
+function openGlobalDelModal(userId, name) {
+  document.getElementById('gdel-name').textContent = name;
+  document.getElementById('gdel-form').action = '/users/' + userId + '/delete';
+  showModal('global-del-modal');
+}
+function openEmpDelModal(empId, name, deviceName) {
+  document.getElementById('edel-name').textContent = name;
+  document.getElementById('edel-device').textContent = deviceName;
+  document.getElementById('edel-form').action = '/employees/' + empId + '/delete';
+  showModal('emp-del-modal');
+}
+function openBulkDelModal() {
+  var count = document.querySelectorAll('.emp-cb:checked').length;
+  if (count === 0) return;
+  document.getElementById('bulk-del-count').textContent = count;
+  showModal('bulk-del-modal');
+}
+function submitBulkDelete() {
+  closeModal('bulk-del-modal');
+  document.getElementById('bulk-form').submit();
+}
+function showModal(id)  { document.getElementById(id).hidden = false; }
+function closeModal(id) { document.getElementById(id).hidden = true; }
+document.querySelectorAll('.modal-overlay').forEach(function (el) {
+  el.addEventListener('click', function (e) { if (e.target === el) el.hidden = true; });
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape')
+    document.querySelectorAll('.modal-overlay').forEach(function (el) { el.hidden = true; });
+});
+
+/* ── Bulk checkbox ─────────────────────────────────────────────────── */
+function toggleAll(cb) {
+  document.querySelectorAll('.emp-cb').forEach(function (el) { el.checked = cb.checked; });
+  updateBulkBar();
+}
+function updateBulkBar() {
+  var checked = document.querySelectorAll('.emp-cb:checked').length;
+  var bar = document.getElementById('bulk-bar');
+  bar.hidden = checked === 0;
+  document.getElementById('bulk-count').textContent = checked + ' selected';
+  var all = document.querySelectorAll('.emp-cb').length;
+  var sa = document.getElementById('select-all');
+  sa.indeterminate = checked > 0 && checked < all;
+  sa.checked = checked === all && all > 0;
+}
+function clearSelection() {
+  document.querySelectorAll('.emp-cb').forEach(function (el) { el.checked = false; });
+  document.getElementById('select-all').checked = false;
+  updateBulkBar();
+}
+
+/* ── Searchable select dropdowns ──────────────────────────────────── */
+(function () {
+  document.querySelectorAll('select.searchable-select').forEach(function (origSel) {
+    var wrapper  = document.createElement('div');
+    wrapper.style.cssText = 'position:relative;display:inline-block;width:100%';
+    origSel.parentNode.insertBefore(wrapper, origSel);
+    wrapper.appendChild(origSel);
+    origSel.style.display = 'none';
+
+    var display = document.createElement('div');
+    display.className = 'ss-display';
+    display.style.cssText = 'border:1px solid #cbd5e1;border-radius:6px;padding:6px 10px;cursor:pointer;background:#fff;font-size:13px;display:flex;justify-content:space-between;align-items:center';
+
+    var dropdown = document.createElement('div');
+    dropdown.className = 'ss-dropdown';
+    dropdown.style.cssText = 'display:none;position:absolute;z-index:999;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);top:calc(100% + 4px);left:0;right:0;max-height:240px;overflow:auto';
+
+    var search = document.createElement('input');
+    search.type = 'text';
+    search.placeholder = 'Search…';
+    search.style.cssText = 'width:100%;padding:7px 10px;border:none;border-bottom:1px solid #e2e8f0;font-size:13px;outline:none;box-sizing:border-box';
+
+    var list = document.createElement('div');
+
+    function rebuildList(q) {
+      list.innerHTML = '';
+      q = (q || '').toLowerCase();
+      var opts = Array.from(origSel.options);
+      opts.forEach(function (o) {
+        if (q && o.textContent.toLowerCase().indexOf(q) === -1) return;
+        var item = document.createElement('div');
+        item.style.cssText = 'padding:7px 12px;cursor:pointer;font-size:13px';
+        item.textContent = o.textContent;
+        item.dataset.value = o.value;
+        if (o.selected) item.style.background = '#EEF6FF';
+        item.addEventListener('mouseover', function () { item.style.background = '#F1F5F9'; });
+        item.addEventListener('mouseout',  function () { item.style.background = o.selected ? '#EEF6FF' : ''; });
+        item.addEventListener('mousedown', function (e) { e.preventDefault(); });
+        item.addEventListener('click', function () {
+          origSel.value = item.dataset.value;
+          origSel.dispatchEvent(new Event('change'));
+          dropdown.style.display = 'none';
+          display.querySelector('span').textContent = origSel.options[origSel.selectedIndex] ? origSel.options[origSel.selectedIndex].textContent : '—';
+        });
+        list.appendChild(item);
+      });
     }
-    function openEmpDelModal(empId, name, deviceName) {
-      document.getElementById('edel-name').textContent = name;
-      document.getElementById('edel-device').textContent = deviceName;
-      document.getElementById('edel-form').action = '/employees/' + empId + '/delete';
-      showModal('emp-del-modal');
+
+    function syncDisplay() {
+      var idx = origSel.selectedIndex;
+      display.querySelector('span').textContent = idx >= 0 && origSel.options[idx].textContent ? origSel.options[idx].textContent : '—';
     }
-    function openBulkDelModal() {
-      var count = document.querySelectorAll('.emp-cb:checked').length;
-      if (count === 0) return;
-      document.getElementById('bulk-del-count').textContent = count;
-      showModal('bulk-del-modal');
-    }
-    function submitBulkDelete() {
-      closeModal('bulk-del-modal');
-      document.getElementById('bulk-form').submit();
-    }
-    function showModal(id) { document.getElementById(id).hidden = false; }
-    function closeModal(id) { document.getElementById(id).hidden = true; }
-    document.querySelectorAll('.modal-overlay').forEach(function(el) {
-      el.addEventListener('click', function(e) { if (e.target === el) el.hidden = true; });
+
+    var displayText = document.createElement('span');
+    var caret = document.createElement('span');
+    caret.textContent = '▾';
+    caret.style.cssText = 'font-size:10px;color:#94a3b8;margin-left:4px';
+    display.appendChild(displayText);
+    display.appendChild(caret);
+    syncDisplay();
+
+    dropdown.appendChild(search);
+    dropdown.appendChild(list);
+    wrapper.appendChild(display);
+    wrapper.appendChild(dropdown);
+
+    display.addEventListener('click', function () {
+      var open = dropdown.style.display !== 'none';
+      dropdown.style.display = open ? 'none' : '';
+      if (!open) { search.value = ''; rebuildList(''); search.focus(); }
     });
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape')
-        document.querySelectorAll('.modal-overlay').forEach(function(el) { el.hidden = true; });
+    search.addEventListener('input', function () { rebuildList(this.value); });
+    document.addEventListener('click', function (e) {
+      if (!wrapper.contains(e.target)) dropdown.style.display = 'none';
     });
-    function toggleAll(cb) {
-      document.querySelectorAll('.emp-cb').forEach(function(el) { el.checked = cb.checked; });
-      updateBulkBar();
-    }
-    function updateBulkBar() {
-      var checked = document.querySelectorAll('.emp-cb:checked').length;
-      var bar = document.getElementById('bulk-bar');
-      bar.hidden = checked === 0;
-      document.getElementById('bulk-count').textContent = checked + ' selected';
-      var all = document.querySelectorAll('.emp-cb').length;
-      var sa = document.getElementById('select-all');
-      sa.indeterminate = checked > 0 && checked < all;
-      sa.checked = checked === all && all > 0;
-    }
-    function clearSelection() {
-      document.querySelectorAll('.emp-cb').forEach(function(el) { el.checked = false; });
-      document.getElementById('select-all').checked = false;
-      updateBulkBar();
-    }
-  </script>
+    rebuildList('');
+    origSel.addEventListener('change', syncDisplay);
+  });
+})();
+</script>
 {% endblock %}

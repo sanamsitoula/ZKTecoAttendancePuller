@@ -323,6 +323,34 @@ def get_device_backup(device: DeviceConfig) -> dict:
                 pass
 
 
+def get_fingerprint_map(device: DeviceConfig) -> dict:
+    """Returns {uid: [{fid, valid, template_b64},...]} for all UIDs on device."""
+    import base64
+    password = int(device.password) if device.password and device.password.isdigit() else 0
+    zk = ZK(device.ip, port=device.port, timeout=_bulk_timeout(device), password=password,
+            ommit_ping=True, force_udp=False)
+    conn = None
+    try:
+        conn = zk.connect()
+        raw_templates = conn.get_templates()
+        result: dict = {}
+        for t in raw_templates:
+            uid = int(getattr(t, 'uid', 0))
+            raw_bytes = getattr(t, 'template', b'') or b''
+            result.setdefault(uid, []).append({
+                "fid": int(getattr(t, 'fid', 0)),
+                "valid": int(getattr(t, 'valid', 1)),
+                "template": base64.b64encode(raw_bytes).decode('ascii'),
+            })
+        return result
+    finally:
+        if conn is not None:
+            try:
+                conn.disconnect()
+            except Exception:
+                pass
+
+
 def migrate_users_to_device(
     source_device: DeviceConfig,
     target_device: DeviceConfig,
