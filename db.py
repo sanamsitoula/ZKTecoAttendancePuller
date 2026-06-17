@@ -970,8 +970,11 @@ def get_employees_for_report(conn) -> list:
         LEFT JOIN directorates dir ON dept.directorate_id = dir.id
         LEFT JOIN sections    sect ON gu.section_id      = sect.id
         LEFT JOIN units       unt  ON gu.unit_id         = unt.id
-        ORDER BY dir.name NULLS LAST, dept.name NULLS LAST,
-                 LOWER(COALESCE(gu.name, e.name, e.user_id)), d.name
+        ORDER BY
+            CASE WHEN gu.global_user_id ~ '^[0-9]+$'
+                 THEN gu.global_user_id::INTEGER ELSE NULL END NULLS LAST,
+            gu.global_user_id NULLS LAST,
+            LOWER(COALESCE(gu.name, e.name, e.user_id)), d.name
     """
     from collections import OrderedDict
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -1498,16 +1501,21 @@ def delete_leave_type(conn, lt_id: int):
 def get_leave_balances(conn, bs_year: int) -> list:
     sql = """
         SELECT lb.*,
-               gu.name AS employee_name, gu.global_user_id AS company_id,
-               d.name  AS department_name,
-               lt.name AS leave_type_name, lt.code,
+               gu.name           AS employee_name,
+               gu.global_user_id AS company_id,
+               gu.employee_id    AS employee_id,
+               d.name            AS department_name,
+               lt.name           AS leave_type_name, lt.code,
                (lb.opening_balance + lb.days_earned - lb.days_taken) AS available
         FROM leave_balances lb
         JOIN global_users gu ON gu.id = lb.global_user_id
         JOIN leave_types  lt ON lt.id = lb.leave_type_id
         LEFT JOIN departments d ON d.id = gu.department_id
         WHERE lb.bs_year = %s
-        ORDER BY gu.name, lt.name
+        ORDER BY
+            CASE WHEN gu.global_user_id ~ '^[0-9]+$'
+                 THEN gu.global_user_id::INTEGER ELSE NULL END NULLS LAST,
+            gu.name, lt.name
     """
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(sql, (bs_year,))
@@ -1571,16 +1579,27 @@ def allocate_annual_leaves(conn, bs_year: int) -> int:
 # ─── Leave Applications ───────────────────────────────────────────────────────
 
 def get_leave_applications(conn, global_user_id=None, status=None,
-                            from_ad=None, to_ad=None, limit: int = 300) -> list:
+                            from_ad=None, to_ad=None, limit: int = 300,
+                            department_id=None, section_id=None,
+                            directorate_id=None) -> list:
     sql = """
         SELECT la.*,
-               gu.name AS employee_name, gu.global_user_id AS company_id,
-               d.name  AS department_name,
-               lt.name AS leave_type_name, lt.code AS leave_code, lt.is_paid
+               gu.name        AS employee_name,
+               gu.global_user_id AS company_id,
+               gu.employee_id AS employee_id,
+               d.name         AS department_name,
+               d.id           AS department_id,
+               dir.name       AS directorate_name,
+               sec.name       AS section_name,
+               lt.name        AS leave_type_name,
+               lt.code        AS leave_code,
+               lt.is_paid
         FROM leave_applications la
-        JOIN global_users gu ON gu.id = la.global_user_id
-        JOIN leave_types  lt ON lt.id = la.leave_type_id
-        LEFT JOIN departments d ON d.id = gu.department_id
+        JOIN global_users gu  ON gu.id  = la.global_user_id
+        JOIN leave_types  lt  ON lt.id  = la.leave_type_id
+        LEFT JOIN departments  d   ON d.id   = gu.department_id
+        LEFT JOIN directorates dir ON dir.id = d.directorate_id
+        LEFT JOIN sections     sec ON sec.id = gu.section_id
         WHERE 1=1
     """
     params: list = []
@@ -1596,6 +1615,15 @@ def get_leave_applications(conn, global_user_id=None, status=None,
     if to_ad:
         sql += " AND la.from_ad <= %s"
         params.append(to_ad)
+    if directorate_id:
+        sql += " AND d.directorate_id = %s"
+        params.append(directorate_id)
+    if department_id:
+        sql += " AND gu.department_id = %s"
+        params.append(department_id)
+    if section_id:
+        sql += " AND gu.section_id = %s"
+        params.append(section_id)
     sql += " ORDER BY la.created_at DESC LIMIT %s"
     params.append(limit)
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:

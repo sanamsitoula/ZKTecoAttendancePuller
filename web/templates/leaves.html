@@ -23,46 +23,88 @@
 
 {# ── Filter bar ────────────────────────────────────────────────────────── #}
 <section class="panel no-print">
-  <form method="get" action="/leaves">
-    <div class="filter-bar-flex">
+  <form method="get" action="/leaves" id="leaves-filter-form">
 
-      <label style="min-width:200px">Employee
-        <select name="emp_key" id="filter-emp-key">
-          <option value="">All Employees</option>
-          {% for emp in all_emps %}
-          <option value="g{{ emp.id }}"
-            {% if sel_emp_key == 'g' ~ emp.id %}selected{% endif %}>
-            {{ emp.name }}{% if emp.department_name %} — {{ emp.department_name }}{% endif %}
-          </option>
+    {# Row 1: Employee + Org filters #}
+    <div class="filter-bar-flex" style="margin-bottom:10px">
+
+      <label style="min-width:220px;flex:2">Employee
+        <div class="searchable-wrap" style="position:relative">
+          <input type="text" id="emp-search-input" autocomplete="off"
+                 placeholder="Search by name or ID…"
+                 style="width:100%;padding-right:28px"
+                 value="{% for e in all_emps %}{% if sel_emp_key == 'g'~e.id %}{% if e.employee_id %}{{ e.employee_id }} — {% endif %}{{ e.name }}{% endif %}{% endfor %}">
+          <input type="hidden" name="emp_key" id="emp-key-hidden" value="{{ sel_emp_key }}">
+          <div id="emp-dropdown" class="searchable-dropdown" style="display:none"></div>
+        </div>
+      </label>
+
+      <label style="min-width:160px">Directorate
+        <select name="directorate_id" id="filter-dir">
+          <option value="">All Directorates</option>
+          {% for d in all_dirs %}
+          <option value="{{ d.id }}" {% if sel_dir == d.id %}selected{% endif %}>{{ d.name }}</option>
           {% endfor %}
         </select>
       </label>
 
-      <label style="min-width:140px">Status
-        <select name="status">
-          <option value="" {% if not sel_status %}selected{% endif %}>All</option>
-          <option value="pending"  {% if sel_status == 'pending'  %}selected{% endif %}>Pending</option>
-          <option value="approved" {% if sel_status == 'approved' %}selected{% endif %}>Approved</option>
-          <option value="rejected" {% if sel_status == 'rejected' %}selected{% endif %}>Rejected</option>
+      <label style="min-width:160px">Department
+        <select name="department_id" id="filter-dept">
+          <option value="">All Departments</option>
+          {% for d in all_depts %}
+          <option value="{{ d.id }}" {% if sel_dept == d.id %}selected{% endif %}>{{ d.name }}</option>
+          {% endfor %}
         </select>
       </label>
 
-      <label style="min-width:155px">From Date (BS)
+      <label style="min-width:140px">Section
+        <select name="section_id" id="filter-sec">
+          <option value="">All Sections</option>
+          {% for s in all_sects %}
+          <option value="{{ s.id }}" {% if sel_sec == s.id %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+    </div>
+
+    {# Row 2: Month/Date + Status + Balance Year #}
+    <div class="filter-bar-flex">
+
+      <label style="min-width:140px">Month
+        <select name="bs_month" id="filter-month">
+          <option value="">All Months</option>
+          {% for i in range(1, 13) %}
+          <option value="{{ i }}" {% if sel_month == i %}selected{% endif %}>{{ nepali_months[i] }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label style="min-width:90px">Year
+        <input type="number" name="bs_year" value="{{ sel_year }}" min="2070" max="2100">
+      </label>
+
+      <label style="min-width:150px">From Date (BS)
         <input class="bsdp" name="from_bs" id="from_bs_filter"
                value="{{ sel_from_bs }}" placeholder="YYYY-MM-DD"
                data-ad-target="from_ad_filter_h">
         <input type="hidden" id="from_ad_filter_h">
       </label>
 
-      <label style="min-width:155px">To Date (BS)
+      <label style="min-width:150px">To Date (BS)
         <input class="bsdp" name="to_bs" id="to_bs_filter"
                value="{{ sel_to_bs }}" placeholder="YYYY-MM-DD"
                data-ad-target="to_ad_filter_h">
         <input type="hidden" id="to_ad_filter_h">
       </label>
 
-      <label style="min-width:100px">Balance Year
-        <input type="number" name="year" value="{{ sel_year }}" min="2070" max="2100" placeholder="2082">
+      <label style="min-width:130px">Status
+        <select name="status">
+          <option value="" {% if not sel_status %}selected{% endif %}>All Statuses</option>
+          <option value="pending"  {% if sel_status == 'pending'  %}selected{% endif %}>Pending</option>
+          <option value="approved" {% if sel_status == 'approved' %}selected{% endif %}>Approved</option>
+          <option value="rejected" {% if sel_status == 'rejected' %}selected{% endif %}>Rejected</option>
+        </select>
       </label>
 
       <div class="filter-actions">
@@ -72,6 +114,34 @@
     </div>
   </form>
 </section>
+
+{# ── Stats row ─────────────────────────────────────────────────────────── #}
+<div class="stat-boxes no-print">
+  <div class="stat-box">
+    <div class="stat-val">{{ total_apps }}</div>
+    <div class="stat-lbl">Total Applications</div>
+  </div>
+  <div class="stat-box green">
+    <div class="stat-val">{{ total_approved }}</div>
+    <div class="stat-lbl">Approved</div>
+  </div>
+  <div class="stat-box amber">
+    <div class="stat-val">{{ total_pending }}</div>
+    <div class="stat-lbl">Pending</div>
+  </div>
+  <div class="stat-box red">
+    <div class="stat-val">{{ total_rejected }}</div>
+    <div class="stat-lbl">Rejected</div>
+  </div>
+  <div class="stat-box" style="border-left:4px solid #6366f1">
+    <div class="stat-val">{{ '%.1f'|format(approved_days) }}</div>
+    <div class="stat-lbl">Approved Days</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-val">{{ '%.1f'|format(total_days) }}</div>
+    <div class="stat-lbl">Total Days (all)</div>
+  </div>
+</div>
 
 {# ── Employee balance panel ────────────────────────────────────────────── #}
 {% if sel_gid and emp_balance %}
@@ -116,12 +186,10 @@
 <section class="panel">
   <div class="panel-head">
     <h2>Leave Applications</h2>
-    <span class="muted"><span id="leaves-table-count"></span></span>
-  </div>
-
-  <div class="no-print" style="margin-bottom:10px">
-    <input class="inline-search" data-table-filter="leaves-table"
-           placeholder="Quick filter…" style="max-width:280px">
+    <span class="muted">
+      {{ total_apps }} total
+      {% if sel_month %}&mdash; {{ nepali_months[sel_month] }} {{ sel_year }}{% endif %}
+    </span>
   </div>
 
   <div class="table-wrap">
@@ -130,26 +198,32 @@
         <tr>
           <th style="width:36px">#</th>
           <th>Employee</th>
-          <th>Dept</th>
+          <th>ID</th>
+          <th>Dept / Section</th>
           <th>Leave Type</th>
           <th>From (BS)</th>
           <th>To (BS)</th>
           <th style="width:52px">Days</th>
           <th>Reason</th>
           <th style="width:90px">Status</th>
-          <th>Applied</th>
+          <th>Applied / By</th>
           <th class="no-print" style="width:140px">Actions</th>
         </tr>
       </thead>
       <tbody>
+        {% set offset = (page_num - 1) * per_page %}
         {% for app in leave_apps %}
         <tr>
-          <td>{{ loop.index }}</td>
+          <td>{{ offset + loop.index }}</td>
           <td>
             <strong>{{ app.employee_name }}</strong>
-            {% if app.company_id %}<br><small class="muted">{{ app.company_id }}</small>{% endif %}
+            {% if app.company_id %}<br><small class="muted">Attn: {{ app.company_id }}</small>{% endif %}
           </td>
-          <td>{{ app.department_name or '—' }}</td>
+          <td><small>{{ app.employee_id or '—' }}</small></td>
+          <td>
+            {{ app.department_name or '—' }}
+            {% if app.section_name %}<br><small class="muted">{{ app.section_name }}</small>{% endif %}
+          </td>
           <td>
             {{ app.leave_type_name }}
             <br><small class="muted">{{ app.leave_code }}{% if not app.is_paid %} · Unpaid{% endif %}</small>
@@ -157,13 +231,15 @@
           <td>{{ app.from_bs }}</td>
           <td>{{ app.to_bs }}</td>
           <td style="text-align:center">{{ '%.1f'|format(app.days|float) }}</td>
-          <td style="max-width:180px;word-break:break-word">{{ app.reason or '—' }}</td>
+          <td style="max-width:160px;word-break:break-word">{{ app.reason or '—' }}</td>
           <td>
             <span class="status-badge status-{{ app.status }}">{{ app.status | capitalize }}</span>
           </td>
           <td>
             <small>{{ app.applied_bs }}</small>
-            {% if app.remarks %}<br><small class="muted">{{ app.remarks }}</small>{% endif %}
+            {% if app.created_by %}<br><small class="muted">By user #{{ app.created_by }}</small>{% endif %}
+            {% if app.approved_by %}<br><small class="muted">{{ app.approved_by }}</small>{% endif %}
+            {% if app.remarks %}<br><small class="muted" style="font-style:italic">{{ app.remarks }}</small>{% endif %}
           </td>
           <td class="no-print">
             <div style="display:flex;gap:4px;flex-wrap:wrap">
@@ -177,17 +253,40 @@
               {% endif %}
               <form method="post" action="/leaves/{{ app.id }}/delete" style="display:inline"
                     onsubmit="return confirm('Delete this leave application?')">
-                <button class="btn small ghost" type="submit">Delete</button>
+                <button class="btn small ghost" type="submit">Del</button>
               </form>
             </div>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="11" class="empty">No leave applications match the current filter.</td></tr>
+        <tr><td colspan="12" class="empty">No leave applications match the current filter.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+
+  {# Pagination #}
+  {% if total_pages > 1 %}
+  <div class="pagination no-print">
+    {% set base = '/leaves?bs_year='~sel_year~'&bs_month='~sel_month~'&status='~sel_status~'&emp_key='~sel_emp_key~'&department_id='~sel_dept~'&section_id='~sel_sec~'&directorate_id='~sel_dir %}
+    {% if page_num > 1 %}
+    <a class="btn small" href="{{ base }}&page={{ page_num - 1 }}">&laquo; Prev</a>
+    {% endif %}
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == page_num %}
+      <span class="btn small primary" style="pointer-events:none">{{ p }}</span>
+      {% elif p <= 3 or p >= total_pages - 2 or (p >= page_num - 2 and p <= page_num + 2) %}
+      <a class="btn small" href="{{ base }}&page={{ p }}">{{ p }}</a>
+      {% elif p == 4 or p == total_pages - 3 %}
+      <span style="padding:0 4px">…</span>
+      {% endif %}
+    {% endfor %}
+    {% if page_num < total_pages %}
+    <a class="btn small" href="{{ base }}&page={{ page_num + 1 }}">Next &raquo;</a>
+    {% endif %}
+    <span class="muted" style="font-size:.8rem;margin-left:6px">Page {{ page_num }} of {{ total_pages }}</span>
+  </div>
+  {% endif %}
 </section>
 
 {# ── Add Leave Form ────────────────────────────────────────────────────── #}
@@ -199,14 +298,12 @@
     <div class="form-grid">
 
       <label>Employee <span style="color:var(--red)">*</span>
-        <select name="global_user_id" id="add-emp-select" required>
-          <option value="">— Select employee —</option>
-          {% for emp in all_emps %}
-          <option value="{{ emp.id }}">
-            {% if emp.company_id %}{{ emp.company_id }} — {% endif %}{{ emp.name }}{% if emp.department_name %} ({{ emp.department_name }}){% endif %}
-          </option>
-          {% endfor %}
-        </select>
+        <div class="searchable-wrap" style="position:relative">
+          <input type="text" id="add-emp-search" autocomplete="off"
+                 placeholder="Search by name or ID…" style="width:100%;padding-right:28px">
+          <input type="hidden" name="global_user_id" id="add-emp-hidden" required>
+          <div id="add-emp-dropdown" class="searchable-dropdown" style="display:none"></div>
+        </div>
       </label>
 
       <label>Leave Type <span style="color:var(--red)">*</span>
@@ -324,7 +421,8 @@
         <tr>
           <th>#</th>
           <th>Employee</th>
-          <th>ID</th>
+          <th>Attn ID</th>
+          <th>Emp ID</th>
           <th>Department</th>
           <th>Leave Type</th>
           <th>Code</th>
@@ -341,6 +439,7 @@
           <td>{{ loop.index }}</td>
           <td><strong>{{ b.employee_name }}</strong></td>
           <td><small>{{ b.company_id or '—' }}</small></td>
+          <td><small>{{ b.employee_id or '—' }}</small></td>
           <td>{{ b.department_name or '—' }}</td>
           <td>{{ b.leave_type_name }}</td>
           <td><span class="status info" style="font-size:11px">{{ b.code }}</span></td>
@@ -382,6 +481,98 @@
 (function () {
   'use strict';
 
+  /* ── Searchable employee dropdown (shared helper) ── */
+  var EMP_DATA = [
+    {% for e in all_emps %}
+    { id: {{ e.id }}, name: {{ (e.name or '') | tojson }},
+      eid: {{ (e.employee_id or '') | tojson }},
+      cid: {{ (e.company_id or '') | tojson }},
+      dept: {{ (e.department_name or '') | tojson }} },
+    {% endfor %}
+  ];
+
+  function makeSearchable(inputId, hiddenId, dropdownId, onSelect) {
+    var inp  = document.getElementById(inputId);
+    var hid  = document.getElementById(hiddenId);
+    var drop = document.getElementById(dropdownId);
+    if (!inp || !hid || !drop) return;
+
+    function render(q) {
+      var q2 = q.toLowerCase();
+      var hits = EMP_DATA.filter(function(e) {
+        return !q2 || e.name.toLowerCase().indexOf(q2) >= 0
+                    || e.eid.toLowerCase().indexOf(q2) >= 0
+                    || e.cid.toLowerCase().indexOf(q2) >= 0
+                    || e.dept.toLowerCase().indexOf(q2) >= 0;
+      }).slice(0, 40);
+      drop.innerHTML = '';
+      if (!hits.length) {
+        drop.innerHTML = '<div style="padding:8px 12px;color:#94a3b8">No matches</div>';
+      } else {
+        hits.forEach(function(e) {
+          var d = document.createElement('div');
+          d.className = 'searchable-item';
+          d.innerHTML = '<strong>' + e.name + '</strong>'
+                       + (e.eid ? ' <small style="color:#64748b">· ' + e.eid + '</small>' : '')
+                       + (e.dept ? '<br><small style="color:#94a3b8">' + e.dept + '</small>' : '');
+          d.dataset.id   = e.id;
+          d.dataset.name = e.name;
+          d.dataset.eid  = e.eid;
+          d.addEventListener('click', function() {
+            inp.value = (e.eid ? e.eid + ' — ' : '') + e.name;
+            hid.value = 'g' + e.id;
+            drop.style.display = 'none';
+            if (onSelect) onSelect(e);
+          });
+          drop.appendChild(d);
+        });
+      }
+      drop.style.display = 'block';
+    }
+
+    inp.addEventListener('focus', function() { render(inp.value); });
+    inp.addEventListener('input', function() { hid.value = ''; render(inp.value); });
+    inp.addEventListener('keydown', function(ev) {
+      if (ev.key === 'Escape') { drop.style.display = 'none'; }
+    });
+    document.addEventListener('click', function(ev) {
+      if (!inp.contains(ev.target) && !drop.contains(ev.target)) {
+        drop.style.display = 'none';
+        /* If user typed but didn't select, clear hidden so filter is not sent */
+        if (!hid.value && inp.value) {
+          /* check if text matches any entry exactly */
+          var match = EMP_DATA.find(function(e) {
+            var label = (e.eid ? e.eid + ' — ' : '') + e.name;
+            return label === inp.value || e.name === inp.value;
+          });
+          if (match) { hid.value = 'g' + match.id; }
+          else { inp.value = ''; }
+        }
+      }
+    });
+  }
+
+  /* Filter bar employee search */
+  makeSearchable('emp-search-input', 'emp-key-hidden', 'emp-dropdown');
+
+  /* Add form employee search */
+  makeSearchable('add-emp-search', 'add-emp-hidden', 'add-emp-dropdown');
+
+  /* Clear month filter when date range is used and vice-versa */
+  var monthSel = document.getElementById('filter-month');
+  var fromInp  = document.getElementById('from_bs_filter');
+  var toInp    = document.getElementById('to_bs_filter');
+  if (monthSel && fromInp && toInp) {
+    monthSel.addEventListener('change', function() {
+      if (this.value) { fromInp.value = ''; toInp.value = ''; }
+    });
+    [fromInp, toInp].forEach(function(el) {
+      el.addEventListener('change', function() {
+        if (el.value) { monthSel.value = ''; }
+      });
+    });
+  }
+
   /* ── Auto-calculate days from AD date fields ── */
   function calcDays() {
     var fromAd = document.getElementById('from_ad_h');
@@ -393,14 +584,11 @@
     fetch('/api/leave-days?from_ad=' + encodeURIComponent(f) + '&to_ad=' + encodeURIComponent(t))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
-        if (data && data.days !== undefined) {
-          daysEl.value = data.days;
-        }
+        if (data && data.days !== undefined) { daysEl.value = data.days; }
       })
       .catch(function () {});
   }
 
-  /* Watch the hidden AD fields for changes (bs-datepicker writes to them) */
   function watchHidden(id) {
     var el = document.getElementById(id);
     if (!el) return;
@@ -409,7 +597,6 @@
       if (el.value !== last) { last = el.value; calcDays(); }
     });
     obs.observe(el, { attributes: true, attributeFilter: ['value'] });
-    /* Also poll — datepicker sets .value directly without triggering MutationObserver */
     setInterval(function () {
       if (el.value !== last) { last = el.value; calcDays(); }
     }, 300);
@@ -438,5 +625,19 @@
 
 })();
 </script>
+
+<style>
+.searchable-dropdown {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 200;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.12); max-height: 260px; overflow-y: auto;
+}
+.searchable-item {
+  padding: 8px 12px; cursor: pointer; font-size: .86rem; line-height: 1.4;
+  border-bottom: 1px solid #f1f5f9;
+}
+.searchable-item:hover { background: #f0f9ff; }
+.searchable-item:last-child { border-bottom: none; }
+</style>
 
 {% endblock %}

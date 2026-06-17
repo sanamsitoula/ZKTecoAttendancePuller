@@ -1883,7 +1883,8 @@ def _time_to_min(t) -> int | None:
 def _compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
                               default_si_min: int = 600, default_so_min: int = 1020,
                               shift_calendar: dict = None,
-                              holiday_map: dict = None) -> list:
+                              holiday_map: dict = None,
+                              leave_map: set = None) -> list:
     """Build per-day dicts matching the 16-column ZKBioTime periodic attendance format.
 
     Columns: Work Date | Planned In | Planned Out | Work Time |
@@ -1974,12 +1975,16 @@ def _compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
         if not is_off_day and work_min and work_min > planned_work:
             ot = _fmt_min(work_min - planned_work)
 
+        is_on_leave = (not row) and (d.isoformat() in (leave_map or set()))
+
         if is_weekend:
             remark = 'Weekend'
         elif is_holiday:
             remark = 'Festival' if holiday_type == 'festival' else 'Holiday'
         elif row:
             remark = 'Present'
+        elif is_on_leave:
+            remark = 'Leave'
         else:
             remark = 'Absent'
 
@@ -2018,8 +2023,8 @@ def _monthly_totals(days: list, planned_work: int = 0) -> dict:
     counts = {'Present': 0, 'Absent': 0, 'Weekend': 0, 'Holiday': 0, 'Festival': 0, 'Leave': 0, 'Misc': 0}
     for d in days:
         tot_actual    += d.get('work_min', 0)
-        # Sum per-day planned for all workdays (present + absent, not weekend/holiday/festival)
-        if d['remark'] not in ('Weekend', 'Holiday', 'Festival'):
+        # Sum per-day planned for all workdays (not off-days or leaves)
+        if d['remark'] not in ('Weekend', 'Holiday', 'Festival', 'Leave'):
             tot_planned += d.get('planned_min', 0)
         def _parse(s):
             if not s: return 0
@@ -2215,11 +2220,22 @@ def reports_monthly_view(
                 from db import get_employee_daily_attendance_multi as _multi
                 from db import get_shift_calendar as _gsc
                 from db import get_holidays as _ghols
+                from db import get_leave_applications as _gleaveapps
+                from datetime import date as _ddate, timedelta as _dtd
                 daily       = _multi(conn, pairs, from_ad, to_ad)
                 shift_cal   = _gsc(conn, g_id, from_ad, to_ad)
                 holiday_map = {h['holiday_ad']: h for h in _ghols(conn, from_ad, to_ad)}
-                days        = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN, shift_cal, holiday_map)
-                totals      = _monthly_totals(days)
+                leave_dates: set = set()
+                for la in _gleaveapps(conn, global_user_id=g_id, status='approved',
+                                      from_ad=from_ad, to_ad=to_ad):
+                    ld = _ddate.fromisoformat(la['from_ad'])
+                    le = _ddate.fromisoformat(la['to_ad'])
+                    while ld <= le:
+                        leave_dates.add(ld.isoformat())
+                        ld += _dtd(days=1)
+                days   = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN,
+                                                 shift_cal, holiday_map, leave_dates)
+                totals = _monthly_totals(days)
 
                 report = {
                     'days':         days,
@@ -2288,12 +2304,28 @@ def reports_monthly_print_all(
             from_ad, to_ad = mi['first_ad'], mi['last_ad']
             from db import get_shift_calendar as _gsc
             from db import get_holidays as _ghols
+            from db import get_leave_applications as _gleaveapps
+            from datetime import date as _ddate, timedelta as _dtd
             holiday_map = {h['holiday_ad']: h for h in _ghols(conn, from_ad, to_ad)}
+            # Build per-employee leave date sets for the month
+            all_la = _gleaveapps(conn, status='approved', from_ad=from_ad, to_ad=to_ad, limit=50000)
+            _leave_by_emp: dict = {}
+            for la in all_la:
+                gid = la['global_user_id']
+                ld  = _ddate.fromisoformat(la['from_ad'])
+                le  = _ddate.fromisoformat(la['to_ad'])
+                if gid not in _leave_by_emp:
+                    _leave_by_emp[gid] = set()
+                while ld <= le:
+                    _leave_by_emp[gid].add(ld.isoformat())
+                    ld += _dtd(days=1)
             for emp in all_emps:
                 pairs     = [(dv['device_id'], dv['user_id']) for dv in emp['devices']]
                 daily     = _multi(conn, pairs, from_ad, to_ad)
                 shift_cal = _gsc(conn, emp.get('global_id'), from_ad, to_ad)
-                days      = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN, shift_cal, holiday_map)
+                leave_map = _leave_by_emp.get(emp.get('global_id'), set())
+                days      = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN,
+                                                    shift_cal, holiday_map, leave_map)
                 totals    = _monthly_totals(days)
                 reports.append({
                     'emp_name':    emp['display_name'],
@@ -2610,45 +2642,84 @@ async def set_emp_org(request: Request, global_id: int):
 
 @app.get("/leaves")
 def leaves_page(request: Request,
-                status:      str | None = None,
-                emp_key:     str | None = None,
-                from_bs:     str | None = None,
-                to_bs:       str | None = None,
-                bs_year:     str | None = None):
+                status:         str | None = None,
+                emp_key:        str | None = None,
+                from_bs:        str | None = None,
+                to_bs:          str | None = None,
+                bs_year:        str | None = None,
+                bs_month:       str | None = None,
+                department_id:  str | None = None,
+                section_id:     str | None = None,
+                directorate_id: str | None = None,
+                page:           str | None = None):
     from db import (get_all_leave_types, get_leave_applications,
                     get_all_global_users_with_dept, get_leave_balances,
-                    get_employee_leave_balance)
-    from nepali_utils import bs_to_ad, ad_to_bs_tuple, NEPALI_MONTHS
-    import datetime
+                    get_employee_leave_balance, get_all_departments,
+                    get_all_directorates, get_all_sections)
+    from nepali_utils import bs_to_ad, NEPALI_MONTHS, bs_month_info
 
-    today_bs = _today_bs()
+    today_bs    = _today_bs()
     cur_bs_year = int(today_bs[:4]) if today_bs else 2082
 
-    sel_year  = int(bs_year) if bs_year else cur_bs_year
-    from_ad = bs_to_ad(from_bs) if from_bs else None
-    to_ad   = bs_to_ad(to_bs)   if to_bs   else None
+    sel_year  = _int_param(bs_year) or cur_bs_year
+    sel_month = _int_param(bs_month) or 0
+    f_dept    = _int_param(department_id)
+    f_sec     = _int_param(section_id)
+    f_dir     = _int_param(directorate_id)
+    page_num  = max(1, _int_param(page) or 1)
+    per_page  = 25
+
+    # Month-wise filter overrides manual date range
+    if sel_month:
+        mi      = bs_month_info(sel_year, sel_month)
+        from_ad = mi['first_ad'] if mi else None
+        to_ad   = mi['last_ad']  if mi else None
+        from_bs_disp = to_bs_disp = ''
+    else:
+        from_ad      = bs_to_ad(from_bs) if from_bs else None
+        to_ad        = bs_to_ad(to_bs)   if to_bs   else None
+        from_bs_disp = from_bs or ''
+        to_bs_disp   = to_bs   or ''
 
     conn = get_connection()
     try:
         ltypes    = get_all_leave_types(conn)
         all_emps  = get_all_global_users_with_dept(conn)
+        all_depts = get_all_departments(conn)
+        all_dirs  = get_all_directorates(conn)
+        all_sects = get_all_sections(conn)
 
         sel_gid = None
-        if emp_key:
-            if emp_key.startswith('g'):
-                try:
-                    sel_gid = int(emp_key[1:])
-                except ValueError:
-                    pass
+        if emp_key and emp_key.startswith('g'):
+            try:
+                sel_gid = int(emp_key[1:])
+            except ValueError:
+                pass
 
         apps = get_leave_applications(conn,
                                       global_user_id=sel_gid,
                                       status=status or None,
                                       from_ad=from_ad,
-                                      to_ad=to_ad)
+                                      to_ad=to_ad,
+                                      department_id=f_dept,
+                                      section_id=f_sec,
+                                      directorate_id=f_dir,
+                                      limit=5000)
 
-        balances = get_leave_balances(conn, sel_year)
+        # Stats
+        total_apps     = len(apps)
+        total_approved = sum(1 for a in apps if a['status'] == 'approved')
+        total_pending  = sum(1 for a in apps if a['status'] == 'pending')
+        total_rejected = sum(1 for a in apps if a['status'] == 'rejected')
+        total_days     = sum(float(a.get('days') or 0) for a in apps)
+        approved_days  = sum(float(a.get('days') or 0) for a in apps if a['status'] == 'approved')
 
+        # Pagination
+        total_pages = max(1, (total_apps + per_page - 1) // per_page)
+        page_num    = min(page_num, total_pages)
+        page_apps   = apps[(page_num - 1) * per_page: page_num * per_page]
+
+        balances    = get_leave_balances(conn, sel_year)
         emp_balance: list = []
         if sel_gid:
             emp_balance = get_employee_leave_balance(conn, sel_gid, sel_year)
@@ -2656,20 +2727,36 @@ def leaves_page(request: Request,
         conn.close()
 
     return render(templates, request, 'leaves.html', {
-        'leave_types':   ltypes,
-        'leave_apps':    apps,
-        'all_emps':      all_emps,
-        'balances':      balances,
-        'emp_balance':   emp_balance,
-        'sel_status':    status or '',
-        'sel_emp_key':   emp_key or '',
-        'sel_gid':       sel_gid,
-        'sel_from_bs':   from_bs or '',
-        'sel_to_bs':     to_bs or '',
-        'sel_year':      sel_year,
-        'nepali_months': NEPALI_MONTHS,
-        'today_bs':      today_bs,
-        'COMPANY_NAME':  COMPANY_NAME,
+        'leave_types':     ltypes,
+        'leave_apps':      page_apps,
+        'all_emps':        all_emps,
+        'all_depts':       all_depts,
+        'all_dirs':        all_dirs,
+        'all_sects':       all_sects,
+        'balances':        balances,
+        'emp_balance':     emp_balance,
+        'sel_status':      status or '',
+        'sel_emp_key':     emp_key or '',
+        'sel_gid':         sel_gid,
+        'sel_from_bs':     from_bs_disp,
+        'sel_to_bs':       to_bs_disp,
+        'sel_year':        sel_year,
+        'sel_month':       sel_month,
+        'sel_dept':        f_dept  or '',
+        'sel_sec':         f_sec   or '',
+        'sel_dir':         f_dir   or '',
+        'nepali_months':   NEPALI_MONTHS,
+        'today_bs':        today_bs,
+        'COMPANY_NAME':    COMPANY_NAME,
+        'total_apps':      total_apps,
+        'total_approved':  total_approved,
+        'total_pending':   total_pending,
+        'total_rejected':  total_rejected,
+        'total_days':      total_days,
+        'approved_days':   approved_days,
+        'page_num':        page_num,
+        'total_pages':     total_pages,
+        'per_page':        per_page,
     })
 
 

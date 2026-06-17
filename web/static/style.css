@@ -740,6 +740,7 @@ td input[type="checkbox"] {
 .remark-weekend  { color: #64748b; }
 .remark-holiday  { color: #a16207; }
 .remark-festival { color: #7c3aed; }
+.remark-leave    { color: #0369a1; }
 .shift-badge { font-size:9px; color:var(--blue); background:var(--surface-2);
                padding:0 4px; border-radius:3px; margin-left:3px; }
 
