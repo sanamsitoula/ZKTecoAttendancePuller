@@ -115,6 +115,14 @@ app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 nepali_utils.register_filters(templates)
 
+# ─── Shared helpers ───────────────────────────────────────────────────────────
+
+
+def _today_bs() -> str:
+    """Return today's BS date string in NPT."""
+    return db_mod._today_bs()
+
+
 # ─── Auth helpers ──────────────────────────────────────────────────────────────
 
 
@@ -460,7 +468,7 @@ def _int_param(v) -> int | None:
     return int(s) if s else None
 
 
-def _build_emp_query(device_id, search, date_str, sort_by, sort_dir, limit=1000):
+def _build_emp_query(device_id, search, date_str, sort_by, sort_dir, limit=1000, offset=0):
     col   = _EMP_SORT_COLS.get(sort_by, 'e.name')
     direc = 'DESC' if sort_dir == 'desc' else 'ASC'
     where = []
@@ -483,7 +491,27 @@ def _build_emp_query(device_id, search, date_str, sort_by, sort_dir, limit=1000)
         JOIN devices d ON e.device_id = d.id
         {w}
         ORDER BY {col} {direc}
-        LIMIT {limit}
+        LIMIT {limit} OFFSET {offset}
+    """
+    return sql, params
+
+
+def _build_emp_count_query(device_id, search, date_str):
+    where = []
+    params = []
+    if device_id:
+        where.append("d.id = %s")
+        params.append(device_id)
+    if search:
+        where.append("(e.name ILIKE %s OR e.user_id ILIKE %s)")
+        params += [f'%{search}%', f'%{search}%']
+    if date_str:
+        where.append("DATE(e.created_at) = %s")
+        params.append(date_str)
+    w = f"WHERE {' AND '.join(where)}" if where else ""
+    sql = f"""
+        SELECT COUNT(*) FROM employees e
+        JOIN devices d ON e.device_id = d.id {w}
     """
     return sql, params
 
@@ -494,6 +522,7 @@ _USERS_PER_PAGE = 25
 @app.get("/users")
 def users_index(
     request: Request,
+    tab:              str = 'global',
     # global user filters
     gu_search:        str | None = None,
     gu_directorate:   str | None = None,
@@ -507,13 +536,14 @@ def users_index(
     date_str:         str | None = None,
     sort_by:          str = 'name',
     sort_dir:         str = 'asc',
+    emp_page:         str | None = None,
 ):
     conn = get_connection()
     try:
         from db import (get_all_directorates, get_all_departments,
                         get_all_sections, get_all_units, get_all_shifts)
         # Global users with filters + pagination
-        all_users = list_global_users(
+        all_users   = list_global_users(
             conn,
             search=gu_search or None,
             directorate_id=_int_param(gu_directorate),
@@ -521,14 +551,26 @@ def users_index(
             section_id=_int_param(gu_section),
             unit_id=_int_param(gu_unit),
         )
-        total_users   = len(all_users)
-        page_num      = max(1, _int_param(page) or 1)
-        total_pages   = max(1, (total_users + _USERS_PER_PAGE - 1) // _USERS_PER_PAGE)
-        page_num      = min(page_num, total_pages)
-        users         = all_users[(page_num - 1) * _USERS_PER_PAGE : page_num * _USERS_PER_PAGE]
+        total_users  = len(all_users)
+        page_num     = max(1, _int_param(page) or 1)
+        total_pages  = max(1, (total_users + _USERS_PER_PAGE - 1) // _USERS_PER_PAGE)
+        page_num     = min(page_num, total_pages)
+        users        = all_users[(page_num - 1) * _USERS_PER_PAGE : page_num * _USERS_PER_PAGE]
 
-        # Device employees (for migration / device view)
-        sql, params = _build_emp_query(_int_param(device_id), search, date_str, sort_by, sort_dir)
+        # Device employees with pagination
+        cnt_sql, cnt_params = _build_emp_count_query(_int_param(device_id), search, date_str)
+        with conn.cursor() as cur:
+            cur.execute(cnt_sql, cnt_params)
+            total_employees = cur.fetchone()[0]
+
+        emp_page_num  = max(1, _int_param(emp_page) or 1)
+        emp_total_pages = max(1, (total_employees + _USERS_PER_PAGE - 1) // _USERS_PER_PAGE)
+        emp_page_num  = min(emp_page_num, emp_total_pages)
+
+        sql, params = _build_emp_query(
+            _int_param(device_id), search, date_str, sort_by, sort_dir,
+            limit=_USERS_PER_PAGE, offset=(emp_page_num - 1) * _USERS_PER_PAGE,
+        )
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(sql, params)
             employees = [dict(row) for row in cur.fetchall()]
@@ -541,6 +583,7 @@ def users_index(
         shifts       = get_all_shifts(conn)
 
         return render(templates, request, "users.html", {
+            "tab":            tab if tab in ('global', 'device') else 'global',
             "users":          users,
             "total_users":    total_users,
             "page":           page_num,
@@ -551,13 +594,16 @@ def users_index(
             "gu_section":     gu_section or '',
             "gu_unit":        gu_unit or '',
             "employees":      employees,
+            "total_employees": total_employees,
+            "emp_page":       emp_page_num,
+            "emp_total_pages": emp_total_pages,
             "devices":        devices,
             "directorates":   directorates,
             "departments":    departments,
             "sections":       sections,
             "units":          units,
             "shifts":         shifts,
-            "selected_device_id": device_id,
+            "selected_device_id": device_id or '',
             "search":         search or '',
             "date_str":       date_str or '',
             "sort_by":        sort_by,
@@ -836,6 +882,111 @@ async def employees_bulk_delete(request: Request):
         return redirect_with_flash("/users", "success", msg)
     finally:
         conn.close()
+
+
+# ---- Employee migrate to global user ------------------------------------
+
+
+@app.post("/employees/{emp_id}/migrate")
+async def employee_migrate(request: Request, emp_id: int):
+    form = await request.form()
+
+    global_user_id = (form.get('global_user_id') or '').strip()
+    name           = (form.get('name') or '').strip()
+    employee_id    = (form.get('employee_id') or '').strip() or None
+    bank_number    = (form.get('bank_number') or '').strip() or None
+    email          = (form.get('email') or '').strip() or None
+    phone          = (form.get('phone') or '').strip() or None
+    department_id  = _int_param(form.get('department_id'))
+    section_id     = _int_param(form.get('section_id'))
+    unit_id        = _int_param(form.get('unit_id'))
+    shift_id       = _int_param(form.get('shift_id'))
+
+    if not global_user_id or not name:
+        return redirect_with_flash('/users?tab=device', 'error', 'Attendance ID and name are required.')
+
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute("SELECT * FROM employees WHERE id = %s", (emp_id,))
+            emp = cur.fetchone()
+        if not emp:
+            return redirect_with_flash('/users?tab=device', 'error', 'Employee not found.')
+
+        existing = find_global_user_by_global_id(conn, global_user_id)
+        if existing:
+            gid = existing['id']
+        else:
+            gid = create_global_user(
+                conn, global_user_id, name,
+                int(emp['privilege'] or 0), emp.get('card') or None,
+                app_user_id=_current_user_id(request),
+                employee_id=employee_id, bank_number=bank_number,
+                email=email, phone=phone,
+                department_id=department_id, section_id=section_id,
+                unit_id=unit_id, shift_id=shift_id,
+            )
+        with conn.cursor() as cur:
+            cur.execute("UPDATE employees SET global_user_id = %s WHERE id = %s", (gid, emp_id))
+        conn.commit()
+        return redirect_with_flash('/users?tab=device', 'success',
+                                   f'Employee "{name}" migrated to global users.')
+    except Exception as exc:
+        return redirect_with_flash('/users?tab=device', 'error', str(exc))
+    finally:
+        conn.close()
+
+
+# ---- Global users CSV export --------------------------------------------
+
+
+@app.get("/users/global-export")
+def global_users_export(
+    gu_search:      str | None = None,
+    gu_directorate: str | None = None,
+    gu_department:  str | None = None,
+    gu_section:     str | None = None,
+    gu_unit:        str | None = None,
+):
+    conn = get_connection()
+    try:
+        rows = list_global_users(
+            conn,
+            search=gu_search or None,
+            directorate_id=_int_param(gu_directorate),
+            department_id=_int_param(gu_department),
+            section_id=_int_param(gu_section),
+            unit_id=_int_param(gu_unit),
+        )
+    finally:
+        conn.close()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(['SN', 'Employee ID', 'Att. Device ID', 'Name', 'Email', 'Phone',
+                     'Bank Number', 'Directorate', 'Department', 'Section', 'Unit', 'Shift'])
+    for i, r in enumerate(rows, 1):
+        writer.writerow([
+            i,
+            r.get('employee_id') or '',
+            r.get('global_user_id') or '',
+            r.get('name') or '',
+            r.get('email') or '',
+            r.get('phone') or '',
+            r.get('bank_number') or '',
+            r.get('directorate_name') or '',
+            r.get('department_name') or '',
+            r.get('section_name') or '',
+            r.get('unit_name') or '',
+            r.get('shift_name') or '',
+        ])
+
+    fname = f"global_users_{date.today().isoformat()}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type='text/csv',
+        headers={'Content-Disposition': f'attachment; filename="{fname}"'},
+    )
 
 
 # ---- Device backup download ---------------------------------------------

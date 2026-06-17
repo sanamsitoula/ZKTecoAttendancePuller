@@ -983,3 +983,10 @@ td input[type="checkbox"] {
   user-select: none;
 }
 .ss-display:hover { border-color: var(--blue); }
+
+/* ── Tab pane visibility ────────────────────────────────────────────── */
+.tab-hidden { display: none !important; }
+.tab-pane { display: block; }
+
+/* ── Pagination row ─────────────────────────────────────────────────── */
+.pagination { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 14px; padding: 0 2px; }
