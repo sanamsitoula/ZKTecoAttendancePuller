@@ -28,7 +28,7 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 | **Daily Report** | Present employees with check-in times, department-wise absent list, on-leave list |
 | **Leave Management** | Employee leave applications; approve/reject; annual leave allocation; BS datepicker |
 | **Holiday Calendar** | Monthly BS calendar grid with public/festival/other holidays; working-day count |
-| **Users** | Global user management: employee ID, bank, email, phone, org, shift; pagination (25/page); full search/filter |
+| **Users** | Two tabs — **Global Users** (pagination, search/filter, CSV export, print) and **Device Employees** (pagination, migrate to global user, bulk delete) |
 | **Devices** | Add / edit / delete ZKTeco devices; test TCP connectivity |
 | **Device Backup** | Download full user + fingerprint backup as JSON |
 | **Migrate** | Copy users and fingerprints between two devices |
@@ -90,6 +90,7 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 
 ### 2. Clone and Install
 
+**Windows (PowerShell):**
 ```powershell
 git clone https://github.com/sanamsitoula/ZKTecoAttendancePuller.git C:\ZKTecePuller
 cd C:\ZKTecePuller
@@ -98,11 +99,27 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+**Ubuntu / Linux:**
+```bash
+git clone https://github.com/sanamsitoula/ZKTecoAttendancePuller.git ~/ZKTecePuller
+cd ~/ZKTecePuller
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
 ### 3. Configure the Database
 
+**Windows:**
 ```powershell
 Copy-Item db_config.json.example db_config.json
 notepad db_config.json
+```
+
+**Ubuntu / Linux:**
+```bash
+cp db_config.json.example db_config.json
+nano db_config.json
 ```
 
 ```json
@@ -129,15 +146,28 @@ All tables are created automatically on first startup.
 
 ### 5. Create Authentication Credentials
 
+**Windows:**
 ```powershell
 Copy-Item users.json.example users.json
 notepad users.json
 ```
 
+**Ubuntu / Linux:**
+```bash
+cp users.json.example users.json
+nano users.json
+```
+
 Generate a bcrypt hash for each user's password:
 
+**Windows:**
 ```powershell
 .venv\Scripts\python.exe -c "import bcrypt; print(bcrypt.hashpw(b'your_password', bcrypt.gensalt(12)).decode())"
+```
+
+**Ubuntu / Linux:**
+```bash
+.venv/bin/python -c "import bcrypt; print(bcrypt.hashpw(b'your_password', bcrypt.gensalt(12)).decode())"
 ```
 
 Edit `users.json`:
@@ -161,8 +191,15 @@ Edit `users.json`:
 
 ### 6. Start the Web UI
 
+**Windows:**
 ```powershell
 .\start_web.bat
+```
+
+**Ubuntu / Linux:**
+```bash
+chmod +x start_web.sh   # first time only
+./start_web.sh
 ```
 
 Then open: **http://localhost:8097** and log in with your credentials.
@@ -303,6 +340,39 @@ Register-ScheduledTask -TaskName "ZKTecoWebUI" -Action $action -Trigger $trigger
 powershell -ExecutionPolicy Bypass -File install_service.ps1
 ```
 
+**Make the web UI start automatically on Ubuntu (systemd):**
+
+```bash
+sudo nano /etc/systemd/system/zkteco-web.service
+```
+
+Paste:
+```ini
+[Unit]
+Description=ZKTeco Attendance Web UI
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/home/YOUR_USERNAME/ZKTecePuller
+ExecStart=/home/YOUR_USERNAME/ZKTecePuller/.venv/bin/python -m web.run_web --port 8097
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then enable and start:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable zkteco-web
+sudo systemctl start zkteco-web
+# Check status:
+sudo systemctl status zkteco-web
+```
+
 ---
 
 ## Company Configuration
@@ -376,16 +446,32 @@ Go to **Schedule** in the web UI — edit and save. Takes effect immediately.
 
 ### Update the application
 
+**Windows:**
 ```powershell
 cd C:\ZKTecePuller
 git pull
-# Restart the web UI (close the terminal window and rerun start_web.bat)
+.\start_web.bat
+```
+
+**Ubuntu / Linux:**
+```bash
+cd ~/ZKTecePuller
+git pull
+./start_web.sh
+# Or if running as a systemd service:
+sudo systemctl restart zkteco-web
 ```
 
 ### Back up the database
 
+**Windows:**
 ```powershell
 & "C:\Program Files\PostgreSQL\16\bin\pg_dump.exe" -U postgres -d zkteco -f "C:\backups\zkteco_$(Get-Date -Format 'yyyy-MM-dd').sql"
+```
+
+**Ubuntu / Linux:**
+```bash
+pg_dump -U postgres -d zkteco -f ~/backups/zkteco_$(date +%F).sql
 ```
 
 ---
@@ -439,7 +525,8 @@ ZKTecePuller/
 ├── scheduler.py            ← APScheduler (used standalone, not by web)
 ├── windows_service.py      ← Optional Windows Service wrapper
 ├── install_service.ps1     ← One-command service installer (Admin)
-├── start_web.bat           ← Double-click to start web UI on port 8097
+├── start_web.bat           ← Windows: double-click to start web UI on port 8097
+├── start_web.sh            ← Ubuntu/Linux: bash script to start web UI on port 8097
 │
 ├── web/
 │   ├── app.py              ← All FastAPI routes + embedded scheduler
@@ -481,18 +568,21 @@ ZKTecePuller/
 | `users.json not found` | `Copy-Item users.json.example users.json` then add bcrypt hashes and secret_key |
 | `FATAL: database "zkteco" does not exist` | `createdb -U postgres zkteco` |
 | `password authentication failed` | Check `password` in `db_config.json` |
-| Login says "Invalid username or password" | Re-generate bcrypt hash: `.venv\Scripts\python.exe -c "import bcrypt; print(bcrypt.hashpw(b'pw', bcrypt.gensalt(12)).decode())"` |
-| Web UI won't start on port 8097 | `start_web.bat` kills any existing process on that port automatically |
-| Pages show Internal Server Error after update | Run `start_web.bat` to restart — the server is running old code |
-| Leave / Calendar / Daily Report pages give 500 | Schema not applied yet — restart server with `start_web.bat` |
+| Login says "Invalid username or password" | Re-generate bcrypt hash — Windows: `.venv\Scripts\python.exe -c "import bcrypt; print(bcrypt.hashpw(b'pw', bcrypt.gensalt(12)).decode())"` · Linux: `.venv/bin/python -c "..."` |
+| Web UI won't start on port 8097 | `start_web.bat` (Windows) or `./start_web.sh` (Linux) kills any existing process automatically |
+| Pages show Internal Server Error after update | Restart the server (`start_web.bat` / `./start_web.sh`) — running old code |
+| Leave / Calendar / Report pages give 500 | Restart server — `init_schema` will apply any missing columns |
 | `AssertionError: SessionMiddleware must be installed` | Upgrade to latest code and restart — middleware ordering was fixed |
 | `/login` returns 500 Internal Server Error | Starlette 1.2.1 changed the `TemplateResponse` API — upgrade to latest code (`git pull`) and restart |
 | Daily report shows no data | Reports default to yesterday; pull data via Dashboard first |
 | Device shows Offline on Dashboard | Port 4370 must be reachable from the server — check firewall / network |
 | `Connection timed out` on pull | Verify `Test-NetConnection -ComputerName <ip> -Port 4370` succeeds |
 | Monthly report shows no employees | Pull data from at least one device first via Dashboard |
-| `pg_dump` / `psql` not found | Use full path: `C:\Program Files\PostgreSQL\16\bin\pg_dump.exe` |
-| Python package install fails | Ensure `.venv\Scripts\activate` was run before `pip install` |
+| `pg_dump` / `psql` not found (Windows) | Use full path: `C:\Program Files\PostgreSQL\16\bin\pg_dump.exe` |
+| `pg_dump` not found (Ubuntu) | `sudo apt install postgresql-client` |
+| Python package install fails (Windows) | Ensure `.venv\Scripts\activate` was run before `pip install` |
+| Python package install fails (Ubuntu) | Ensure `source .venv/bin/activate` was run before `pip install` |
+| `lsof` not found (Ubuntu) | `sudo apt install lsof` |
 | `pywin32` error (service only) | Run `python .venv\Scripts\pywin32_postinstall.py -install` as Administrator |
 | New global_users columns missing | Restart the server — `init_schema` adds them automatically via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` |
 
