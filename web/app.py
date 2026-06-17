@@ -154,7 +154,7 @@ app.add_middleware(SessionMiddleware, secret_key=get_secret_key(), session_cooki
 def login_get(request: Request, next: str | None = None):
     if request.session.get("user_id"):
         return RedirectResponse(url=next or "/", status_code=302)
-    return templates.TemplateResponse("login.html", {"request": request, "error": None, "username": ""})
+    return templates.TemplateResponse(request, "login.html", {"error": None, "username": ""})
 
 
 @app.post("/login")
@@ -167,8 +167,7 @@ def login_post(request: Request, username: str = Form(...), password: str = Form
         request.session["role"]         = user.get("role", "user")
         dest = next if next and next not in ("/login", "") else "/"
         return RedirectResponse(url=dest, status_code=302)
-    return templates.TemplateResponse("login.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "login.html", {
         "error": "Invalid username or password.",
         "username": username,
     })
