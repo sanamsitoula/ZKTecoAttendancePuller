@@ -1748,6 +1748,15 @@ def reports_monthly_list(
                     or f_srch in (e.get('department_name') or '').lower()
                     or f_srch in (e.get('section_name') or '').lower()]
 
+    # Sort by company user ID (numeric where possible) then name
+    def _emp_sort_key(e):
+        cid = (e.get('company_id') or '').strip()
+        try:
+            return (0, int(cid), (e.get('display_name') or '').lower())
+        except ValueError:
+            return (1, 0, cid.lower() or (e.get('display_name') or '').lower())
+
+    filtered    = sorted(filtered, key=_emp_sort_key)
     total       = len(filtered)
     total_pages = max(1, (total + per_page - 1) // per_page)
     page_num    = min(page_num, total_pages)
@@ -2579,7 +2588,8 @@ def daily_report(request: Request,
     if date_bs and not date_ad:
         date_ad = bs_to_ad(date_bs)
     if not date_ad:
-        date_ad = datetime.date.today().isoformat()
+        # Default to yesterday — today's punches are usually incomplete
+        date_ad = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
     if not date_bs:
         date_bs = ad_to_bs(date_ad) or ''
 

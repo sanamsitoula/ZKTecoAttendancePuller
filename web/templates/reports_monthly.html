@@ -84,8 +84,8 @@
       <thead>
         <tr>
           <th style="width:36px">SN</th>
+          <th style="width:80px">ID</th>
           <th>Name</th>
-          <th>ID</th>
           <th>Directorate</th>
           <th>Department</th>
           <th>Section</th>
@@ -99,8 +99,8 @@
         {% for emp in page_emps %}
         <tr>
           <td>{{ offset + loop.index }}</td>
-          <td><strong>{{ emp.display_name }}</strong></td>
           <td>{{ emp.company_id or '&mdash;' }}</td>
+          <td><strong>{{ emp.display_name }}</strong></td>
           <td>{{ emp.directorate_name or '&mdash;' }}</td>
           <td>{{ emp.department_name or '&mdash;' }}</td>
           <td>{{ emp.section_name or '&mdash;' }}</td>

@@ -245,17 +245,6 @@ CREATE TABLE IF NOT EXISTS leave_types (
     is_paid        BOOLEAN      NOT NULL DEFAULT TRUE,
     description    TEXT
 );
-INSERT INTO leave_types (name, code, days_per_year, max_accumulate, carry_forward, is_paid, description)
-VALUES
-  ('Home Leave',      'HOME',      13, 60, TRUE,  TRUE,  'Gharbidha Bida — 13 days/year, accumulates up to 60'),
-  ('Sick Leave',      'SICK',      12, 45, TRUE,  TRUE,  'Birami Bida — 12 days/year, accumulates up to 45'),
-  ('Casual Leave',    'CASUAL',    12,  0, FALSE, TRUE,  'Aakasmic Bida — 12 days/year, does not carry forward'),
-  ('Maternity Leave', 'MATERNITY', 98,  0, FALSE, TRUE,  '98 days total'),
-  ('Paternity Leave', 'PATERNITY', 15,  0, FALSE, TRUE,  '15 days'),
-  ('Mourning Leave',  'MOURNING',  13,  0, FALSE, TRUE,  'Sog Bida — 13 days for immediate family'),
-  ('Study Leave',     'STUDY',      0,  0, FALSE, TRUE,  'As sanctioned by management'),
-  ('Unpaid Leave',    'UNPAID',     0,  0, FALSE, FALSE, 'Without pay')
-ON CONFLICT (code) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS leave_balances (
     id              SERIAL PRIMARY KEY,
@@ -302,13 +291,39 @@ CREATE INDEX IF NOT EXISTS idx_holidays_ad ON holidays (holiday_ad);
 """
 
 
+_LEAVE_TYPES_SEED = """
+INSERT INTO leave_types (name, code, days_per_year, max_accumulate, carry_forward, is_paid, description)
+VALUES
+  ('Home Leave',      'HOME',      13, 60, TRUE,  TRUE,  'Gharbidha Bida — 13 days/year, accumulates up to 60'),
+  ('Sick Leave',      'SICK',      12, 45, TRUE,  TRUE,  'Birami Bida — 12 days/year, accumulates up to 45'),
+  ('Casual Leave',    'CASUAL',    12,  0, FALSE, TRUE,  'Aakasmic Bida — 12 days/year, does not carry forward'),
+  ('Maternity Leave', 'MATERNITY', 98,  0, FALSE, TRUE,  '98 days total'),
+  ('Paternity Leave', 'PATERNITY', 15,  0, FALSE, TRUE,  '15 days'),
+  ('Mourning Leave',  'MOURNING',  13,  0, FALSE, TRUE,  'Sog Bida — 13 days for immediate family'),
+  ('Study Leave',     'STUDY',      0,  0, FALSE, TRUE,  'As sanctioned by management'),
+  ('Unpaid Leave',    'UNPAID',     0,  0, FALSE, FALSE, 'Without pay')
+ON CONFLICT (code) DO NOTHING;
+"""
+
+
 def get_connection():
     return psycopg2.connect(**load_db_config())
 
 
 def init_schema(conn) -> None:
+    # Phase 1: DDL — committed immediately so locks are released before seeding
     with conn.cursor() as cur:
         cur.execute(SCHEMA_SQL)
+    conn.commit()
+    # Phase 2: seed leave types — separate transaction so a deadlock here
+    # doesn't roll back the schema changes above
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_LEAVE_TYPES_SEED)
+        conn.commit()
+    except Exception as seed_err:
+        conn.rollback()
+        logger.warning("leave_types seed skipped: %s", seed_err)
     logger.info("Database schema initialized.")
 
 

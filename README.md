@@ -23,7 +23,11 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 |---|---|
 | **Dashboard** | Live device status, today's punch count, recent attendance with BS dates |
 | **Attendance** | Date-range filter (BS + AD), device/name search, Export Excel & PDF |
-| **Monthly Report** | Per-employee 16-column ZKBioTime-style report; multi-device; 60-second dedup |
+| **Monthly Report** | Per-employee 16-column ZKBioTime-style report; multi-device; 60-second dedup; filter by directorate/department/section |
+| **Monthly Summary** | Aggregate present/absent/on-leave per employee for a BS month; print/PDF A4 landscape |
+| **Daily Report** | Present employees with check-in times, department-wise absent list, on-leave list |
+| **Leave Management** | Employee leave applications; approve/reject; annual leave allocation; BS datepicker |
+| **Holiday Calendar** | Monthly BS calendar grid with public/festival/other holidays; working-day count |
 | **Users** | Employee list with filter, sort, CSV export, per-row and bulk delete |
 | **Devices** | Add / edit / delete ZKTeco devices; test TCP connectivity |
 | **Device Backup** | Download full user + fingerprint backup as JSON |
@@ -31,6 +35,7 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 | **Sync** | Compare device users vs DB; import unknown or push missing |
 | **Pull Sessions** | History of every pull run (start, end, rows, status) |
 | **Schedule** | View and edit the pull schedule — applies immediately, no restart |
+| **Settings** | Manage directorates, departments, sections, units, shifts, and shift rules |
 
 ### Bikram Sambat (BS) Calendar
 
@@ -47,6 +52,28 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 - Device name shown in brackets: `10:02 (Main Gate)`
 - 16 columns matching ZKBioTime format: Work Date, Planned In/Out, Work Time, Time In/Out, Break In/Out, Time, Actual, OT, LateIn, EarlyOut, EarlyIn, LateOut, Remark
 - **Print Single** — one employee; **Print All** — every employee, one page each
+- Filter by directorate, department, section; search by name or ID
+- Sorted by employee ID number
+
+### Leave Management
+
+- Eight standard leave types following Nepal government rules: Home (13d/yr, carries forward up to 60), Sick (12d/yr, carries forward up to 45), Casual (12d/yr, no carry-forward), Maternity (98d), Paternity (15d), Mourning (13d), Study, Unpaid
+- BS datepicker auto-calculates working days (skips Saturdays and holidays)
+- Annual leave allocation for all employees in one click
+- Approve / reject / delete applications with audit trail
+
+### Holiday Calendar
+
+- Monthly Bikram Sambat grid view
+- Three holiday types: Public, Festival, Other
+- Shows working-day count and total holidays for the month
+
+### Daily Attendance Report
+
+- Defaults to yesterday (previous working day)
+- Shows present employees with first check-in time and department
+- Department-wise absent list (excludes weekends and holidays)
+- On-leave summary cross-referenced with approved leave applications
 
 ---
 
@@ -296,7 +323,9 @@ Go to **Dashboard → Add Device** in the web UI. Changes are saved to the datab
 Click the **Pull** button on any device card on the Dashboard.
 
 ### View monthly attendance
-Go to **Reports** — select employee and BS month. Use **Print All** to print all employees in one go.
+Go to **Reports → Monthly** — select employee and BS month. Use **Print All** to print all employees in one go.  
+Go to **Reports → Monthly Summary** for an aggregate present/absent/leave count per employee.  
+Go to **Reports → Daily Report** for yesterday's attendance (change the date to view any day).
 
 ### Change the pull schedule
 Go to **Schedule** in the web UI — edit and save. Takes effect immediately.
@@ -322,12 +351,22 @@ git pull
 ```
 devices           — id, name, ip_address, port, model, is_active, created_at, created_bs
 employees         — id, device_id, uid, user_id, name, privilege, card, created_at, created_bs, updated_bs
-global_users      — id, global_user_id, name, privilege, card, created_at, created_bs, updated_bs
+global_users      — id, global_user_id, name, department_id, section_id, unit_id, ...
 attendance_logs   — id, device_id, employee_id, uid, user_id, name, timestamp (UTC), bs_date,
                     status, punch, punch_label
                     UNIQUE (device_id, uid, timestamp)  ← idempotency key
 pull_sessions     — id, device_id, started_at, completed_at, records_pulled, new_inserts,
                     status, error_message, started_bs, completed_bs
+directorates      — id, name
+departments       — id, name, directorate_id
+sections          — id, name, department_id
+units             — id, name, section_id
+shifts            — id, name, start_time, end_time
+shift_rules       — id, shift_id, global_user_id / department_id / section_id / unit_id / directorate_id, from_date, to_date
+leave_types       — id, name, code, days_per_year, max_accumulate, carry_forward, is_paid
+leave_balances    — id, global_user_id, leave_type_id, bs_year, opening_balance, days_earned, days_taken
+leave_applications — id, global_user_id, leave_type_id, from_bs, to_bs, from_ad, to_ad, days, status
+holidays          — id, name, holiday_ad, holiday_bs, holiday_type, description
 ```
 
 All tables store a Bikram Sambat date column (e.g. `bs_date`, `created_bs`) alongside the AD timestamp.
@@ -359,14 +398,19 @@ ZKTecePuller/
 │   │   ├── style.css       ← All UI styles (responsive, print-ready)
 │   │   └── bs-datepicker.js← Vanilla JS Bikram Sambat calendar picker
 │   └── templates/
-│       ├── base.html                    ← Layout, nav, org bar
-│       ├── devices.html                 ← Dashboard + device cards
-│       ├── attendance.html              ← Punch log with BS date filter
-│       ├── reports_monthly.html         ← Monthly report (list + individual)
-│       ├── reports_monthly_print_all.html ← Print-all employees page
-│       ├── users.html                   ← Employee management
-│       ├── schedule.html                ← Schedule viewer/editor
-│       └── ...                          ← Other templates
+│       ├── base.html                       ← Layout, nav, org bar
+│       ├── devices.html                    ← Dashboard + device cards
+│       ├── attendance.html                 ← Punch log with BS date filter
+│       ├── reports_monthly.html            ← Monthly report (list + individual)
+│       ├── reports_monthly_print_all.html  ← Print-all employees page
+│       ├── reports_monthly_summary.html    ← Monthly aggregate summary
+│       ├── reports_daily.html              ← Daily attendance report
+│       ├── leaves.html                     ← Leave management
+│       ├── calendar.html                   ← Holiday calendar (BS grid)
+│       ├── users.html                      ← Employee management
+│       ├── settings.html                   ← Org hierarchy + shifts
+│       ├── schedule.html                   ← Schedule viewer/editor
+│       └── ...                             ← Other templates
 │
 ├── db_config.json.example  ← Copy to db_config.json and set credentials
 ├── devices.json.example    ← Reference only; devices are managed via web UI
@@ -384,6 +428,9 @@ ZKTecePuller/
 | `FATAL: database "zkteco" does not exist` | `createdb -U postgres zkteco` |
 | `password authentication failed` | Check `password` in `db_config.json` |
 | Web UI won't start on port 8097 | `start_web.bat` kills any existing process on that port automatically |
+| Pages show Internal Server Error after update | Run `start_web.bat` to restart — the server is running old code |
+| Leave / Calendar / Daily Report pages give 500 | Schema not applied yet — restart server with `start_web.bat` |
+| Daily report shows no data | Reports default to yesterday; pull data via Dashboard first |
 | Device shows Offline on Dashboard | Port 4370 must be reachable from the server — check firewall / network |
 | `Connection timed out` on pull | Verify `Test-NetConnection -ComputerName <ip> -Port 4370` succeeds |
 | Monthly report shows no employees | Pull data from at least one device first via Dashboard |
