@@ -51,6 +51,8 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 - Deduplicates punches within **60 seconds** (same person, multiple readers)
 - Device name shown in brackets: `10:02 (Main Gate)`
 - 16 columns matching ZKBioTime format: Work Date, Planned In/Out, Work Time, Time In/Out, Break In/Out, Time, Actual, OT, LateIn, EarlyOut, EarlyIn, LateOut, Remark
+- **Holiday-aware**: days marked in the Holiday Calendar appear as "Holiday" or "Festival" in the Remark column; planned hours set to 00:00; excluded from working-day count
+- Summary totals row shows Present / Absent / Weekend / Holiday / Festival / Leave counts
 - **Print Single** — one employee; **Print All** — every employee, one page each
 - Filter by directorate, department, section; search by name or ID
 - Sorted by employee ID number
@@ -66,7 +68,9 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 
 - Monthly Bikram Sambat grid view
 - Three holiday types: Public, Festival, Other
+- Full CRUD: Add, Edit, and Delete holidays
 - Shows working-day count and total holidays for the month
+- **Fully linked to reports**: holidays automatically appear in the Monthly Report Remark column ("Holiday" or "Festival"), are excluded from working-day counts, and are counted in the summary totals row
 
 ### Daily Attendance Report
 

@@ -1882,7 +1882,8 @@ def _time_to_min(t) -> int | None:
 
 def _compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
                               default_si_min: int = 600, default_so_min: int = 1020,
-                              shift_calendar: dict = None) -> list:
+                              shift_calendar: dict = None,
+                              holiday_map: dict = None) -> list:
     """Build per-day dicts matching the 16-column ZKBioTime periodic attendance format.
 
     Columns: Work Date | Planned In | Planned Out | Work Time |
@@ -1922,6 +1923,11 @@ def _compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
         shift_name   = shift_info['name']      if shift_info else ''
         planned_work = so_min - si_min
 
+        holiday_entry = (holiday_map or {}).get(d.isoformat())
+        is_holiday    = bool(holiday_entry)
+        holiday_type  = (holiday_entry or {}).get('holiday_type', 'public') if is_holiday else ''
+        is_off_day    = is_weekend or is_holiday
+
         row = punch_map.get(d)
 
         pts = []
@@ -1955,21 +1961,23 @@ def _compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
             time_col = ''
 
         late_in = early_out = early_in = late_out = ot = ''
-        if not is_weekend and ci_min is not None:
+        if not is_off_day and ci_min is not None:
             if ci_min > si_min:
                 late_in  = _fmt_min(ci_min - si_min)
             elif ci_min < si_min:
                 early_in = _fmt_min(si_min - ci_min)
-        if not is_weekend and co_min is not None:
+        if not is_off_day and co_min is not None:
             if co_min < so_min:
                 early_out = _fmt_min(so_min - co_min)
             elif co_min > so_min:
                 late_out  = _fmt_min(co_min - so_min)
-        if not is_weekend and work_min and work_min > planned_work:
+        if not is_off_day and work_min and work_min > planned_work:
             ot = _fmt_min(work_min - planned_work)
 
         if is_weekend:
             remark = 'Weekend'
+        elif is_holiday:
+            remark = 'Festival' if holiday_type == 'festival' else 'Holiday'
         elif row:
             remark = 'Present'
         else:
@@ -1980,10 +1988,10 @@ def _compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
             'ad_date':      d.isoformat(),
             'day_name':     day_name,
             'shift_name':   shift_name,
-            'planned_in':   _fmt_min(si_min)      if not is_weekend else '00:00',
-            'planned_out':  _fmt_min(so_min)      if not is_weekend else '00:00',
-            'planned_work': _fmt_min(planned_work) if not is_weekend else '',
-            'planned_min':  planned_work           if not is_weekend else 0,
+            'planned_in':   _fmt_min(si_min)       if not is_off_day else '00:00',
+            'planned_out':  _fmt_min(so_min)        if not is_off_day else '00:00',
+            'planned_work': _fmt_min(planned_work)  if not is_off_day else '',
+            'planned_min':  planned_work             if not is_off_day else 0,
             'time_in':      time_in,
             'time_out':     time_out,
             'break_in':     break_in,
@@ -2007,11 +2015,11 @@ def _monthly_totals(days: list, planned_work: int = 0) -> dict:
     tot_actual = tot_ot = tot_late_in = tot_early_out = tot_early_in = tot_late_out = 0
     tot_planned = 0
 
-    counts = {'Present': 0, 'Absent': 0, 'Weekend': 0, 'Holiday': 0, 'Leave': 0, 'Misc': 0}
+    counts = {'Present': 0, 'Absent': 0, 'Weekend': 0, 'Holiday': 0, 'Festival': 0, 'Leave': 0, 'Misc': 0}
     for d in days:
         tot_actual    += d.get('work_min', 0)
-        # Sum per-day planned for all workdays (present + absent, not weekend/holiday)
-        if d['remark'] not in ('Weekend', 'Holiday'):
+        # Sum per-day planned for all workdays (present + absent, not weekend/holiday/festival)
+        if d['remark'] not in ('Weekend', 'Holiday', 'Festival'):
             tot_planned += d.get('planned_min', 0)
         def _parse(s):
             if not s: return 0
@@ -2206,10 +2214,12 @@ def reports_monthly_view(
 
                 from db import get_employee_daily_attendance_multi as _multi
                 from db import get_shift_calendar as _gsc
-                daily     = _multi(conn, pairs, from_ad, to_ad)
-                shift_cal = _gsc(conn, g_id, from_ad, to_ad)
-                days      = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN, shift_cal)
-                totals    = _monthly_totals(days)
+                from db import get_holidays as _ghols
+                daily       = _multi(conn, pairs, from_ad, to_ad)
+                shift_cal   = _gsc(conn, g_id, from_ad, to_ad)
+                holiday_map = {h['holiday_ad']: h for h in _ghols(conn, from_ad, to_ad)}
+                days        = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN, shift_cal, holiday_map)
+                totals      = _monthly_totals(days)
 
                 report = {
                     'days':         days,
@@ -2277,11 +2287,13 @@ def reports_monthly_print_all(
         if mi:
             from_ad, to_ad = mi['first_ad'], mi['last_ad']
             from db import get_shift_calendar as _gsc
+            from db import get_holidays as _ghols
+            holiday_map = {h['holiday_ad']: h for h in _ghols(conn, from_ad, to_ad)}
             for emp in all_emps:
                 pairs     = [(dv['device_id'], dv['user_id']) for dv in emp['devices']]
                 daily     = _multi(conn, pairs, from_ad, to_ad)
                 shift_cal = _gsc(conn, emp.get('global_id'), from_ad, to_ad)
-                days      = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN, shift_cal)
+                days      = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN, shift_cal, holiday_map)
                 totals    = _monthly_totals(days)
                 reports.append({
                     'emp_name':    emp['display_name'],
@@ -2948,6 +2960,35 @@ async def delete_holiday_route(request: Request, h_id: int):
     finally:
         conn.close()
     return redirect_with_flash(redirect_to, 'success', 'Holiday deleted.')
+
+
+@app.post("/calendar/holidays/{h_id}/edit")
+async def edit_holiday_route(request: Request, h_id: int):
+    from db import update_holiday
+    from nepali_utils import bs_to_ad
+    form         = await request.form()
+    name         = (form.get('name') or '').strip()
+    holiday_bs   = (form.get('holiday_bs') or '').strip()
+    holiday_ad   = (form.get('holiday_ad') or '').strip()
+    holiday_type = (form.get('holiday_type') or 'public').strip()
+    description  = (form.get('description') or '').strip()
+    redirect_to  = (form.get('redirect_to') or '/calendar').strip()
+
+    if not name or not holiday_bs:
+        return redirect_with_flash(redirect_to, 'error', 'Holiday name and BS date are required.')
+    if not holiday_ad:
+        holiday_ad = bs_to_ad(holiday_bs)
+    if not holiday_ad:
+        return redirect_with_flash(redirect_to, 'error', 'Invalid BS date — cannot convert to AD.')
+
+    conn = get_connection()
+    try:
+        update_holiday(conn, h_id, name, holiday_ad, holiday_bs, holiday_type, description)
+    except Exception as exc:
+        return redirect_with_flash(redirect_to, 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash(redirect_to, 'success', f'Holiday "{name}" updated.')
 
 
 # ─── Daily Attendance Report ──────────────────────────────────────────────────

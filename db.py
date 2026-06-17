@@ -1771,6 +1771,17 @@ def delete_holiday(conn, h_id: int):
     conn.commit()
 
 
+def update_holiday(conn, h_id: int, name: str, holiday_ad: str, holiday_bs: str,
+                   holiday_type: str = 'public', description: str = ''):
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE holidays
+               SET name=%s, holiday_ad=%s, holiday_bs=%s, holiday_type=%s, description=%s
+             WHERE id=%s
+        """, (name.strip(), holiday_ad, holiday_bs, holiday_type, description or '', h_id))
+    conn.commit()
+
+
 # ─── Daily Attendance Summary ─────────────────────────────────────────────────
 
 def get_daily_attendance_summary(conn, date_ad: str) -> dict:

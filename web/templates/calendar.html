@@ -152,7 +152,7 @@
               <th>Date (AD)</th>
               <th>Name</th>
               <th>Type</th>
-              <th style="width:50px"></th>
+              <th style="width:80px"></th>
             </tr>
           </thead>
           <tbody>
@@ -167,7 +167,12 @@
                   {{ (h.holiday_type or 'other') | capitalize }}
                 </span>
               </td>
-              <td>
+              <td style="white-space:nowrap;display:flex;gap:4px">
+                <button class="btn small"
+                        style="padding:2px 8px;min-height:auto;font-size:.78rem"
+                        onclick="openEditModal({{ h.id }}, '{{ h.name | replace("'", "\\'") }}', '{{ h.holiday_ad }}', '{{ h.holiday_bs or '' }}', '{{ h.holiday_type or 'public' }}', '{{ (h.description or '') | replace("'", "\\'") }}')">
+                  Edit
+                </button>
                 <form method="post" action="/calendar/holidays/{{ h.id }}/delete"
                       style="margin:0"
                       onsubmit="return confirm('Delete {{ h.name }}?')">
@@ -235,12 +240,86 @@
 
 {% endif %}{# end error check #}
 
+{# ── Edit Holiday Modal ───────────────────────────────────────────────────── #}
+<div id="edit-holiday-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:10px;padding:28px 28px 24px;max-width:440px;width:92%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+    <h3 style="margin:0 0 18px">Edit Holiday</h3>
+    <form id="edit-holiday-form" method="post" action="">
+      <input type="hidden" name="redirect_to"
+             value="/calendar?bs_year={{ bs_year }}&bs_month={{ bs_month }}">
+      <div style="display:flex;flex-direction:column;gap:12px">
+
+        <label>Name
+          <input type="text" id="edit-name" name="name" required style="width:100%">
+        </label>
+
+        <label>Date (BS)
+          <input class="bsdp" id="edit-bs" name="holiday_bs"
+                 placeholder="Click to pick BS date"
+                 data-ad-target="edit-ad-hidden"
+                 style="width:100%">
+          <input type="hidden" name="holiday_ad" id="edit-ad-hidden">
+          <small class="muted">Selecting a BS date auto-fills the AD date</small>
+        </label>
+
+        <label>Type
+          <select id="edit-type" name="holiday_type" style="width:100%">
+            <option value="public">Public</option>
+            <option value="festival">Festival</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+
+        <label>Description <span class="muted">(optional)</span>
+          <input type="text" id="edit-desc" name="description" style="width:100%">
+        </label>
+
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+          <button type="button" class="btn" onclick="closeEditModal()">Cancel</button>
+          <button type="submit" class="btn primary">Save Changes</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
 <style>
   @media (max-width: 900px) {
     div[style*="grid-template-columns:1fr 380px"] {
       grid-template-columns: 1fr !important;
     }
   }
+  #edit-holiday-modal.open { display: flex !important; }
 </style>
+
+<script>
+function openEditModal(id, name, holidayAd, holidayBs, holidayType, description) {
+  document.getElementById('edit-holiday-form').action = '/calendar/holidays/' + id + '/edit';
+  document.getElementById('edit-name').value    = name;
+  document.getElementById('edit-desc').value    = description;
+  document.getElementById('edit-ad-hidden').value = holidayAd;
+
+  // Pre-fill the BS datepicker display value and hidden AD
+  var bsInput = document.getElementById('edit-bs');
+  bsInput.value = holidayBs || '';
+
+  // Set type dropdown
+  var sel = document.getElementById('edit-type');
+  for (var i = 0; i < sel.options.length; i++) {
+    sel.options[i].selected = (sel.options[i].value === holidayType);
+  }
+
+  document.getElementById('edit-holiday-modal').classList.add('open');
+}
+
+function closeEditModal() {
+  document.getElementById('edit-holiday-modal').classList.remove('open');
+}
+
+// Close on backdrop click
+document.getElementById('edit-holiday-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeEditModal();
+});
+</script>
 
 {% endblock %}

@@ -735,10 +735,11 @@ td input[type="checkbox"] {
 .monthly-report-table tr:nth-child(even) td { background: #f9fbfe; }
 .monthly-report-table .summary-row td,
 .monthly-report-table .total-row td { background: #eef6ff; }
-.remark-present { color: #15803d; }
-.remark-absent  { color: #b91c1c; }
-.remark-weekend { color: #64748b; }
-.remark-holiday { color: #a16207; }
+.remark-present  { color: #15803d; }
+.remark-absent   { color: #b91c1c; }
+.remark-weekend  { color: #64748b; }
+.remark-holiday  { color: #a16207; }
+.remark-festival { color: #7c3aed; }
 .shift-badge { font-size:9px; color:var(--blue); background:var(--surface-2);
                padding:0 4px; border-radius:3px; margin-left:3px; }
 
