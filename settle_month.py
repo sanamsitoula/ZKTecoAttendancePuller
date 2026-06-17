@@ -24,7 +24,7 @@ def main():
         print(f"ERROR: invalid BS year/month: {bs_year}/{bs_month}")
         sys.exit(1)
 
-    month_name = NEPALI_MONTHS.get(bs_month, str(bs_month))
+    month_name = NEPALI_MONTHS[bs_month] if 1 <= bs_month <= 12 else str(bs_month)
     print(f"\n{'='*55}")
     print(f"  Settling: {month_name} {bs_year}  ({mi['days']} days)")
     print(f"  AD range: {mi['first_ad']}  to  {mi['last_ad']}")
