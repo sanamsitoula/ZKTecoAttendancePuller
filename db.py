@@ -2375,3 +2375,248 @@ def settle_all_attendance_daily(conn, from_ad: str, to_ad: str) -> dict:
         except Exception as exc:
             logger.warning("settle_attendance_daily uid=%s: %s", gid, exc)
     return {'settled_days': settled, 'users': len(ids)}
+
+
+def get_hajiri_data_from_logs(conn, global_user_ids: list,
+                               from_ad: str, to_ad: str) -> dict:
+    """
+    Build an att_map dict directly from attendance_logs — no settlement required.
+    Returns {global_user_id: {date_str: {status_code, display_code, first_in,
+            last_out, work_minutes, ot_minutes, late_in_minutes, early_out_min}}}
+
+    Uses 4 batch SQL queries (punches, holidays, leaves, shifts) — not N per-user.
+    Status priority per day: Saturday > Holiday > Present > Leave > Absent.
+    """
+    from datetime import date, timedelta
+
+    if not global_user_ids:
+        return {}
+
+    # ── 1. Batch punch query ──────────────────────────────────────────────────
+    punch_sql = """
+        SELECT
+            e.global_user_id,
+            (al.timestamp AT TIME ZONE 'Asia/Kathmandu')::date  AS work_date,
+            MIN((al.timestamp AT TIME ZONE 'Asia/Kathmandu')::time) AS first_in,
+            MAX((al.timestamp AT TIME ZONE 'Asia/Kathmandu')::time) AS last_out
+        FROM attendance_logs al
+        JOIN employees e
+          ON al.device_id = e.device_id AND al.user_id = e.user_id
+        WHERE e.global_user_id = ANY(%(uids)s)
+          AND (al.timestamp AT TIME ZONE 'Asia/Kathmandu')::date
+              BETWEEN %(from_ad)s AND %(to_ad)s
+        GROUP BY e.global_user_id, work_date
+        ORDER BY e.global_user_id, work_date
+    """
+    # punch_map: {global_user_id: {date_str: {first_in, last_out}}}
+    punch_map: dict = {}
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(punch_sql, {'uids': global_user_ids,
+                                'from_ad': from_ad, 'to_ad': to_ad})
+        for r in cur.fetchall():
+            gid = r['global_user_id']
+            ds  = str(r['work_date'])
+            punch_map.setdefault(gid, {})[ds] = {
+                'first_in': r['first_in'],
+                'last_out': r['last_out'],
+            }
+
+    # ── 2. Batch holiday query (with type_code) ───────────────────────────────
+    holiday_sql = """
+        SELECT h.id, h.holiday_ad, h.holiday_type, h.holiday_type_id,
+               ht.type_code
+        FROM holidays h
+        LEFT JOIN holiday_types ht ON ht.id = h.holiday_type_id
+        WHERE h.holiday_ad BETWEEN %s AND %s
+    """
+    holiday_map: dict = {}
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(holiday_sql, (from_ad, to_ad))
+        for r in cur.fetchall():
+            hd = r['holiday_ad']
+            ds = hd.isoformat() if hasattr(hd, 'isoformat') else str(hd)
+            holiday_map[ds] = dict(r)
+
+    # ── 3. Batch leave query ──────────────────────────────────────────────────
+    leave_sql = """
+        SELECT la.global_user_id, la.from_ad, la.to_ad,
+               lt.code AS leave_code,
+               lt.display_code AS leave_display_code
+        FROM leave_applications la
+        JOIN leave_types lt ON lt.id = la.leave_type_id
+        WHERE la.global_user_id = ANY(%s)
+          AND la.status = 'approved'
+          AND la.from_ad <= %s
+          AND la.to_ad   >= %s
+    """
+    # leave_map_by_user: {global_user_id: {date_str: {code, display}}}
+    leave_map_by_user: dict = {}
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(leave_sql, (global_user_ids, to_ad, from_ad))
+        for r in cur.fetchall():
+            gid    = r['global_user_id']
+            lcode  = r['leave_code'] or 'L'
+            ldisp  = r['leave_display_code'] or _LEAVE_CODE_DISPLAY.get(lcode, 'बि')
+            ld = r['from_ad'] if isinstance(r['from_ad'], date) else date.fromisoformat(str(r['from_ad']))
+            le = r['to_ad']   if isinstance(r['to_ad'],   date) else date.fromisoformat(str(r['to_ad']))
+            while ld <= le:
+                leave_map_by_user.setdefault(gid, {})[ld.isoformat()] = {
+                    'code': lcode, 'display': ldisp,
+                }
+                ld += timedelta(days=1)
+
+    # ── 4. Batch shift query (best-priority shift per user) ───────────────────
+    shift_sql = """
+        WITH uo AS (
+            SELECT gu.id AS uid, gu.department_id, gu.section_id, gu.unit_id,
+                   d.directorate_id
+            FROM global_users gu
+            LEFT JOIN departments d ON d.id = gu.department_id
+            WHERE gu.id = ANY(%(uids)s)
+        ),
+        applicable AS (
+            SELECT uo.uid AS gid, sr.shift_id, sr.from_date,
+                CASE WHEN sr.global_user_id IS NOT NULL THEN 5
+                     WHEN sr.unit_id        IS NOT NULL THEN 4
+                     WHEN sr.section_id     IS NOT NULL THEN 3
+                     WHEN sr.department_id  IS NOT NULL THEN 2
+                     ELSE 1 END AS prio
+            FROM uo
+            JOIN shift_rules sr ON (
+                sr.global_user_id = uo.uid
+                OR (sr.unit_id        IS NOT NULL AND sr.unit_id        = uo.unit_id)
+                OR (sr.section_id     IS NOT NULL AND sr.section_id     = uo.section_id)
+                OR (sr.department_id  IS NOT NULL AND sr.department_id  = uo.department_id)
+                OR (sr.directorate_id IS NOT NULL AND sr.directorate_id = uo.directorate_id)
+            )
+            WHERE sr.from_date <= %(to_ad)s
+              AND (sr.to_date IS NULL OR sr.to_date >= %(from_ad)s)
+        ),
+        best AS (
+            SELECT DISTINCT ON (gid) gid, shift_id
+            FROM applicable
+            ORDER BY gid, prio DESC, from_date DESC
+        )
+        SELECT b.gid AS global_user_id,
+               s.start_time, s.end_time,
+               COALESCE(s.grace_late_in,   0) AS grace_late_in,
+               COALESCE(s.grace_early_out, 0) AS grace_early_out
+        FROM best b
+        JOIN shifts s ON s.id = b.shift_id
+    """
+    # shift_by_user: {global_user_id: {si_min, so_min, grace_late_in, grace_early_out}}
+    shift_by_user: dict = {}
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(shift_sql, {'uids': global_user_ids,
+                                'from_ad': from_ad, 'to_ad': to_ad})
+        for r in cur.fetchall():
+            gid = r['global_user_id']
+            st  = r['start_time']
+            et  = r['end_time']
+            def _t2m_s(t):
+                if t is None:
+                    return None
+                if hasattr(t, 'hour'):
+                    return t.hour * 60 + t.minute
+                # timedelta from midnight
+                if hasattr(t, 'seconds'):
+                    return t.seconds // 60
+                return None
+            shift_by_user[gid] = {
+                'si_min':          _t2m_s(st) or 600,
+                'so_min':          _t2m_s(et) or 1020,
+                'grace_late_in':   int(r['grace_late_in']   or 0),
+                'grace_early_out': int(r['grace_early_out'] or 0),
+            }
+
+    # ── 5. Build att_map over all users × all dates ───────────────────────────
+    def _t2m(t):
+        if t is None:
+            return None
+        if hasattr(t, 'hour'):
+            return t.hour * 60 + t.minute
+        return None
+
+    result: dict = {}
+    start = date.fromisoformat(from_ad)
+    end   = date.fromisoformat(to_ad)
+
+    for gid in global_user_ids:
+        result[gid] = {}
+        user_punches = punch_map.get(gid, {})
+        user_leaves  = leave_map_by_user.get(gid, {})
+        shift_info   = shift_by_user.get(gid)
+        si_min    = shift_info['si_min']          if shift_info else 600
+        so_min    = shift_info['so_min']          if shift_info else 1020
+        grace     = shift_info['grace_late_in']   if shift_info else 0
+
+        d = start
+        while d <= end:
+            ds         = d.isoformat()
+            nepal_dow  = d.isoweekday() % 7   # 0=Sun … 6=Sat
+            is_weekend = (nepal_dow == 6)
+
+            holiday_entry = holiday_map.get(ds)
+            is_holiday    = bool(holiday_entry)
+
+            punch    = user_punches.get(ds)
+            first_in = punch['first_in']  if punch else None
+            last_out = punch['last_out']  if punch else None
+
+            ci_min   = _t2m(first_in)
+            co_min   = _t2m(last_out) if (last_out and last_out != first_in) else None
+            work_min = (co_min - ci_min) if (ci_min is not None and co_min is not None and co_min > ci_min) else 0
+
+            if is_weekend:
+                status_code  = 'SAT'
+                display_code = 'शनि'
+            elif is_holiday:
+                htype  = (holiday_entry or {}).get('holiday_type', 'public')
+                htcode = (holiday_entry or {}).get('type_code', '') or ''
+                if htype == 'festival' or htcode == 'FEST':
+                    status_code  = 'FH'
+                    display_code = 'उत्'
+                elif htcode == 'NAT':
+                    status_code  = 'NH'
+                    display_code = 'रा'
+                elif htcode in ('OPT', 'COMP'):
+                    status_code  = 'OH'
+                    display_code = 'वै'
+                else:
+                    status_code  = 'PH'
+                    display_code = 'सा'
+            elif punch:
+                status_code  = 'P'
+                display_code = '√'
+            elif ds in user_leaves:
+                lv           = user_leaves[ds]
+                status_code  = lv['code']
+                display_code = lv['display']
+            else:
+                status_code  = 'A'
+                display_code = 'X'
+
+            ot_min = late_in_min = early_out_min = 0
+            if not is_weekend and not is_holiday and punch:
+                if ci_min is not None and ci_min > si_min + grace:
+                    late_in_min = ci_min - si_min
+                if co_min is not None:
+                    planned = so_min - si_min
+                    if co_min < so_min:
+                        early_out_min = so_min - co_min
+                    elif work_min > planned:
+                        ot_min = work_min - planned
+
+            result[gid][ds] = {
+                'status_code':      status_code,
+                'display_code':     display_code,
+                'first_in':         first_in,
+                'last_out':         last_out,
+                'work_minutes':     work_min,
+                'ot_minutes':       ot_min,
+                'late_in_minutes':  late_in_min,
+                'early_out_min':    early_out_min,
+            }
+            d += timedelta(days=1)
+
+    return result

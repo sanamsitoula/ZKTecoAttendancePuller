@@ -2469,43 +2469,8 @@ def reports_hajiri(
         all_users = [u for u in all_users
                      if (u.get('emp_status') or 'ACTIVE') == 'ACTIVE']
 
-        # ── Load attendance_daily for the month ───────────────────────────────
-        def _load_att_map(conn, user_ids, from_ad, to_ad):
-            result: dict = {}
-            if not user_ids:
-                return result
-            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-                cur.execute("""
-                    SELECT global_user_id,
-                           work_date::text AS work_date,
-                           status_code, display_code,
-                           first_in, last_out,
-                           work_minutes, ot_minutes,
-                           late_in_minutes, early_out_min
-                    FROM attendance_daily
-                    WHERE global_user_id = ANY(%s)
-                      AND work_date BETWEEN %s AND %s
-                    ORDER BY global_user_id, work_date
-                """, (user_ids, from_ad, to_ad))
-                for r in cur.fetchall():
-                    gid = r['global_user_id']
-                    if gid not in result:
-                        result[gid] = {}
-                    result[gid][r['work_date']] = dict(r)
-            return result
-
         user_ids = [u['id'] for u in all_users]
-        att_map = _load_att_map(conn, user_ids, from_ad, to_ad)
-
-        # Auto-settle if attendance_daily has no rows for this period
-        if user_ids and not any(att_map.values()):
-            try:
-                db_mod.settle_all_attendance_daily(conn, from_ad, to_ad)
-                conn.commit()
-                att_map = _load_att_map(conn, user_ids, from_ad, to_ad)
-            except Exception as _se:
-                conn.rollback()
-                logger.warning("hajiri auto-settle failed: %s", _se)
+        att_map  = db_mod.get_hajiri_data_from_logs(conn, user_ids, from_ad, to_ad)
 
         # ── Build per-employee summary ────────────────────────────────────────
         employees = []
