@@ -341,16 +341,17 @@
       </tr>
 
       <tr class="total-row">
-        <td colspan="2" style="text-align:right">Total</td>
-        <td>Absent = {{ report.totals.counts.Absent }}</td>
+        <td colspan="2" style="text-align:right;font-weight:700">Total</td>
+        <td style="font-weight:700;color:#1769E0">Working Days = {{ report.totals.working_days }}</td>
         <td>Present = {{ report.totals.counts.Present }}</td>
-        <td colspan="2">Weekend = {{ report.totals.counts.Weekend }}</td>
-        <td>Holiday = {{ report.totals.counts.Holiday }}</td>
-        <td>Festival = {{ report.totals.counts.Festival }}</td>
-        <td colspan="2">Leave = {{ report.totals.counts.Leave }}</td>
-        <td colspan="2">Misc = {{ report.totals.counts.Misc }}</td>
-        <td colspan="3">Manual = 0</td>
-        <td></td>
+        <td>Absent = {{ report.totals.counts.Absent }}</td>
+        <td>Weekend = {{ report.totals.counts.Weekend }}</td>
+        <td style="color:#b45309">Holiday = {{ report.totals.counts.Holiday }}</td>
+        <td style="color:#7c3aed">Festival = {{ report.totals.counts.Festival }}</td>
+        <td colspan="2" style="color:#0369a1">Leave = {{ report.totals.counts.Leave }}</td>
+        <td>Misc = {{ report.totals.counts.Misc }}</td>
+        <td colspan="2">Total Days = {{ report.totals.total_days }}</td>
+        <td colspan="2">Manual = 0</td>
       </tr>
     </tbody>
   </table>

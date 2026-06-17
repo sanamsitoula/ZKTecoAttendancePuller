@@ -519,16 +519,32 @@ def _build_emp_count_query(device_id, search, date_str):
 _USERS_PER_PAGE = 25
 
 
+def _gu_sort_key(u, sort_by: str):
+    def _num(val):
+        s = (val or '').strip()
+        try: return (0, int(s), s)
+        except: return (1, 0, s.lower())
+    if sort_by == 'att_id':    return _num(u.get('global_user_id'))
+    if sort_by == 'emp_id':    return _num(u.get('employee_id'))
+    if sort_by == 'name':      return (u.get('name') or '').lower()
+    if sort_by == 'department':return ((u.get('department_name') or '').lower(), (u.get('name') or '').lower())
+    if sort_by == 'section':   return ((u.get('section_name') or '').lower(), (u.get('name') or '').lower())
+    if sort_by == 'shift':     return ((u.get('shift_name') or '').lower(), (u.get('name') or '').lower())
+    return _num(u.get('global_user_id'))
+
+
 @app.get("/users")
 def users_index(
     request: Request,
     tab:              str = 'global',
-    # global user filters
+    # global user filters + sort
     gu_search:        str | None = None,
     gu_directorate:   str | None = None,
     gu_department:    str | None = None,
     gu_section:       str | None = None,
     gu_unit:          str | None = None,
+    gu_sort_by:       str = 'att_id',
+    gu_sort_dir:      str = 'asc',
     page:             str | None = None,
     # device employee filters
     device_id:        str | None = None,
@@ -538,12 +554,16 @@ def users_index(
     sort_dir:         str = 'asc',
     emp_page:         str | None = None,
 ):
+    _VALID_GU_SORTS = {'att_id', 'emp_id', 'name', 'department', 'section', 'shift'}
+    gu_sort_by  = gu_sort_by  if gu_sort_by  in _VALID_GU_SORTS else 'att_id'
+    gu_sort_dir = 'desc' if gu_sort_dir == 'desc' else 'asc'
+
     conn = get_connection()
     try:
         from db import (get_all_directorates, get_all_departments,
                         get_all_sections, get_all_units, get_all_shifts)
-        # Global users with filters + pagination
-        all_users   = list_global_users(
+        # Global users with filters + sort + pagination
+        all_users = list_global_users(
             conn,
             search=gu_search or None,
             directorate_id=_int_param(gu_directorate),
@@ -551,6 +571,9 @@ def users_index(
             section_id=_int_param(gu_section),
             unit_id=_int_param(gu_unit),
         )
+        all_users.sort(key=lambda u: _gu_sort_key(u, gu_sort_by),
+                       reverse=(gu_sort_dir == 'desc'))
+
         total_users  = len(all_users)
         page_num     = max(1, _int_param(page) or 1)
         total_pages  = max(1, (total_users + _USERS_PER_PAGE - 1) // _USERS_PER_PAGE)
@@ -593,6 +616,8 @@ def users_index(
             "gu_department":  gu_department or '',
             "gu_section":     gu_section or '',
             "gu_unit":        gu_unit or '',
+            "gu_sort_by":     gu_sort_by,
+            "gu_sort_dir":    gu_sort_dir,
             "employees":      employees,
             "total_employees": total_employees,
             "emp_page":       emp_page_num,
@@ -2042,15 +2067,18 @@ def _monthly_totals(days: list, planned_work: int = 0) -> dict:
         if r in counts:
             counts[r] += 1
 
+    working_days = len(days) - counts['Weekend'] - counts['Holiday'] - counts['Festival']
     return {
-        'planned':   _fmt_min(tot_planned),
-        'actual':    _fmt_min(tot_actual),
-        'ot':        _fmt_min(tot_ot),
-        'late_in':   _fmt_min(tot_late_in),
-        'early_out': _fmt_min(tot_early_out),
-        'early_in':  _fmt_min(tot_early_in),
-        'late_out':  _fmt_min(tot_late_out),
-        'counts':    counts,
+        'planned':      _fmt_min(tot_planned),
+        'actual':       _fmt_min(tot_actual),
+        'ot':           _fmt_min(tot_ot),
+        'late_in':      _fmt_min(tot_late_in),
+        'early_out':    _fmt_min(tot_early_out),
+        'early_in':     _fmt_min(tot_early_in),
+        'late_out':     _fmt_min(tot_late_out),
+        'counts':       counts,
+        'working_days': working_days,
+        'total_days':   len(days),
     }
 
 
@@ -2224,12 +2252,15 @@ def reports_monthly_view(
                 from datetime import date as _ddate, timedelta as _dtd
                 daily       = _multi(conn, pairs, from_ad, to_ad)
                 shift_cal   = _gsc(conn, g_id, from_ad, to_ad)
-                holiday_map = {h['holiday_ad']: h for h in _ghols(conn, from_ad, to_ad)}
+                holiday_map = {
+                    (h['holiday_ad'].isoformat() if hasattr(h['holiday_ad'], 'isoformat') else str(h['holiday_ad'])): h
+                    for h in _ghols(conn, from_ad, to_ad)
+                }
                 leave_dates: set = set()
                 for la in _gleaveapps(conn, global_user_id=g_id, status='approved',
                                       from_ad=from_ad, to_ad=to_ad):
-                    ld = _ddate.fromisoformat(la['from_ad'])
-                    le = _ddate.fromisoformat(la['to_ad'])
+                    ld = la['from_ad'] if isinstance(la['from_ad'], _ddate) else _ddate.fromisoformat(str(la['from_ad']))
+                    le = la['to_ad']   if isinstance(la['to_ad'],   _ddate) else _ddate.fromisoformat(str(la['to_ad']))
                     while ld <= le:
                         leave_dates.add(ld.isoformat())
                         ld += _dtd(days=1)
@@ -2306,14 +2337,17 @@ def reports_monthly_print_all(
             from db import get_holidays as _ghols
             from db import get_leave_applications as _gleaveapps
             from datetime import date as _ddate, timedelta as _dtd
-            holiday_map = {h['holiday_ad']: h for h in _ghols(conn, from_ad, to_ad)}
+            holiday_map = {
+                (h['holiday_ad'].isoformat() if hasattr(h['holiday_ad'], 'isoformat') else str(h['holiday_ad'])): h
+                for h in _ghols(conn, from_ad, to_ad)
+            }
             # Build per-employee leave date sets for the month
             all_la = _gleaveapps(conn, status='approved', from_ad=from_ad, to_ad=to_ad, limit=50000)
             _leave_by_emp: dict = {}
             for la in all_la:
                 gid = la['global_user_id']
-                ld  = _ddate.fromisoformat(la['from_ad'])
-                le  = _ddate.fromisoformat(la['to_ad'])
+                ld  = la['from_ad'] if isinstance(la['from_ad'], _ddate) else _ddate.fromisoformat(str(la['from_ad']))
+                le  = la['to_ad']   if isinstance(la['to_ad'],   _ddate) else _ddate.fromisoformat(str(la['to_ad']))
                 if gid not in _leave_by_emp:
                     _leave_by_emp[gid] = set()
                 while ld <= le:
@@ -2642,6 +2676,7 @@ async def set_emp_org(request: Request, global_id: int):
 
 @app.get("/leaves")
 def leaves_page(request: Request,
+                tab:            str = 'applications',
                 status:         str | None = None,
                 emp_key:        str | None = None,
                 from_bs:        str | None = None,
@@ -2714,7 +2749,29 @@ def leaves_page(request: Request,
         total_days     = sum(float(a.get('days') or 0) for a in apps)
         approved_days  = sum(float(a.get('days') or 0) for a in apps if a['status'] == 'approved')
 
-        # Pagination
+        # Dashboard breakdowns (computed from full unfiltered apps list)
+        from collections import defaultdict as _dd
+        _by_type: dict = _dd(lambda: {'count': 0, 'approved': 0, 'pending': 0, 'rejected': 0, 'days': 0.0, 'approved_days': 0.0})
+        _by_dept: dict = _dd(lambda: {'count': 0, 'approved': 0, 'days': 0.0, 'approved_days': 0.0})
+        for a in apps:
+            lt   = a.get('leave_type_name') or 'Unknown'
+            dept = a.get('department_name')  or '—'
+            d    = float(a.get('days') or 0)
+            s    = a.get('status', '')
+            _by_type[lt]['count'] += 1
+            _by_type[lt][s]       = _by_type[lt].get(s, 0) + 1
+            _by_type[lt]['days']  += d
+            _by_dept[dept]['count'] += 1
+            _by_dept[dept]['days']  += d
+            if s == 'approved':
+                _by_type[lt]['approved_days'] += d
+                _by_dept[dept]['approved']      = _by_dept[dept].get('approved', 0) + 1
+                _by_dept[dept]['approved_days'] += d
+        dash_by_type = sorted([{'name': k, **v} for k, v in _by_type.items()], key=lambda x: -x['days'])
+        dash_by_dept = sorted([{'name': k, **v} for k, v in _by_dept.items()], key=lambda x: -x['days'])[:15]
+        recent_apps  = apps[:10]
+
+        # Pagination (for applications tab)
         total_pages = max(1, (total_apps + per_page - 1) // per_page)
         page_num    = min(page_num, total_pages)
         page_apps   = apps[(page_num - 1) * per_page: page_num * per_page]
@@ -2726,7 +2783,9 @@ def leaves_page(request: Request,
     finally:
         conn.close()
 
+    _valid_tabs = {'dashboard', 'applications', 'balances', 'types'}
     return render(templates, request, 'leaves.html', {
+        'tab':             tab if tab in _valid_tabs else 'applications',
         'leave_types':     ltypes,
         'leave_apps':      page_apps,
         'all_emps':        all_emps,
@@ -2757,6 +2816,9 @@ def leaves_page(request: Request,
         'page_num':        page_num,
         'total_pages':     total_pages,
         'per_page':        per_page,
+        'dash_by_type':    dash_by_type,
+        'dash_by_dept':    dash_by_dept,
+        'recent_apps':     recent_apps,
     })
 
 

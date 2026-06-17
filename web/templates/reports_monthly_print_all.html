@@ -161,16 +161,17 @@
         <td></td>
       </tr>
       <tr class="total-row">
-        <td colspan="2" style="text-align:right">Total</td>
-        <td>Absent = {{ rpt.totals.counts.Absent }}</td>
+        <td colspan="2" style="text-align:right;font-weight:700">Total</td>
+        <td style="color:#1769E0">Working Days = {{ rpt.totals.working_days }}</td>
         <td>Present = {{ rpt.totals.counts.Present }}</td>
-        <td colspan="2">Weekend = {{ rpt.totals.counts.Weekend }}</td>
-        <td>Holiday = {{ rpt.totals.counts.Holiday }}</td>
-        <td>Festival = {{ rpt.totals.counts.Festival }}</td>
-        <td colspan="2">Leave = {{ rpt.totals.counts.Leave }}</td>
-        <td colspan="2">Misc = {{ rpt.totals.counts.Misc }}</td>
-        <td colspan="3">Manual = 0</td>
-        <td></td>
+        <td>Absent = {{ rpt.totals.counts.Absent }}</td>
+        <td>Weekend = {{ rpt.totals.counts.Weekend }}</td>
+        <td style="color:#b45309">Holiday = {{ rpt.totals.counts.Holiday }}</td>
+        <td style="color:#7c3aed">Festival = {{ rpt.totals.counts.Festival }}</td>
+        <td colspan="2" style="color:#0369a1">Leave = {{ rpt.totals.counts.Leave }}</td>
+        <td>Misc = {{ rpt.totals.counts.Misc }}</td>
+        <td colspan="2">Total Days = {{ rpt.totals.total_days }}</td>
+        <td colspan="2">Manual = 0</td>
       </tr>
     </tbody>
   </table>

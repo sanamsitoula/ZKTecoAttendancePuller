@@ -28,7 +28,7 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 | **Daily Report** | Present employees with check-in times, department-wise absent list, on-leave list |
 | **Leave Management** | Employee leave applications; approve/reject; annual leave allocation; BS datepicker |
 | **Holiday Calendar** | Monthly BS calendar grid with public/festival/other holidays; working-day count |
-| **Users** | Two tabs — **Global Users** (pagination, search/filter, CSV export, print) and **Device Employees** (pagination, migrate to global user, bulk delete) |
+| **Users** | Two tabs — **Global Users** (sortable columns: Att. ID, Emp ID, Name, Dept, Section, Shift; pagination, search/filter by org, CSV export, print) and **Device Employees** (pagination, migrate to global user, bulk delete) |
 | **Devices** | Add / edit / delete ZKTeco devices; test TCP connectivity |
 | **Device Backup** | Download full user + fingerprint backup as JSON |
 | **Migrate** | Copy users and fingerprints between two devices |
@@ -52,10 +52,12 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 - Device name shown in brackets: `10:02 (Main Gate)`
 - 16 columns matching ZKBioTime format: Work Date, Planned In/Out, Work Time, Time In/Out, Break In/Out, Time, Actual, OT, LateIn, EarlyOut, EarlyIn, LateOut, Remark
 - **Holiday-aware**: days marked in the Holiday Calendar appear as "Holiday" or "Festival" in the Remark column; planned hours set to 00:00; excluded from working-day count
-- Summary totals row shows Present / Absent / Weekend / Holiday / Festival / Leave counts
+- **Leave-aware**: approved leave applications appear as "Leave" in the Remark column for days with no attendance punch
+- **Remark priority**: Weekend → Holiday/Festival → Present (has punch) → Leave → Absent
+- Summary totals row shows **Working Days**, Present, Absent, Weekend, Holiday, Festival, Leave, Misc, Total Days — with color coding
 - **Print Single** — one employee; **Print All** — every employee, one page each
 - Filter by directorate, department, section; search by name or ID
-- Sorted by employee ID number
+- Sorted by employee Attendance ID number; only employees linked to a Global User appear
 
 ### Leave Management
 
@@ -775,7 +777,9 @@ ZKTecePuller/
 | Daily report shows no data | Reports default to yesterday; pull data via Dashboard first |
 | Device shows Offline on Dashboard | Port 4370 must be reachable from the server — check firewall / network |
 | `Connection timed out` on pull | Verify `Test-NetConnection -ComputerName <ip> -Port 4370` succeeds |
-| Monthly report shows no employees | Pull data from at least one device first via Dashboard |
+| Monthly report shows no employees | Pull data from at least one device first, AND link employees to Global Users via the Users page |
+| Monthly report shows Holiday = 0 / Leave = 0 even after adding them | Restart the server to pick up the latest code fix; also verify the holiday/leave BS year matches the report month |
+| Holiday or leave appears in wrong BS year | The `bs_to_ad` conversion is used at entry time — check that the year you typed in the form is 2083, not 2082 |
 | `pg_dump` / `psql` not found (Windows) | Use full path: `C:\Program Files\PostgreSQL\16\bin\pg_dump.exe` |
 | `pg_dump` not found (Ubuntu) | `sudo apt install postgresql-client` |
 | Python package install fails (Windows) | Ensure `.venv\Scripts\activate` was run before `pip install` |
