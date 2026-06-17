@@ -345,6 +345,110 @@ ON CONFLICT (code) DO NOTHING;
 """
 
 
+_PHASE5_SQL = """
+-- ── Phase 5: holiday_types table, leave_types enhancements, leave_applications
+--             half-day, leave_balances carry-forward, global_users employee
+--             profile fields, shifts grace period ──────────────────────────────
+
+CREATE TABLE IF NOT EXISTS holiday_types (
+    id         SERIAL PRIMARY KEY,
+    name       VARCHAR(100) NOT NULL,
+    type_code  VARCHAR(10)  NOT NULL UNIQUE,
+    color_code VARCHAR(10)  DEFAULT '#ef4444',
+    sort_order INTEGER      DEFAULT 0
+);
+
+ALTER TABLE holidays ADD COLUMN IF NOT EXISTS holiday_type_id INTEGER;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'holidays_holiday_type_id_fkey'
+    ) THEN
+        ALTER TABLE holidays
+            ADD CONSTRAINT holidays_holiday_type_id_fkey
+            FOREIGN KEY (holiday_type_id) REFERENCES holiday_types(id) ON DELETE SET NULL;
+    END IF;
+END$$;
+
+ALTER TABLE leave_types ADD COLUMN IF NOT EXISTS display_code     VARCHAR(10);
+ALTER TABLE leave_types ADD COLUMN IF NOT EXISTS color_code       VARCHAR(10);
+ALTER TABLE leave_types ADD COLUMN IF NOT EXISTS sort_order       INTEGER DEFAULT 0;
+ALTER TABLE leave_types ADD COLUMN IF NOT EXISTS half_day_allowed BOOLEAN DEFAULT true;
+ALTER TABLE leave_types ADD COLUMN IF NOT EXISTS applies_to       VARCHAR(20) DEFAULT 'ALL';
+
+ALTER TABLE leave_applications ADD COLUMN IF NOT EXISTS is_half_day   BOOLEAN DEFAULT false;
+ALTER TABLE leave_applications ADD COLUMN IF NOT EXISTS half_day_part VARCHAR(10);
+
+ALTER TABLE leave_balances ADD COLUMN IF NOT EXISTS carried_forward  NUMERIC(5,1) DEFAULT 0;
+ALTER TABLE leave_balances ADD COLUMN IF NOT EXISTS annual_allocated NUMERIC(5,1) DEFAULT 0;
+
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS emp_type    VARCHAR(20) DEFAULT 'PERMANENT';
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS emp_status  VARCHAR(20) DEFAULT 'ACTIVE';
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS join_date   DATE;
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS level_grade VARCHAR(50);
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS designation VARCHAR(100);
+
+ALTER TABLE shifts ADD COLUMN IF NOT EXISTS grace_late_in   INTEGER DEFAULT 0;
+ALTER TABLE shifts ADD COLUMN IF NOT EXISTS grace_early_out INTEGER DEFAULT 0;
+ALTER TABLE shifts ADD COLUMN IF NOT EXISTS break_minutes   INTEGER DEFAULT 0;
+"""
+
+_PHASE5_SEED_SQL = """
+INSERT INTO holiday_types (name, type_code, color_code, sort_order) VALUES
+    ('Public Holiday',   'PUB',  '#ef4444', 1),
+    ('Festival Holiday', 'FEST', '#7c3aed', 2),
+    ('National Holiday', 'NAT',  '#dc2626', 3),
+    ('Optional Holiday', 'OPT',  '#16a34a', 4),
+    ('Compensatory Off', 'COMP', '#2563eb', 5)
+ON CONFLICT (type_code) DO NOTHING;
+
+UPDATE holidays
+   SET holiday_type_id = (SELECT id FROM holiday_types WHERE type_code = 'FEST')
+ WHERE holiday_type = 'festival' AND holiday_type_id IS NULL;
+
+UPDATE holidays
+   SET holiday_type_id = (SELECT id FROM holiday_types WHERE type_code = 'PUB')
+ WHERE holiday_type_id IS NULL;
+
+UPDATE leave_types SET display_code='घ',   color_code='#2196F3', sort_order=1 WHERE code='HOME'      AND display_code IS NULL;
+UPDATE leave_types SET display_code='बि',  color_code='#FF9800', sort_order=2 WHERE code='SICK'      AND display_code IS NULL;
+UPDATE leave_types SET display_code='अ',   color_code='#e0a020', sort_order=3 WHERE code='CASUAL'    AND display_code IS NULL;
+UPDATE leave_types SET display_code='म',   color_code='#E91E63', sort_order=4 WHERE code='MATERNITY' AND display_code IS NULL;
+UPDATE leave_types SET display_code='पि',  color_code='#9C27B0', sort_order=5 WHERE code='PATERNITY' AND display_code IS NULL;
+UPDATE leave_types SET display_code='शो',  color_code='#607D8B', sort_order=6 WHERE code='MOURNING'  AND display_code IS NULL;
+UPDATE leave_types SET display_code='अध्', color_code='#00BCD4', sort_order=7 WHERE code='STUDY'     AND display_code IS NULL;
+UPDATE leave_types SET display_code='X',   color_code='#F44336', sort_order=8 WHERE code='UNPAID'    AND display_code IS NULL;
+"""
+
+_ATTENDANCE_DAILY_SQL = """
+-- ── Phase 6: attendance_daily pre-aggregated daily summary ───────────────────
+-- Option A: attendance_logs remains source of truth; this table is populated
+-- automatically after each device pull. Manual overrides use source='manual'
+-- and are preserved across re-settlements.
+
+CREATE TABLE IF NOT EXISTS attendance_daily (
+    id              SERIAL PRIMARY KEY,
+    global_user_id  INTEGER NOT NULL REFERENCES global_users(id) ON DELETE CASCADE,
+    work_date       DATE    NOT NULL,
+    status_code     VARCHAR(10),
+    display_code    VARCHAR(10),
+    first_in        TIME,
+    last_out        TIME,
+    work_minutes    INTEGER DEFAULT 0,
+    ot_minutes      INTEGER DEFAULT 0,
+    late_in_minutes INTEGER DEFAULT 0,
+    early_out_min   INTEGER DEFAULT 0,
+    source          VARCHAR(20) DEFAULT 'device',
+    note            TEXT,
+    computed_at     TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (global_user_id, work_date)
+);
+CREATE INDEX IF NOT EXISTS idx_att_daily_user_date ON attendance_daily (global_user_id, work_date);
+CREATE INDEX IF NOT EXISTS idx_att_daily_date      ON attendance_daily (work_date);
+CREATE INDEX IF NOT EXISTS idx_att_daily_status    ON attendance_daily (status_code, work_date);
+"""
+
+
 def get_connection():
     return psycopg2.connect(**load_db_config())
 
@@ -378,6 +482,29 @@ def init_schema(conn) -> None:
     except Exception as seed_err:
         conn.rollback()
         logger.warning("leave_types seed skipped: %s", seed_err)
+    # Phase 5: holiday_types, leave_types enhancements, global_users profile fields
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE5_SQL)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 5 schema migration skipped: %s", e)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE5_SEED_SQL)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 5 seed skipped: %s", e)
+    # Phase 6: attendance_daily table
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_ATTENDANCE_DAILY_SQL)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("attendance_daily migration skipped: %s", e)
     logger.info("Database schema initialized.")
 
 
@@ -1593,6 +1720,7 @@ def get_leave_applications(conn, global_user_id=None, status=None,
                sec.name       AS section_name,
                lt.name        AS leave_type_name,
                lt.code        AS leave_code,
+               lt.display_code AS leave_display_code,
                lt.is_paid
         FROM leave_applications la
         JOIN global_users gu  ON gu.id  = la.global_user_id
@@ -2051,3 +2179,199 @@ def get_monthly_attendance_summary(conn, bs_year: int, bs_month: int) -> dict:
         'holidays':       holiday_rows,
         'employees':      emp_summaries,
     }
+
+
+# ─── Attendance Daily Settlement ──────────────────────────────────────────────
+
+_LEAVE_CODE_DISPLAY: dict = {
+    'HOME':      'घ',
+    'SICK':      'बि',
+    'CASUAL':    'अ',
+    'MATERNITY': 'म',
+    'PATERNITY': 'पि',
+    'MOURNING':  'शो',
+    'STUDY':     'अध्',
+    'UNPAID':    'X',
+}
+
+
+def get_punch_summary_for_global_user(conn, global_user_id: int,
+                                      from_ad: str, to_ad: str) -> dict:
+    """
+    Returns {date_str: {first_in: time, last_out: time, punch_count: int}}
+    grouped per day in Nepal time (Asia/Kathmandu).
+    """
+    sql = """
+        SELECT
+            (al.timestamp AT TIME ZONE 'Asia/Kathmandu')::date  AS work_date,
+            MIN((al.timestamp AT TIME ZONE 'Asia/Kathmandu')::time) AS first_in,
+            MAX((al.timestamp AT TIME ZONE 'Asia/Kathmandu')::time) AS last_out,
+            COUNT(*) AS punch_count
+        FROM attendance_logs al
+        JOIN employees e ON al.employee_id = e.id
+        WHERE e.global_user_id = %s
+          AND (al.timestamp AT TIME ZONE 'Asia/Kathmandu')::date BETWEEN %s AND %s
+        GROUP BY work_date
+        ORDER BY work_date
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (global_user_id, from_ad, to_ad))
+        return {str(r['work_date']): dict(r) for r in cur.fetchall()}
+
+
+def settle_attendance_daily(conn, global_user_id: int,
+                            from_ad: str, to_ad: str) -> int:
+    """
+    Compute daily attendance from attendance_logs and upsert into attendance_daily.
+    Option A: non-destructive — rows with source='manual' are never overwritten.
+    Returns number of days processed.
+    """
+    from datetime import date, timedelta
+
+    punch_map   = get_punch_summary_for_global_user(conn, global_user_id, from_ad, to_ad)
+    shift_cal   = get_shift_calendar(conn, global_user_id, from_ad, to_ad)
+    holiday_map = {
+        (h['holiday_ad'].isoformat() if hasattr(h['holiday_ad'], 'isoformat') else str(h['holiday_ad'])): h
+        for h in get_holidays(conn, from_ad, to_ad)
+    }
+
+    # Build leave map {date_str: {code, display}}
+    leave_map: dict = {}
+    for la in get_leave_applications(conn, global_user_id=global_user_id,
+                                     status='approved', from_ad=from_ad, to_ad=to_ad,
+                                     limit=10000):
+        lcode    = la.get('leave_code') or 'L'
+        ldisplay = la.get('leave_display_code') or _LEAVE_CODE_DISPLAY.get(lcode, 'बि')
+        ld = la['from_ad'] if isinstance(la['from_ad'], date) else date.fromisoformat(str(la['from_ad']))
+        le = la['to_ad']   if isinstance(la['to_ad'],   date) else date.fromisoformat(str(la['to_ad']))
+        while ld <= le:
+            leave_map[ld.isoformat()] = {'code': lcode, 'display': ldisplay}
+            ld += timedelta(days=1)
+
+    def _t2m(t):
+        if t is None:
+            return None
+        if hasattr(t, 'hour'):
+            return t.hour * 60 + t.minute
+        return None
+
+    rows = []
+    start = date.fromisoformat(from_ad)
+    end   = date.fromisoformat(to_ad)
+    d = start
+    while d <= end:
+        ds         = d.isoformat()
+        nepal_dow  = d.isoweekday() % 7   # 0=Sun … 6=Sat
+        is_weekend = (nepal_dow == 6)
+
+        shift_info = (shift_cal or {}).get(d)
+        si_min     = shift_info['start_min'] if shift_info else 600   # 10:00 default
+        so_min     = shift_info['end_min']   if shift_info else 1020  # 17:00 default
+        grace      = (shift_info.get('grace_late_in') or 0) if shift_info else 0
+
+        holiday_entry = holiday_map.get(ds)
+        is_holiday    = bool(holiday_entry)
+
+        punch    = punch_map.get(ds)
+        first_in = punch['first_in']  if punch else None
+        last_out = punch['last_out']  if punch else None
+
+        ci_min   = _t2m(first_in)
+        co_min   = _t2m(last_out) if (last_out and last_out != first_in) else None
+        work_min = (co_min - ci_min) if (ci_min is not None and co_min is not None and co_min > ci_min) else 0
+
+        if is_weekend:
+            status_code  = 'SAT'
+            display_code = 'शनि'
+        elif is_holiday:
+            htype  = (holiday_entry or {}).get('holiday_type', 'public')
+            htcode = (holiday_entry or {}).get('type_code', '')
+            if htype == 'festival' or htcode == 'FEST':
+                status_code  = 'FH'
+                display_code = 'उत्'
+            elif htcode == 'NAT':
+                status_code  = 'NH'
+                display_code = 'रा'
+            elif htcode == 'OPT':
+                status_code  = 'OH'
+                display_code = 'वै'
+            else:
+                status_code  = 'PH'
+                display_code = 'सा'
+        elif punch:
+            status_code  = 'P'
+            display_code = '√'
+        elif ds in leave_map:
+            lv           = leave_map[ds]
+            status_code  = lv['code']
+            display_code = lv['display']
+        else:
+            status_code  = 'A'
+            display_code = 'X'
+
+        ot_min = late_in_min = early_out_min = 0
+        if not is_weekend and not is_holiday and punch:
+            if ci_min is not None and ci_min > si_min + grace:
+                late_in_min = ci_min - si_min
+            if co_min is not None:
+                planned = so_min - si_min
+                if co_min < so_min:
+                    early_out_min = so_min - co_min
+                elif work_min > planned:
+                    ot_min = work_min - planned
+
+        rows.append((
+            global_user_id, d, status_code, display_code,
+            first_in, last_out, work_min, ot_min, late_in_min, early_out_min,
+        ))
+        d += timedelta(days=1)
+
+    if not rows:
+        return 0
+
+    upsert_sql = """
+        INSERT INTO attendance_daily
+            (global_user_id, work_date, status_code, display_code,
+             first_in, last_out, work_minutes, ot_minutes,
+             late_in_minutes, early_out_min, source, computed_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'device', NOW())
+        ON CONFLICT (global_user_id, work_date) DO UPDATE SET
+            status_code     = EXCLUDED.status_code,
+            display_code    = EXCLUDED.display_code,
+            first_in        = EXCLUDED.first_in,
+            last_out        = EXCLUDED.last_out,
+            work_minutes    = EXCLUDED.work_minutes,
+            ot_minutes      = EXCLUDED.ot_minutes,
+            late_in_minutes = EXCLUDED.late_in_minutes,
+            early_out_min   = EXCLUDED.early_out_min,
+            computed_at     = NOW()
+        WHERE attendance_daily.source != 'manual'
+    """
+    with conn.cursor() as cur:
+        psycopg2.extras.execute_values(cur, upsert_sql, rows, page_size=100)
+    return len(rows)
+
+
+def settle_all_attendance_daily(conn, from_ad: str, to_ad: str) -> dict:
+    """
+    Run settle_attendance_daily for every global_user who has punches in the range.
+    Returns {'settled_days': n, 'users': m}.
+    """
+    sql = """
+        SELECT DISTINCT e.global_user_id
+        FROM attendance_logs al
+        JOIN employees e ON al.employee_id = e.id
+        WHERE e.global_user_id IS NOT NULL
+          AND (al.timestamp AT TIME ZONE 'Asia/Kathmandu')::date BETWEEN %s AND %s
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (from_ad, to_ad))
+        ids = [r[0] for r in cur.fetchall()]
+
+    settled = 0
+    for gid in ids:
+        try:
+            settled += settle_attendance_daily(conn, gid, from_ad, to_ad)
+        except Exception as exc:
+            logger.warning("settle_attendance_daily uid=%s: %s", gid, exc)
+    return {'settled_days': settled, 'users': len(ids)}

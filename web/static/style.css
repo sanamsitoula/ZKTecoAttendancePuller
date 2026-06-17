@@ -992,3 +992,36 @@ td input[type="checkbox"] {
 
 /* ── Pagination row ─────────────────────────────────────────────────── */
 .pagination { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 14px; padding: 0 2px; }
+
+/* ── Pagination bar ──────────────────────────────────────────────────────── */
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 0;
+  font-size: 13px;
+}
+.pg-info { color: #64748b; }
+.pg-links { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.pg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  background: #fff;
+  color: #374151;
+  font-size: 13px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background .12s;
+}
+.pg-btn:hover { background: #f0f4ff; border-color: #93c5fd; color: #1d4ed8; }
+.pg-btn.current { background: #1d4ed8; border-color: #1d4ed8; color: #fff; font-weight: 700; cursor: default; }
+.pg-btn.disabled { color: #cbd5e1; cursor: not-allowed; pointer-events: none; }
+.pg-ellipsis { color: #94a3b8; padding: 0 2px; line-height: 30px; }

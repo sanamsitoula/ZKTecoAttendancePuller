@@ -1,0 +1,253 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<style>
+.hajiri-wrap { overflow-x: auto; }
+.hajiri-table {
+  border-collapse: collapse;
+  font-size: 11px;
+  min-width: 100%;
+  table-layout: fixed;
+}
+.hajiri-table th, .hajiri-table td {
+  border: 1px solid #cbd5e1;
+  padding: 3px 4px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.hajiri-table thead th {
+  background: #1e3a5f;
+  color: #fff;
+  font-weight: 700;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.hajiri-table tbody tr:nth-child(even) td { background: #f8fafc; }
+.hajiri-table tbody tr:hover td { background: #eff6ff; }
+.col-name { min-width: 140px; max-width: 180px; text-align: left !important; font-weight: 600; position: sticky; left: 0; z-index: 1; background: #fff; }
+.col-serial { width: 32px; min-width: 32px; position: sticky; left: 0; z-index: 1; background: #fff; }
+.col-day { width: 26px; min-width: 26px; font-size: 10px; }
+.col-sum { width: 34px; min-width: 34px; font-size: 10px; background: #f1f5f9; }
+.col-sum.ot-col { background: #fef3c7; }
+.day-weekend { background: #dcfce7 !important; color: #16a34a; }
+.day-holiday { background: #fee2e2 !important; color: #dc2626; }
+thead .day-weekend { background: #86efac !important; }
+thead .day-holiday { background: #fca5a5 !important; }
+.status-P   { color: #16a34a; font-weight: 700; }
+.status-A   { color: #dc2626; font-weight: 700; }
+.status-SAT { color: #16a34a; }
+.status-PH, .status-FH, .status-NH, .status-OH { color: #dc2626; }
+.status-HOME, .status-HL { color: #2563eb; font-weight: 600; }
+.status-SICK, .status-SL { color: #d97706; }
+.status-MOURNING { color: #64748b; }
+.status-CASUAL   { color: #0891b2; }
+.totals-row td { font-weight: 700; background: #dbeafe !important; border-top: 2px solid #3b82f6; }
+.filter-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; margin-bottom: 10px; }
+.legend-item { display: flex; align-items: center; gap: 4px; }
+.legend-badge { display: inline-block; padding: 1px 5px; border: 1px solid currentColor; border-radius: 3px; font-size: 10px; font-weight: 700; }
+@media print {
+  .no-print { display: none !important; }
+  .hajiri-table { font-size: 6.5pt; }
+  .hajiri-table th, .hajiri-table td { padding: 1px 2px !important; }
+  .col-name { min-width: 90px; max-width: 120px; }
+  @page { size: A3 landscape; margin: 8mm; }
+}
+</style>
+
+<section class="page-head no-print">
+  <div>
+    <p class="eyebrow">Reports</p>
+    <h1>Hajiri Vivaran — हाजिरी विवरण</h1>
+  </div>
+  <div class="head-actions">
+    <button class="btn" onclick="window.print()">Print (A3 Landscape)</button>
+    <a class="btn" href="/reports/monthly">Monthly Detail</a>
+  </div>
+</section>
+
+{% if error %}
+<section class="panel"><p class="bad-text">{{ error }}</p></section>
+{% else %}
+
+{# ── Filter bar ── #}
+<section class="panel no-print" style="padding:14px 18px">
+  <form method="get" action="/reports/hajiri" class="filter-bar">
+    <label style="flex:1;min-width:80px">Year (BS)
+      <input type="number" name="bs_year" value="{{ sel_bs_year }}" min="2070" max="2100">
+    </label>
+    <label style="min-width:160px">Month (BS)
+      <select name="bs_month">
+        {% set months=['','Baisakh','Jestha','Ashadh','Shrawan','Bhadra','Ashwin','Kartik','Mangsir','Poush','Magh','Falgun','Chaitra'] %}
+        {% for i in range(1,13) %}
+        <option value="{{ i }}" {{ 'selected' if sel_bs_month==i }}>{{ i }} — {{ months[i] }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label style="min-width:160px">Department
+      <select name="department_id">
+        <option value="">All departments</option>
+        {% for d in departments %}
+        <option value="{{ d.id }}" {{ 'selected' if f_dept==d.id|string }}>{{ d.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label style="min-width:150px">Section
+      <select name="section_id">
+        <option value="">All sections</option>
+        {% for s in sections %}
+        <option value="{{ s.id }}" {{ 'selected' if f_sec==s.id|string }}>{{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label style="min-width:130px">Type
+      <select name="emp_type">
+        <option value="" {{ 'selected' if not f_emp_type }}>All types</option>
+        <option value="PERMANENT"  {{ 'selected' if f_emp_type=='PERMANENT'  }}>Permanent</option>
+        <option value="CONTRACT"   {{ 'selected' if f_emp_type=='CONTRACT'   }}>Contract</option>
+        <option value="DAILY_WAGES"{{ 'selected' if f_emp_type=='DAILY_WAGES'}}>Daily Wages</option>
+      </select>
+    </label>
+    <label style="flex:1;min-width:140px">Search
+      <input type="text" name="search" value="{{ f_search }}" placeholder="Name or ID…">
+    </label>
+    <div style="display:flex;gap:6px;align-items:flex-end">
+      <button class="btn primary" type="submit">Filter</button>
+      <a class="btn" href="/reports/hajiri?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}">Reset</a>
+    </div>
+  </form>
+</section>
+
+{# ── Print header ── #}
+<div style="text-align:center;margin-bottom:8px">
+  <div style="font-size:14pt;font-weight:700">{{ COMPANY_NAME }}</div>
+  <div style="font-size:11pt;font-weight:700">हाजिरी विवरण — {{ month_name }} {{ bs_year }} BS</div>
+  <div style="font-size:9pt;color:#475569">{{ from_ad }} to {{ to_ad }} &nbsp;|&nbsp; {{ employees|length }} employee(s) &nbsp;|&nbsp; {{ total_days }} days</div>
+</div>
+
+{# ── Legend ── #}
+<div class="legend no-print">
+  <span class="legend-item"><span class="legend-badge status-P">√</span> Present</span>
+  <span class="legend-item"><span class="legend-badge status-A">X</span> Absent</span>
+  <span class="legend-item"><span class="legend-badge status-SAT day-weekend">शनि</span> Saturday</span>
+  <span class="legend-item"><span class="legend-badge status-PH day-holiday">सा</span> Public Holiday</span>
+  <span class="legend-item"><span class="legend-badge status-FH day-holiday">उत्</span> Festival</span>
+  <span class="legend-item"><span class="legend-badge status-HOME">घ</span> Home Leave</span>
+  <span class="legend-item"><span class="legend-badge status-SICK">बि</span> Sick Leave</span>
+</div>
+
+{% if not employees %}
+<section class="panel">
+  <p class="muted" style="text-align:center;padding:24px">
+    No active employees found for the selected filters.<br>
+    <small>Run a device pull to populate attendance data, then filters will show employees.</small>
+  </p>
+</section>
+{% else %}
+
+{# ── Hajiri grid ── #}
+<div class="hajiri-wrap">
+<table class="hajiri-table">
+  <thead>
+    <tr>
+      <th class="col-serial">#</th>
+      <th class="col-name" style="min-width:140px;text-align:left">Employee</th>
+      <th style="width:55px">Dept</th>
+      {% for day in day_list %}
+      <th class="col-day {% if day.is_weekend %}day-weekend{% elif day.is_holiday %}day-holiday{% endif %}"
+          title="{{ day.date }}">{{ day.day_num }}</th>
+      {% endfor %}
+      <th class="col-sum" title="Present days">उप.</th>
+      <th class="col-sum" title="Saturday">शनि</th>
+      <th class="col-sum" title="Public/Festival Holiday">बिदा</th>
+      <th class="col-sum" title="Home Leave (घर बिदा)">घ.बि.</th>
+      <th class="col-sum" title="Sick Leave (बिरामी बिदा)">बि.बि.</th>
+      <th class="col-sum" title="Other leave">अ.बि.</th>
+      <th class="col-sum" title="Absent">अनु.</th>
+      <th class="col-sum ot-col" title="OT hours">OT</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% set ns = namespace(row=0, tp=0, tsat=0, thol=0, thome=0, tsick=0, tother=0, tabs=0, tot=0) %}
+  {% for emp in employees %}
+  {% set ns.row = ns.row + 1 %}
+  <tr>
+    <td class="col-serial">{{ ns.row }}</td>
+    <td class="col-name" title="{{ emp.name }}">
+      {{ emp.name }}
+      {% if emp.employee_id %}<br><span style="font-size:9px;color:#94a3b8">{{ emp.employee_id }}</span>{% endif %}
+    </td>
+    <td style="font-size:9px;overflow:hidden;text-overflow:ellipsis" title="{{ emp.department_name or '' }}">
+      {{ (emp.department_name or '')[:8] }}
+    </td>
+    {% for day in day_list %}
+    {% set cell = emp.days_data.get(day.date) %}
+    {% if cell %}
+      {% set sc = cell.status_code or 'A' %}
+      {% set dc = cell.display_code or sc %}
+      <td class="col-day status-{{ sc }} {% if day.is_weekend %}day-weekend{% elif day.is_holiday %}day-holiday{% endif %}"
+          title="{{ day.date }}: {{ sc }}{% if cell.first_in %} in={{ cell.first_in|string|truncate(5,true,'') }}{% endif %}{% if cell.last_out %} out={{ cell.last_out|string|truncate(5,true,'') }}{% endif %}">
+        {{ dc }}{% if cell.ot_minutes and cell.ot_minutes > 0 %}<sup style="font-size:7px;color:#d97706">+</sup>{% endif %}
+      </td>
+    {% elif day.is_weekend %}
+      <td class="col-day day-weekend status-SAT" title="{{ day.date }}">शनि</td>
+    {% elif day.is_holiday %}
+      <td class="col-day day-holiday status-PH" title="{{ day.date }}">{{ day.hol_code or 'सा' }}</td>
+    {% else %}
+      <td class="col-day status-A" title="{{ day.date }}">X</td>
+    {% endif %}
+    {% endfor %}
+    {# Summary columns #}
+    {% set home_l = emp.leave_counts.get('HOME', 0) %}
+    {% set sick_l = emp.leave_counts.get('SICK', 0) %}
+    {% set other_l = emp.leave_counts.values()|sum - home_l - sick_l %}
+    {% set ns.tp     = ns.tp     + emp.counts.P %}
+    {% set ns.tsat   = ns.tsat   + emp.counts.SAT %}
+    {% set ns.thol   = ns.thol   + emp.holiday_days %}
+    {% set ns.thome  = ns.thome  + home_l %}
+    {% set ns.tsick  = ns.tsick  + sick_l %}
+    {% set ns.tother = ns.tother + other_l %}
+    {% set ns.tabs   = ns.tabs   + emp.counts.A %}
+    {% set ns.tot    = ns.tot    + emp.total_ot_min %}
+    <td class="col-sum status-P">{{ emp.counts.P }}</td>
+    <td class="col-sum status-SAT">{{ emp.counts.SAT }}</td>
+    <td class="col-sum status-PH">{{ emp.holiday_days }}</td>
+    <td class="col-sum status-HOME">{{ home_l }}</td>
+    <td class="col-sum status-SICK">{{ sick_l }}</td>
+    <td class="col-sum">{{ other_l if other_l else '' }}</td>
+    <td class="col-sum status-A">{{ emp.counts.A }}</td>
+    <td class="col-sum ot-col">{{ emp.total_ot_h }}</td>
+  </tr>
+  {% endfor %}
+  <tr class="totals-row">
+    <td colspan="3" style="text-align:right;font-size:11px">जम्मा ({{ employees|length }})</td>
+    {% for day in day_list %}<td class="col-day"></td>{% endfor %}
+    <td class="col-sum">{{ ns.tp }}</td>
+    <td class="col-sum">{{ ns.tsat }}</td>
+    <td class="col-sum">{{ ns.thol }}</td>
+    <td class="col-sum">{{ ns.thome }}</td>
+    <td class="col-sum">{{ ns.tsick }}</td>
+    <td class="col-sum">{{ ns.tother }}</td>
+    <td class="col-sum">{{ ns.tabs }}</td>
+    <td class="col-sum ot-col">{{ '%d:%02d' | format(ns.tot // 60, ns.tot % 60) }}</td>
+  </tr>
+  </tbody>
+</table>
+</div>
+
+{# ── Signature row ── #}
+<div style="display:flex;gap:80px;margin-top:40px;padding-top:8px">
+  <div style="flex:1;border-top:1px solid #000;padding-top:4px;text-align:center;font-size:12px">तयार गर्ने</div>
+  <div style="flex:1;border-top:1px solid #000;padding-top:4px;text-align:center;font-size:12px">जाँच गर्ने</div>
+  <div style="flex:1;border-top:1px solid #000;padding-top:4px;text-align:center;font-size:12px">स्वीकृत गर्ने</div>
+</div>
+<div style="font-size:10px;color:#94a3b8;text-align:right;margin-top:6px">
+  Generated: {{ now_str }}
+</div>
+
+{% endif %}{# employees #}
+{% endif %}{# error #}
+
+{% endblock %}

@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import paginate %}
 {% block content %}
 
 {# ── Page head ─────────────────────────────────────────────────────────────── #}
@@ -159,23 +160,7 @@
     </div>
 
     {# ── Pagination ── #}
-    {% if total_pages > 1 %}
-    {% set bq = '&gu_search=' + gu_search + '&gu_directorate=' + gu_directorate + '&gu_department=' + gu_department + '&gu_section=' + gu_section + '&gu_unit=' + gu_unit + '&gu_sort_by=' + gu_sort_by + '&gu_sort_dir=' + gu_sort_dir %}
-    <div class="pagination no-print">
-      {% if page > 1 %}<a class="btn small" href="/users?tab=global&page={{ page - 1 }}{{ bq }}">&laquo; Prev</a>{% endif %}
-      {% for p in range(1, total_pages + 1) %}
-        {% if p == page %}
-        <span class="btn small" style="background:#1769E0;color:#fff;cursor:default">{{ p }}</span>
-        {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
-        <a class="btn small" href="/users?tab=global&page={{ p }}{{ bq }}">{{ p }}</a>
-        {% elif p == page - 3 or p == page + 3 %}
-        <span class="muted" style="padding:0 4px">…</span>
-        {% endif %}
-      {% endfor %}
-      {% if page < total_pages %}<a class="btn small" href="/users?tab=global&page={{ page + 1 }}{{ bq }}">Next &raquo;</a>{% endif %}
-      <span class="muted" style="font-size:13px;margin-left:6px">Page {{ page }} of {{ total_pages }} &middot; {{ total_users }} users</span>
-    </div>
-    {% endif %}
+    {{ paginate(page, total_pages, total_users, '/users?tab=global&gu_search='~gu_search~'&gu_directorate='~gu_directorate~'&gu_department='~gu_department~'&gu_section='~gu_section~'&gu_unit='~gu_unit~'&gu_sort_by='~gu_sort_by~'&gu_sort_dir='~gu_sort_dir, page_range, per_page=25) }}
   </section>
 </div>{# end tab-global #}
 
@@ -324,23 +309,7 @@
     </form>
 
     {# ── Pagination ── #}
-    {% if emp_total_pages > 1 %}
-    {% set ebq = '&search=' + search + '&device_id=' + selected_device_id + '&sort_by=' + sort_by + '&sort_dir=' + sort_dir %}
-    <div class="pagination no-print">
-      {% if emp_page > 1 %}<a class="btn small" href="/users?tab=device&emp_page={{ emp_page - 1 }}{{ ebq }}">&laquo; Prev</a>{% endif %}
-      {% for p in range(1, emp_total_pages + 1) %}
-        {% if p == emp_page %}
-        <span class="btn small" style="background:#1769E0;color:#fff;cursor:default">{{ p }}</span>
-        {% elif p == 1 or p == emp_total_pages or (p >= emp_page - 2 and p <= emp_page + 2) %}
-        <a class="btn small" href="/users?tab=device&emp_page={{ p }}{{ ebq }}">{{ p }}</a>
-        {% elif p == emp_page - 3 or p == emp_page + 3 %}
-        <span class="muted" style="padding:0 4px">…</span>
-        {% endif %}
-      {% endfor %}
-      {% if emp_page < emp_total_pages %}<a class="btn small" href="/users?tab=device&emp_page={{ emp_page + 1 }}{{ ebq }}">Next &raquo;</a>{% endif %}
-      <span class="muted" style="font-size:13px;margin-left:6px">Page {{ emp_page }} of {{ emp_total_pages }} &middot; {{ total_employees }} records</span>
-    </div>
-    {% endif %}
+    {{ paginate(emp_page, emp_total_pages, total_employees, '/users?tab=device&search='~search~'&device_id='~selected_device_id~'&sort_by='~sort_by~'&sort_dir='~sort_dir, emp_page_range, per_page=25) }}
   </section>
 </div>{# end tab-device #}
 

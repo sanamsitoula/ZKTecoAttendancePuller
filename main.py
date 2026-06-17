@@ -145,6 +145,19 @@ def run_pull_cycle() -> None:
                 )
                 conn.commit()
 
+                # Settle attendance_daily for the past 7 days
+                try:
+                    from datetime import date as _settle_date, timedelta as _settle_td
+                    _settle_to   = _settle_date.today().isoformat()
+                    _settle_from = (_settle_date.today() - _settle_td(days=7)).isoformat()
+                    _sr = db.settle_all_attendance_daily(conn, _settle_from, _settle_to)
+                    conn.commit()
+                    logger.info("[%s] attendance_daily settled: %d days for %d users",
+                                device.name, _sr['settled_days'], _sr['users'])
+                except Exception as _se:
+                    conn.rollback()
+                    logger.warning("[%s] attendance_daily settlement failed: %s", device.name, _se)
+
                 logger.info(
                     "[%s] ✓ %d users | %d records pulled | %d new inserts",
                     device.name, len(result.users), len(records), new_inserts,

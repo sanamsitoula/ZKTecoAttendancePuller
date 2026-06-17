@@ -26,6 +26,7 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 | **Monthly Report** | Per-employee 16-column ZKBioTime-style report; multi-device; 60-second dedup; filter by directorate/department/section |
 | **Monthly Summary** | Aggregate present/absent/on-leave per employee for a BS month; print/PDF A4 landscape |
 | **Daily Report** | Present employees with check-in times, department-wise absent list, on-leave list |
+| **Hajiri Report** | Cross-tab attendance register (Nepali hajiri vivaran) — one row per employee, one column per day; shows present/absent/Saturday/holiday/leave codes; summary columns for OT, late-in, early-out; print-ready A3 landscape |
 | **Leave Management** | Employee leave applications; approve/reject; annual leave allocation; BS datepicker |
 | **Holiday Calendar** | Monthly BS calendar grid with public/festival/other holidays; working-day count |
 | **Users** | Two tabs — **Global Users** (sortable columns: Att. ID, Emp ID, Name, Dept, Section, Shift; pagination, search/filter by org, CSV export, print) and **Device Employees** (pagination, migrate to global user, bulk delete) |
@@ -80,6 +81,52 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 - Shows present employees with first check-in time and department
 - Department-wise absent list (excludes weekends and holidays)
 - On-leave summary cross-referenced with approved leave applications
+
+### Hajiri Report (Attendance Register)
+
+The Hajiri Report is a cross-tab attendance register in traditional Nepali `hajiri vivaran` format.
+
+**Grid layout**: one row per employee, one column per calendar day. Each cell shows a short code:
+
+| Code | Nepali | Meaning |
+|---|---|---|
+| `√` | उपस्थित | Present (has punch) |
+| `X` | अनुपस्थित | Absent (no punch, working day) |
+| `शनि` | शनिबार | Saturday |
+| `सा` | सार्वजनिक बिदा | Public Holiday |
+| `उत्` | उत्सव बिदा | Festival Holiday |
+| `रा` | राष्ट्रिय बिदा | National Holiday |
+| `वै` | वैकल्पिक बिदा | Optional Holiday |
+| `घ` | घर बिदा | Home Leave |
+| `बि` | विरामी बिदा | Sick Leave |
+| `अ` | आकस्मिक बिदा | Casual Leave |
+| `म` | मातृत्व बिदा | Maternity Leave |
+| `पि` | पितृत्व बिदा | Paternity Leave |
+| `शो` | शोक बिदा | Mourning Leave |
+| `अध्` | अध्ययन बिदा | Study Leave |
+
+**Summary columns** on the right: उप. (Present), शनि (Sat), बिदा (Holiday), घ.बि. (Home Leave), बि.बि. (Sick Leave), अ.बि. (Casual Leave), अनु. (Absent), OT (overtime minutes).
+
+**Filters**: BS year/month, department, section, employee type, name search.
+
+**Print**: A3 landscape via browser print. Signature row (Prepared by / Checked by / Approved by) appears at the bottom.
+
+#### Attendance Settlement (Option A architecture)
+
+The Hajiri Report reads from `attendance_daily` — a pre-computed daily summary table. Raw punches stay in `attendance_logs` (source of truth) and are never modified.
+
+After every device pull (scheduled or manual), the system automatically **settles** the last 7 days:
+
+1. Reads `attendance_logs` grouped by NPT date per employee
+2. Determines the status for each day using this priority:
+   - **Saturday** → `SAT`
+   - **Public/Festival/National/Optional Holiday** → `PH`/`FH`/`NH`/`OH`
+   - **Has punches** → `P` (present), computes OT, late-in, early-out from shift
+   - **Approved leave** → leave type code (`HOME`, `SICK`, etc.)
+   - **No punch** → `A` (absent)
+3. Upserts into `attendance_daily` with `ON CONFLICT DO UPDATE WHERE source != 'manual'`
+
+Rows with `source = 'manual'` (created by HR via a future override UI) are **never overwritten** by the settlement.
 
 ---
 
@@ -734,7 +781,8 @@ Click the **Pull** button on any device card on the Dashboard.
 ### View monthly attendance
 Go to **Reports → Monthly** — select employee and BS month. Use **Print All** to print all employees in one go.  
 Go to **Reports → Monthly Summary** for an aggregate present/absent/leave count per employee.  
-Go to **Reports → Daily Report** for yesterday's attendance (change the date to view any day).
+Go to **Reports → Daily Report** for yesterday's attendance (change the date to view any day).  
+Go to **Reports → Hajiri Report** for the traditional Nepali cross-tab attendance register (A3 landscape, printable).
 
 ### Change the pull schedule
 Go to **Schedule** in the web UI — edit and save. Takes effect immediately.
@@ -789,13 +837,25 @@ pg_dump -U postgres -d zkteco -f ~/backups/zkteco_$(date +%F).sql
 | `leave_types` | id, name, code, days_per_year, max_accumulate, carry_forward, is_paid |
 | `leave_balances` | id, global_user_id, leave_type_id, bs_year, opening_balance, days_earned, days_taken |
 | `leave_applications` | id, global_user_id, leave_type_id, from_bs, to_bs, from_ad, to_ad, days, status, approved_by, created_by, updated_by |
-| `holidays` | id, name, holiday_ad, holiday_bs, holiday_type, description |
+| `holidays` | id, name, holiday_ad, holiday_bs, holiday_type, description, **holiday_type_id** (FK) |
+| `holiday_types` | id, name, type_code (PUB/FEST/NAT/OPT/COMP), color_code, sort_order |
+| `attendance_daily` | id, global_user_id, work_date, status_code, display_code, first_in, last_out, work_minutes, ot_minutes, late_in_minutes, early_out_min, source ('device'/'manual'), note, computed_at |
 
-**Bold** columns were added in the extended migration (auto-applied on startup). All tables store a BS date column (`bs_date`, `created_bs`, etc.) alongside AD timestamps.
+**Bold** columns were added in extended migrations (auto-applied on startup). All tables store a BS date column (`bs_date`, `created_bs`, etc.) alongside AD timestamps.
+
+#### New columns added to existing tables (Phase 5 / Phase 6)
+
+| Table | New Columns |
+|---|---|
+| `leave_types` | `display_code` (Nepali short code: घ/बि/अ/…), `color_code`, `sort_order`, `half_day_allowed`, `applies_to` |
+| `leave_applications` | `is_half_day`, `half_day_part` |
+| `leave_balances` | `carried_forward`, `annual_allocated` |
+| `global_users` | `emp_type` (PERMANENT/CONTRACT/…), `emp_status` (ACTIVE/INACTIVE/…), `join_date`, `level_grade`, `designation` |
+| `shifts` | `grace_late_in` (minutes), `grace_early_out` (minutes), `break_minutes` |
 
 ### Migration Notes (Upgrading from an Earlier Version)
 
-All schema changes are additive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` — safe to run against an existing database. The web server applies them automatically on startup via `init_schema`. No manual SQL needed.
+All schema changes are additive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` — safe to run against an existing database. The web server applies them automatically on startup via `init_schema` (Phases 1–6). No manual SQL needed.
 
 To verify the new columns exist:
 ```sql
@@ -839,8 +899,10 @@ ZKTecePuller/
 │       ├── reports_monthly_print_all.html  ← Print-all employees page
 │       ├── reports_monthly_summary.html    ← Monthly aggregate summary
 │       ├── reports_daily.html              ← Daily attendance report
+│       ├── reports_hajiri.html             ← Hajiri vivaran cross-tab register (A3 landscape print)
 │       ├── leaves.html                     ← Leave management
 │       ├── calendar.html                   ← Holiday calendar (BS grid)
+│       ├── _macros.html                    ← Shared Jinja2 macros (paginate macro with ellipsis)
 │       ├── users.html                      ← Global user list with pagination and search
 │       ├── user_form.html                  ← Add / edit global user (org, shift, bank, etc.)
 │       ├── settings.html                   ← Org hierarchy + shifts
@@ -877,6 +939,9 @@ ZKTecePuller/
 | Device shows Offline on Dashboard | Port 4370 must be reachable from the server — check firewall / network |
 | `Connection timed out` on pull | Verify `Test-NetConnection -ComputerName <ip> -Port 4370` succeeds |
 | Monthly report shows no employees | Pull data from at least one device first, AND link employees to Global Users via the Users page |
+| Hajiri Report shows no data | Trigger a device pull first — settlement runs automatically and populates `attendance_daily` |
+| Hajiri Report shows wrong status (e.g., absent instead of holiday) | Check that the holiday is added in the Holiday Calendar for the correct BS year/month |
+| `attendance_daily` not updating after pull | Check `logs/zkteco_puller.log` for `attendance_daily settled:` lines; errors appear as WARNING entries |
 | Monthly report shows Holiday = 0 / Leave = 0 even after adding them | Restart the server to pick up the latest code fix; also verify the holiday/leave BS year matches the report month |
 | Holiday or leave appears in wrong BS year | The `bs_to_ad` conversion is used at entry time — check that the year you typed in the form is 2083, not 2082 |
 | `pg_dump` / `psql` not found (Windows) | Use full path: `C:\Program Files\PostgreSQL\16\bin\pg_dump.exe` |

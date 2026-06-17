@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import paginate %}
 {% block content %}
 
 {% if view == 'list' %}
@@ -124,31 +125,12 @@
     </table>
   </div>
 
-  {% set fp = 'bs_year=' ~ sel_bs_year ~ '&bs_month=' ~ sel_bs_month %}
+  {% set fp = '/reports/monthly?bs_year=' ~ sel_bs_year ~ '&bs_month=' ~ sel_bs_month %}
   {% if f_srch %}{% set fp = fp ~ '&search=' ~ f_srch %}{% endif %}
   {% if f_dir %}{% set fp = fp ~ '&directorate_id=' ~ f_dir %}{% endif %}
   {% if f_dept %}{% set fp = fp ~ '&department_id=' ~ f_dept %}{% endif %}
   {% if f_sec %}{% set fp = fp ~ '&section_id=' ~ f_sec %}{% endif %}
-  {% if total_pages > 1 %}
-  <nav class="pagination" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;align-items:center">
-    <span class="muted" style="margin-right:6px">Page {{ page }} of {{ total_pages }}</span>
-    {% if page > 1 %}
-      <a class="btn small" href="/reports/monthly?{{ fp }}&page={{ page - 1 }}">&#8592; Prev</a>
-    {% endif %}
-    {% for p in range(1, total_pages + 1) %}
-      {% if p == page %}
-        <span class="btn small primary">{{ p }}</span>
-      {% elif p <= 2 or p >= total_pages - 1 or (p >= page - 2 and p <= page + 2) %}
-        <a class="btn small" href="/reports/monthly?{{ fp }}&page={{ p }}">{{ p }}</a>
-      {% elif p == 3 or p == total_pages - 2 %}
-        <span class="muted">&hellip;</span>
-      {% endif %}
-    {% endfor %}
-    {% if page < total_pages %}
-      <a class="btn small" href="/reports/monthly?{{ fp }}&page={{ page + 1 }}">Next &#8594;</a>
-    {% endif %}
-  </nav>
-  {% endif %}
+  {{ paginate(page, total_pages, total_employees, fp, page_range, per_page=25) }}
 </section>
 
 {% else %}

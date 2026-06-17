@@ -1,0 +1,44 @@
+{# ── Shared Jinja2 macros ──────────────────────────────────────────────────── #}
+
+{%- macro paginate(page, total_pages, total, base_url, pg_range, per_page=25) -%}
+{%- if total_pages > 1 or total > 0 -%}
+<nav class="pagination-bar" aria-label="Page navigation">
+  <span class="pg-info">
+    {%- if total > 0 -%}
+      Showing {{ ((page-1)*per_page)+1 | int }}–{{ [page*per_page, total] | min }} of {{ total }}
+    {%- else -%}
+      No results
+    {%- endif -%}
+  </span>
+  {%- if total_pages > 1 -%}
+  <div class="pg-links">
+    {%- if page > 1 -%}
+    <a class="pg-btn" href="{{ base_url }}&page=1">«</a>
+    <a class="pg-btn" href="{{ base_url }}&page={{ page-1 }}">‹</a>
+    {%- else -%}
+    <span class="pg-btn disabled">«</span>
+    <span class="pg-btn disabled">‹</span>
+    {%- endif -%}
+
+    {%- for p in pg_range -%}
+      {%- if p is none -%}
+        <span class="pg-ellipsis">…</span>
+      {%- elif p == page -%}
+        <span class="pg-btn current">{{ p }}</span>
+      {%- else -%}
+        <a class="pg-btn" href="{{ base_url }}&page={{ p }}">{{ p }}</a>
+      {%- endif -%}
+    {%- endfor -%}
+
+    {%- if page < total_pages -%}
+    <a class="pg-btn" href="{{ base_url }}&page={{ page+1 }}">›</a>
+    <a class="pg-btn" href="{{ base_url }}&page={{ total_pages }}">»</a>
+    {%- else -%}
+    <span class="pg-btn disabled">›</span>
+    <span class="pg-btn disabled">»</span>
+    {%- endif -%}
+  </div>
+  {%- endif -%}
+</nav>
+{%- endif -%}
+{%- endmacro -%}

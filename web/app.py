@@ -611,6 +611,7 @@ def users_index(
             "total_users":    total_users,
             "page":           page_num,
             "total_pages":    total_pages,
+            "page_range":     _page_range(page_num, total_pages),
             "gu_search":      gu_search or '',
             "gu_directorate": gu_directorate or '',
             "gu_department":  gu_department or '',
@@ -622,6 +623,7 @@ def users_index(
             "total_employees": total_employees,
             "emp_page":       emp_page_num,
             "emp_total_pages": emp_total_pages,
+            "emp_page_range": _page_range(emp_page_num, emp_total_pages),
             "devices":        devices,
             "directorates":   directorates,
             "departments":    departments,
@@ -1171,6 +1173,17 @@ def device_pull(request: Request, device_id: int):
                 db_mod.complete_pull_session(conn, session_id, records_pulled, new_inserts, 'success')
                 conn.commit()
                 success = True
+
+                # Settle attendance_daily for recent days
+                try:
+                    from datetime import date as _sd, timedelta as _std
+                    _to   = _sd.today().isoformat()
+                    _from = (_sd.today() - _std(days=7)).isoformat()
+                    _sr = db_mod.settle_all_attendance_daily(conn, _from, _to)
+                    conn.commit()
+                except Exception as _se:
+                    conn.rollback()
+                    logger.warning("attendance_daily settlement failed: %s", _se)
 
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
                 cur.execute(
@@ -2102,6 +2115,24 @@ def _month_name(m: int) -> str:
     return names[m] if 1 <= m <= 12 else str(m)
 
 
+def _page_range(page: int, total_pages: int) -> list:
+    """Return page number list with None for ellipsis gaps, for pagination UI."""
+    if total_pages <= 9:
+        return list(range(1, total_pages + 1))
+    pages = set()
+    pages.update([1, 2])
+    pages.update(range(max(1, page - 2), min(total_pages + 1, page + 3)))
+    pages.update([total_pages - 1, total_pages])
+    sorted_p = sorted(pages)
+    result, prev = [], None
+    for p in sorted_p:
+        if prev is not None and p - prev > 1:
+            result.append(None)
+        result.append(p)
+        prev = p
+    return result
+
+
 @app.get("/reports/monthly")
 def reports_monthly_list(
     request: Request,
@@ -2194,6 +2225,7 @@ def reports_monthly_list(
         'error':           None,
         'now_str':         _npt_now_str(),
         'COMPANY_NAME':    COMPANY_NAME,
+        'page_range':      _page_range(page_num, total_pages),
     })
 
 
@@ -2383,6 +2415,155 @@ def reports_monthly_print_all(
         'now_str':      _npt_now_str(),
         'COMPANY_NAME': COMPANY_NAME,
     })
+
+
+@app.get("/reports/hajiri")
+def reports_hajiri(
+    request:       Request,
+    bs_year:       str | None = None,
+    bs_month:      str | None = None,
+    department_id: str | None = None,
+    section_id:    str | None = None,
+    emp_type:      str | None = None,
+    search:        str | None = None,
+):
+    def_year, def_month = _bs_defaults()
+    sel_year   = _int_param(bs_year)  or def_year
+    sel_month  = _int_param(bs_month) or def_month
+    f_dept     = _int_param(department_id)
+    f_sec      = _int_param(section_id)
+    f_emp_type = (emp_type or '').strip()
+    f_search   = (search  or '').strip()
+
+    conn = get_connection()
+    try:
+        from nepali_utils import bs_month_info as _bsmi
+        from db import get_all_departments, get_all_sections
+
+        depts    = get_all_departments(conn)
+        sections = get_all_sections(conn)
+        mi       = _bsmi(sel_year, sel_month)
+
+        if mi is None:
+            return render(templates, request, 'reports_hajiri.html', {
+                'error': 'Invalid BS year/month',
+                'sel_bs_year': sel_year, 'sel_bs_month': sel_month,
+                'departments': depts, 'sections': sections,
+                'COMPANY_NAME': COMPANY_NAME,
+            })
+
+        from_ad = mi['first_ad']
+        to_ad   = mi['last_ad']
+        from datetime import date as _dt, timedelta as _td
+
+        # ── Load all active global users (with filters) ───────────────────────
+        all_users = list_global_users(
+            conn,
+            search=f_search or None,
+            department_id=f_dept or None,
+            section_id=f_sec or None,
+        )
+        if f_emp_type:
+            all_users = [u for u in all_users
+                         if (u.get('emp_type') or 'PERMANENT') == f_emp_type]
+        all_users = [u for u in all_users
+                     if (u.get('emp_status') or 'ACTIVE') == 'ACTIVE']
+
+        # ── Load attendance_daily for the month ───────────────────────────────
+        user_ids = [u['id'] for u in all_users]
+        att_map: dict = {}   # {global_user_id: {date_str: row}}
+        if user_ids:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT global_user_id,
+                           work_date::text AS work_date,
+                           status_code, display_code,
+                           first_in, last_out,
+                           work_minutes, ot_minutes,
+                           late_in_minutes, early_out_min
+                    FROM attendance_daily
+                    WHERE global_user_id = ANY(%s)
+                      AND work_date BETWEEN %s AND %s
+                    ORDER BY global_user_id, work_date
+                """, (user_ids, from_ad, to_ad))
+                for r in cur.fetchall():
+                    gid = r['global_user_id']
+                    if gid not in att_map:
+                        att_map[gid] = {}
+                    att_map[gid][r['work_date']] = dict(r)
+
+        # ── Build per-employee summary ────────────────────────────────────────
+        employees = []
+        for u in all_users:
+            uid       = u['id']
+            days_data = att_map.get(uid, {})
+            counts = {'P': 0, 'A': 0, 'SAT': 0, 'PH': 0, 'FH': 0, 'NH': 0, 'OH': 0}
+            leave_counts: dict = {}
+            total_ot = 0
+            for day in days_data.values():
+                sc = day.get('status_code') or 'A'
+                if sc in counts:
+                    counts[sc] += 1
+                elif sc not in ('device',):
+                    leave_counts[sc] = leave_counts.get(sc, 0) + 1
+                total_ot += (day.get('ot_minutes') or 0)
+            holiday_days = counts['PH'] + counts['FH'] + counts['NH'] + counts['OH']
+            employees.append({
+                **u,
+                'days_data':    days_data,
+                'counts':       counts,
+                'leave_counts': leave_counts,
+                'total_ot_min': total_ot,
+                'total_ot_h':   f"{total_ot // 60}:{total_ot % 60:02d}" if total_ot else '',
+                'holiday_days': holiday_days,
+            })
+
+        # ── Build column day list ─────────────────────────────────────────────
+        from db import get_holidays as _ghols
+        holiday_dates: dict = {}   # {date_str: display_code}
+        for h in _ghols(conn, from_ad, to_ad):
+            hd = h['holiday_ad']
+            hs = hd.isoformat() if hasattr(hd, 'isoformat') else str(hd)
+            htype = h.get('holiday_type', 'public')
+            holiday_dates[hs] = 'उत्' if htype == 'festival' else 'सा'
+
+        day_list = []
+        d = _dt.fromisoformat(from_ad)
+        end_d = _dt.fromisoformat(to_ad)
+        while d <= end_d:
+            nepal_dow = d.isoweekday() % 7
+            ds = d.isoformat()
+            day_list.append({
+                'date':       ds,
+                'day_num':    d.day,
+                'is_weekend': (nepal_dow == 6),
+                'is_holiday': ds in holiday_dates,
+                'hol_code':   holiday_dates.get(ds, ''),
+            })
+            d += _td(days=1)
+
+        return render(templates, request, 'reports_hajiri.html', {
+            'sel_bs_year':  sel_year,
+            'sel_bs_month': sel_month,
+            'month_name':   mi['month_name'],
+            'bs_year':      sel_year,
+            'from_ad':      from_ad,
+            'to_ad':        to_ad,
+            'total_days':   len(day_list),
+            'employees':    employees,
+            'day_list':     day_list,
+            'departments':  depts,
+            'sections':     sections,
+            'f_dept':       f_dept or '',
+            'f_sec':        f_sec or '',
+            'f_emp_type':   f_emp_type,
+            'f_search':     f_search,
+            'now_str':      _npt_now_str(),
+            'COMPANY_NAME': COMPANY_NAME,
+            'error':        None,
+        })
+    finally:
+        conn.close()
 
 
 # ---- Settings (Org Hierarchy / Shifts / Shift Rules) ---------------------
