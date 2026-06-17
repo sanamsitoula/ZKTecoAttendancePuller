@@ -83,7 +83,7 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 
 | Requirement | Version | Notes |
 |---|---|---|
-| Python | 3.10 – 3.13 | 3.13 tested |
+| Python | 3.10 – 3.14 | 3.14 tested |
 | PostgreSQL | 13+ | Must be running and accessible |
 | Git | any | For cloning / updating |
 | Network | — | Server must reach ZKTeco device subnet |
@@ -459,7 +459,8 @@ ZKTecePuller/
 │       ├── reports_daily.html              ← Daily attendance report
 │       ├── leaves.html                     ← Leave management
 │       ├── calendar.html                   ← Holiday calendar (BS grid)
-│       ├── users.html                      ← Employee management
+│       ├── users.html                      ← Global user list with pagination and search
+│       ├── user_form.html                  ← Add / edit global user (org, shift, bank, etc.)
 │       ├── settings.html                   ← Org hierarchy + shifts
 │       ├── schedule.html                   ← Schedule viewer/editor
 │       └── ...                             ← Other templates
@@ -485,6 +486,7 @@ ZKTecePuller/
 | Pages show Internal Server Error after update | Run `start_web.bat` to restart — the server is running old code |
 | Leave / Calendar / Daily Report pages give 500 | Schema not applied yet — restart server with `start_web.bat` |
 | `AssertionError: SessionMiddleware must be installed` | Upgrade to latest code and restart — middleware ordering was fixed |
+| `/login` returns 500 Internal Server Error | Starlette 1.2.1 changed the `TemplateResponse` API — upgrade to latest code (`git pull`) and restart |
 | Daily report shows no data | Reports default to yesterday; pull data via Dashboard first |
 | Device shows Offline on Dashboard | Port 4370 must be reachable from the server — check firewall / network |
 | `Connection timed out` on pull | Verify `Test-NetConnection -ComputerName <ip> -Port 4370` succeeds |
