@@ -164,6 +164,75 @@ CREATE TABLE IF NOT EXISTS shift_rules (
 );
 CREATE INDEX IF NOT EXISTS idx_shift_rules_user ON shift_rules (global_user_id, from_date);
 CREATE INDEX IF NOT EXISTS idx_shift_rules_dept ON shift_rules (department_id,  from_date);
+
+-- ── Org Hierarchy ───────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS directorates (
+    id   SERIAL PRIMARY KEY,
+    name VARCHAR(200) NOT NULL UNIQUE
+);
+
+ALTER TABLE departments ADD COLUMN IF NOT EXISTS directorate_id INTEGER;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='departments_directorate_id_fkey') THEN
+        ALTER TABLE departments ADD CONSTRAINT departments_directorate_id_fkey
+            FOREIGN KEY (directorate_id) REFERENCES directorates(id) ON DELETE SET NULL;
+    END IF;
+END$$;
+
+CREATE TABLE IF NOT EXISTS sections (
+    id            SERIAL PRIMARY KEY,
+    name          VARCHAR(200) NOT NULL,
+    department_id INTEGER REFERENCES departments(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS units (
+    id         SERIAL PRIMARY KEY,
+    name       VARCHAR(200) NOT NULL,
+    section_id INTEGER REFERENCES sections(id) ON DELETE CASCADE
+);
+
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS section_id INTEGER;
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS unit_id    INTEGER;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='global_users_section_id_fkey') THEN
+        ALTER TABLE global_users ADD CONSTRAINT global_users_section_id_fkey
+            FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE SET NULL;
+    END IF;
+END$$;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='global_users_unit_id_fkey') THEN
+        ALTER TABLE global_users ADD CONSTRAINT global_users_unit_id_fkey
+            FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE SET NULL;
+    END IF;
+END$$;
+
+ALTER TABLE shift_rules ADD COLUMN IF NOT EXISTS directorate_id INTEGER;
+ALTER TABLE shift_rules ADD COLUMN IF NOT EXISTS section_id     INTEGER;
+ALTER TABLE shift_rules ADD COLUMN IF NOT EXISTS unit_id        INTEGER;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='shift_rules_directorate_id_fkey') THEN
+        ALTER TABLE shift_rules ADD CONSTRAINT shift_rules_directorate_id_fkey
+            FOREIGN KEY (directorate_id) REFERENCES directorates(id) ON DELETE CASCADE;
+    END IF;
+END$$;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='shift_rules_section_id_fkey') THEN
+        ALTER TABLE shift_rules ADD CONSTRAINT shift_rules_section_id_fkey
+            FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE;
+    END IF;
+END$$;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='shift_rules_unit_id_fkey') THEN
+        ALTER TABLE shift_rules ADD CONSTRAINT shift_rules_unit_id_fkey
+            FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE;
+    END IF;
+END$$;
 """
 
 
@@ -775,8 +844,14 @@ def get_pull_sessions(conn, limit: int = 100):
 # ─── Departments ─────────────────────────────────────────────────────────────
 
 def get_all_departments(conn) -> list:
+    sql = """
+        SELECT d.id, d.name, d.directorate_id, dr.name AS directorate_name
+        FROM departments d
+        LEFT JOIN directorates dr ON dr.id = d.directorate_id
+        ORDER BY d.name
+    """
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-        cur.execute("SELECT id, name FROM departments ORDER BY name")
+        cur.execute(sql)
         return [dict(r) for r in cur.fetchall()]
 
 def create_department(conn, name: str) -> int:
@@ -845,14 +920,23 @@ def get_all_shift_rules(conn) -> list:
             to_char(sh.end_time,   'HH24:MI') AS end_time,
             sr.from_date::text  AS from_date,
             sr.to_date::text    AS to_date,
-            gu.name AS employee_name,
-            gu.id   AS global_user_id,
-            d.name  AS department_name,
-            d.id    AS department_id
+            gu.name  AS employee_name,
+            gu.id    AS global_user_id,
+            d.name   AS department_name,
+            d.id     AS department_id,
+            dr.name  AS directorate_name,
+            dr.id    AS directorate_id,
+            s.name   AS section_name,
+            s.id     AS section_id,
+            u.name   AS unit_name,
+            u.id     AS unit_id
         FROM shift_rules sr
-        JOIN shifts sh ON sh.id = sr.shift_id
-        LEFT JOIN global_users gu ON gu.id = sr.global_user_id
-        LEFT JOIN departments   d ON d.id  = sr.department_id
+        JOIN shifts sh       ON sh.id  = sr.shift_id
+        LEFT JOIN global_users gu ON gu.id  = sr.global_user_id
+        LEFT JOIN departments   d  ON d.id   = sr.department_id
+        LEFT JOIN directorates  dr ON dr.id  = sr.directorate_id
+        LEFT JOIN sections      s  ON s.id   = sr.section_id
+        LEFT JOIN units         u  ON u.id   = sr.unit_id
         ORDER BY sr.from_date DESC, sr.id DESC
     """
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -860,12 +944,16 @@ def get_all_shift_rules(conn) -> list:
         return [dict(r) for r in cur.fetchall()]
 
 def create_shift_rule(conn, shift_id: int, from_date: str, to_date=None,
-                      global_user_id=None, department_id=None) -> int:
+                      global_user_id=None, department_id=None,
+                      directorate_id=None, section_id=None, unit_id=None) -> int:
     with conn.cursor() as cur:
         cur.execute("""
-            INSERT INTO shift_rules (shift_id, from_date, to_date, global_user_id, department_id)
-            VALUES (%s, %s, %s, %s, %s) RETURNING id
-        """, (int(shift_id), from_date, to_date or None, global_user_id, department_id))
+            INSERT INTO shift_rules
+                (shift_id, from_date, to_date, global_user_id, department_id,
+                 directorate_id, section_id, unit_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+        """, (int(shift_id), from_date, to_date or None,
+              global_user_id, department_id, directorate_id, section_id, unit_id))
         row = cur.fetchone()
     conn.commit()
     return row[0]
@@ -875,18 +963,28 @@ def delete_shift_rule(conn, rule_id: int):
         cur.execute("DELETE FROM shift_rules WHERE id=%s", (rule_id,))
     conn.commit()
 
-def set_employee_department(conn, global_user_id: int, department_id):
+def set_employee_org(conn, global_user_id: int, department_id=None,
+                     section_id=None, unit_id=None):
     with conn.cursor() as cur:
-        cur.execute("UPDATE global_users SET department_id=%s WHERE id=%s",
-                    (department_id or None, global_user_id))
+        cur.execute("""
+            UPDATE global_users
+            SET department_id=%s, section_id=%s, unit_id=%s
+            WHERE id=%s
+        """, (department_id or None, section_id or None, unit_id or None, global_user_id))
     conn.commit()
 
 def get_all_global_users_with_dept(conn) -> list:
     sql = """
         SELECT gu.id, gu.global_user_id AS company_id, gu.name,
-               gu.department_id, dept.name AS department_name
+               gu.department_id, d.name  AS department_name,
+               d.directorate_id, dr.name AS directorate_name,
+               gu.section_id,   s.name   AS section_name,
+               gu.unit_id,      u.name   AS unit_name
         FROM global_users gu
-        LEFT JOIN departments dept ON dept.id = gu.department_id
+        LEFT JOIN departments  d  ON d.id  = gu.department_id
+        LEFT JOIN directorates dr ON dr.id = d.directorate_id
+        LEFT JOIN sections     s  ON s.id  = gu.section_id
+        LEFT JOIN units        u  ON u.id  = gu.unit_id
         ORDER BY LOWER(COALESCE(gu.name, gu.global_user_id, ''))
     """
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -897,37 +995,55 @@ def get_all_global_users_with_dept(conn) -> list:
 def get_shift_calendar(conn, global_user_id: int, from_ad: str, to_ad: str) -> dict:
     """
     Returns {date_obj: {name, start_min, end_min}} for the date range.
-    Employee-level rules take priority over department-level rules.
+    Priority: employee (5) > unit (4) > section (3) > department (2) > directorate (1).
     """
     if not global_user_id:
         return {}
 
     sql = """
-        WITH emp_dept AS (
-            SELECT department_id FROM global_users WHERE id = %(uid)s
+        WITH emp_org AS (
+            SELECT gu.department_id, gu.section_id, gu.unit_id,
+                   d.directorate_id
+            FROM global_users gu
+            LEFT JOIN departments d ON d.id = gu.department_id
+            WHERE gu.id = %(uid)s
         ),
         emp_rules AS (
-            SELECT sh.start_time, sh.end_time, sh.name,
-                   sr.from_date, sr.to_date, 1 AS priority
-            FROM shift_rules sr
-            JOIN shifts sh ON sh.id = sr.shift_id
+            SELECT sh.start_time, sh.end_time, sh.name, sr.from_date, sr.to_date, 5 AS prio
+            FROM shift_rules sr JOIN shifts sh ON sh.id = sr.shift_id
             WHERE sr.global_user_id = %(uid)s
-              AND sr.from_date <= %(to_ad)s
-              AND (sr.to_date IS NULL OR sr.to_date >= %(from_ad)s)
+              AND sr.from_date <= %(to_ad)s AND (sr.to_date IS NULL OR sr.to_date >= %(from_ad)s)
+        ),
+        unit_rules AS (
+            SELECT sh.start_time, sh.end_time, sh.name, sr.from_date, sr.to_date, 4 AS prio
+            FROM shift_rules sr JOIN shifts sh ON sh.id = sr.shift_id
+            JOIN emp_org eo ON eo.unit_id IS NOT NULL AND eo.unit_id = sr.unit_id
+            WHERE sr.from_date <= %(to_ad)s AND (sr.to_date IS NULL OR sr.to_date >= %(from_ad)s)
+        ),
+        sec_rules AS (
+            SELECT sh.start_time, sh.end_time, sh.name, sr.from_date, sr.to_date, 3 AS prio
+            FROM shift_rules sr JOIN shifts sh ON sh.id = sr.shift_id
+            JOIN emp_org eo ON eo.section_id IS NOT NULL AND eo.section_id = sr.section_id
+            WHERE sr.from_date <= %(to_ad)s AND (sr.to_date IS NULL OR sr.to_date >= %(from_ad)s)
         ),
         dept_rules AS (
-            SELECT sh.start_time, sh.end_time, sh.name,
-                   sr.from_date, sr.to_date, 0 AS priority
-            FROM shift_rules sr
-            JOIN shifts sh ON sh.id = sr.shift_id
-            JOIN emp_dept ed ON ed.department_id = sr.department_id
-            WHERE sr.from_date <= %(to_ad)s
-              AND (sr.to_date IS NULL OR sr.to_date >= %(from_ad)s)
+            SELECT sh.start_time, sh.end_time, sh.name, sr.from_date, sr.to_date, 2 AS prio
+            FROM shift_rules sr JOIN shifts sh ON sh.id = sr.shift_id
+            JOIN emp_org eo ON eo.department_id IS NOT NULL AND eo.department_id = sr.department_id
+            WHERE sr.from_date <= %(to_ad)s AND (sr.to_date IS NULL OR sr.to_date >= %(from_ad)s)
+        ),
+        dir_rules AS (
+            SELECT sh.start_time, sh.end_time, sh.name, sr.from_date, sr.to_date, 1 AS prio
+            FROM shift_rules sr JOIN shifts sh ON sh.id = sr.shift_id
+            JOIN emp_org eo ON eo.directorate_id IS NOT NULL AND eo.directorate_id = sr.directorate_id
+            WHERE sr.from_date <= %(to_ad)s AND (sr.to_date IS NULL OR sr.to_date >= %(from_ad)s)
         )
         SELECT * FROM emp_rules
-        UNION ALL
-        SELECT * FROM dept_rules
-        ORDER BY priority DESC, from_date DESC
+        UNION ALL SELECT * FROM unit_rules
+        UNION ALL SELECT * FROM sec_rules
+        UNION ALL SELECT * FROM dept_rules
+        UNION ALL SELECT * FROM dir_rules
+        ORDER BY prio DESC, from_date DESC
     """
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(sql, {'uid': global_user_id, 'from_ad': from_ad, 'to_ad': to_ad})
@@ -966,3 +1082,83 @@ def get_shift_calendar(conn, global_user_id: int, from_ad: str, to_ad: str) -> d
                 break
         d += timedelta(days=1)
     return result
+
+
+# ─── Directorates ─────────────────────────────────────────────────────────────
+
+def get_all_directorates(conn) -> list:
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("SELECT id, name FROM directorates ORDER BY name")
+        return [dict(r) for r in cur.fetchall()]
+
+def create_directorate(conn, name: str) -> int:
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO directorates (name) VALUES (%s) RETURNING id", (name.strip(),))
+        row = cur.fetchone()
+    conn.commit()
+    return row[0]
+
+def delete_directorate(conn, did: int):
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM directorates WHERE id=%s", (did,))
+    conn.commit()
+
+
+# ─── Sections ─────────────────────────────────────────────────────────────────
+
+def get_all_sections(conn) -> list:
+    sql = """
+        SELECT s.id, s.name, s.department_id,
+               d.name AS department_name, d.directorate_id,
+               dr.name AS directorate_name
+        FROM sections s
+        LEFT JOIN departments d  ON d.id  = s.department_id
+        LEFT JOIN directorates dr ON dr.id = d.directorate_id
+        ORDER BY dr.name NULLS LAST, d.name NULLS LAST, s.name
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql)
+        return [dict(r) for r in cur.fetchall()]
+
+def create_section(conn, name: str, department_id: int) -> int:
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO sections (name, department_id) VALUES (%s, %s) RETURNING id",
+                    (name.strip(), department_id))
+        row = cur.fetchone()
+    conn.commit()
+    return row[0]
+
+def delete_section(conn, sid: int):
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM sections WHERE id=%s", (sid,))
+    conn.commit()
+
+
+# ─── Units ────────────────────────────────────────────────────────────────────
+
+def get_all_units(conn) -> list:
+    sql = """
+        SELECT u.id, u.name, u.section_id,
+               s.name AS section_name, s.department_id,
+               d.name AS department_name
+        FROM units u
+        LEFT JOIN sections     s ON s.id = u.section_id
+        LEFT JOIN departments  d ON d.id = s.department_id
+        ORDER BY d.name NULLS LAST, s.name NULLS LAST, u.name
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql)
+        return [dict(r) for r in cur.fetchall()]
+
+def create_unit(conn, name: str, section_id: int) -> int:
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO units (name, section_id) VALUES (%s, %s) RETURNING id",
+                    (name.strip(), section_id))
+        row = cur.fetchone()
+    conn.commit()
+    return row[0]
+
+def delete_unit(conn, uid: int):
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM units WHERE id=%s", (uid,))
+    conn.commit()

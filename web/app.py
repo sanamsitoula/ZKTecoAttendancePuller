@@ -1887,49 +1887,91 @@ def reports_monthly_print_all(
     })
 
 
-# ---- Settings (Departments / Shifts / Shift Rules) ----------------------
+# ---- Settings (Org Hierarchy / Shifts / Shift Rules) ---------------------
 
 
 @app.get("/settings")
 def settings_page(request: Request):
     conn = get_connection()
     try:
-        from db import (get_all_departments, get_all_shifts,
-                        get_all_shift_rules, get_all_global_users_with_dept,
-                        get_employees_for_report as _gef)
+        from db import (get_all_departments, get_all_shifts, get_all_shift_rules,
+                        get_all_global_users_with_dept, get_employees_for_report as _gef,
+                        get_all_directorates, get_all_sections, get_all_units)
         departments  = get_all_departments(conn)
         shifts       = get_all_shifts(conn)
         shift_rules  = get_all_shift_rules(conn)
         employees    = get_all_global_users_with_dept(conn)
+        directorates = get_all_directorates(conn)
+        sections     = get_all_sections(conn)
+        units        = get_all_units(conn)
         all_emps     = _gef(conn)
     finally:
         conn.close()
     return render(templates, request, 'settings.html', {
-        'departments': departments,
-        'shifts':      shifts,
-        'shift_rules': shift_rules,
-        'employees':   employees,
-        'all_emps':    all_emps,
+        'departments':  departments,
+        'shifts':       shifts,
+        'shift_rules':  shift_rules,
+        'employees':    employees,
+        'directorates': directorates,
+        'sections':     sections,
+        'units':        units,
+        'all_emps':     all_emps,
     })
 
+
+# ── Directorates ──────────────────────────────────────────────────────────────
+
+@app.post("/settings/directorates/add")
+async def add_directorate(request: Request):
+    form = await request.form()
+    name = (form.get('name') or '').strip()
+    if not name:
+        return redirect_with_flash('/settings', 'error', 'Directorate name is required.')
+    conn = get_connection()
+    try:
+        from db import create_directorate
+        create_directorate(conn, name)
+    except Exception as exc:
+        return redirect_with_flash('/settings', 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash('/settings', 'success', f"Directorate '{name}' added.")
+
+@app.post("/settings/directorates/{did}/delete")
+async def delete_directorate_route(request: Request, did: int):
+    conn = get_connection()
+    try:
+        from db import delete_directorate
+        delete_directorate(conn, did)
+    except Exception as exc:
+        return redirect_with_flash('/settings', 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash('/settings', 'success', 'Directorate deleted.')
+
+
+# ── Departments ───────────────────────────────────────────────────────────────
 
 @app.post("/settings/departments/add")
 async def add_department(request: Request):
     form = await request.form()
-    name = (form.get('name') or '').strip()
-    if name:
-        conn = get_connection()
-        try:
-            from db import create_department
-            create_department(conn, name)
-        except Exception as exc:
-            flash(request, str(exc), 'error')
-            return RedirectResponse('/settings', status_code=303)
-        finally:
-            conn.close()
-        flash(request, f"Department '{name}' added.", 'success')
-    return RedirectResponse('/settings', status_code=303)
-
+    name    = (form.get('name') or '').strip()
+    dir_id  = _int_param(form.get('directorate_id'))
+    if not name:
+        return redirect_with_flash('/settings', 'error', 'Department name is required.')
+    conn = get_connection()
+    try:
+        from db import create_department
+        create_department(conn, name)
+        if dir_id:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE departments SET directorate_id=%s WHERE name=%s", (dir_id, name))
+            conn.commit()
+    except Exception as exc:
+        return redirect_with_flash('/settings', 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash('/settings', 'success', f"Department '{name}' added.")
 
 @app.post("/settings/departments/{dept_id}/delete")
 async def delete_department_route(request: Request, dept_id: int):
@@ -1938,34 +1980,95 @@ async def delete_department_route(request: Request, dept_id: int):
         from db import delete_department
         delete_department(conn, dept_id)
     except Exception as exc:
-        flash(request, str(exc), 'error')
+        return redirect_with_flash('/settings', 'error', str(exc))
     finally:
         conn.close()
-    flash(request, "Department deleted.", 'success')
-    return RedirectResponse('/settings', status_code=303)
+    return redirect_with_flash('/settings', 'success', 'Department deleted.')
 
+
+# ── Sections ──────────────────────────────────────────────────────────────────
+
+@app.post("/settings/sections/add")
+async def add_section(request: Request):
+    form    = await request.form()
+    name    = (form.get('name') or '').strip()
+    dept_id = _int_param(form.get('department_id'))
+    if not name or not dept_id:
+        return redirect_with_flash('/settings', 'error', 'Section name and department are required.')
+    conn = get_connection()
+    try:
+        from db import create_section
+        create_section(conn, name, dept_id)
+    except Exception as exc:
+        return redirect_with_flash('/settings', 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash('/settings', 'success', f"Section '{name}' added.")
+
+@app.post("/settings/sections/{sid}/delete")
+async def delete_section_route(request: Request, sid: int):
+    conn = get_connection()
+    try:
+        from db import delete_section
+        delete_section(conn, sid)
+    except Exception as exc:
+        return redirect_with_flash('/settings', 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash('/settings', 'success', 'Section deleted.')
+
+
+# ── Units ─────────────────────────────────────────────────────────────────────
+
+@app.post("/settings/units/add")
+async def add_unit(request: Request):
+    form    = await request.form()
+    name    = (form.get('name') or '').strip()
+    sec_id  = _int_param(form.get('section_id'))
+    if not name or not sec_id:
+        return redirect_with_flash('/settings', 'error', 'Unit name and section are required.')
+    conn = get_connection()
+    try:
+        from db import create_unit
+        create_unit(conn, name, sec_id)
+    except Exception as exc:
+        return redirect_with_flash('/settings', 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash('/settings', 'success', f"Unit '{name}' added.")
+
+@app.post("/settings/units/{uid}/delete")
+async def delete_unit_route(request: Request, uid: int):
+    conn = get_connection()
+    try:
+        from db import delete_unit
+        delete_unit(conn, uid)
+    except Exception as exc:
+        return redirect_with_flash('/settings', 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash('/settings', 'success', 'Unit deleted.')
+
+
+# ── Shifts ────────────────────────────────────────────────────────────────────
 
 @app.post("/settings/shifts/add")
 async def add_shift(request: Request):
-    form = await request.form()
+    form  = await request.form()
     name  = (form.get('name') or '').strip()
     start = (form.get('start_time') or '').strip()
     end   = (form.get('end_time') or '').strip()
-    if name and start and end:
-        conn = get_connection()
-        try:
-            from db import create_shift
-            create_shift(conn, name, start, end)
-        except Exception as exc:
-            flash(request, str(exc), 'error')
-            return RedirectResponse('/settings', status_code=303)
-        finally:
-            conn.close()
-        flash(request, f"Shift '{name}' added.", 'success')
-    else:
-        flash(request, "Name, start time and end time are required.", 'error')
-    return RedirectResponse('/settings', status_code=303)
-
+    if not (name and start and end):
+        return redirect_with_flash('/settings', 'error', 'Name, start time and end time are required.')
+    conn = get_connection()
+    try:
+        from db import create_shift
+        create_shift(conn, name, start, end)
+    except Exception as exc:
+        return redirect_with_flash('/settings', 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash('/settings', 'success', f"Shift '{name}' added.")
 
 @app.post("/settings/shifts/{shift_id}/delete")
 async def delete_shift_route(request: Request, shift_id: int):
@@ -1974,38 +2077,68 @@ async def delete_shift_route(request: Request, shift_id: int):
         from db import delete_shift
         delete_shift(conn, shift_id)
     except Exception as exc:
-        flash(request, str(exc), 'error')
+        return redirect_with_flash('/settings', 'error', str(exc))
     finally:
         conn.close()
-    flash(request, "Shift deleted.", 'success')
-    return RedirectResponse('/settings', status_code=303)
+    return redirect_with_flash('/settings', 'success', 'Shift deleted.')
 
+
+# ── Shift Rules ───────────────────────────────────────────────────────────────
 
 @app.post("/settings/shift-rules/add")
 async def add_shift_rule(request: Request):
-    form = await request.form()
+    form        = await request.form()
     shift_id    = _int_param(form.get('shift_id'))
     from_date   = (form.get('from_date') or '').strip()
     to_date     = (form.get('to_date') or '').strip() or None
     target_type = form.get('target_type', 'employee')
-    g_user_id   = _int_param(form.get('global_user_id')) if target_type == 'employee' else None
-    dept_id     = _int_param(form.get('department_id'))  if target_type == 'department' else None
 
-    if shift_id and from_date and (g_user_id or dept_id):
-        conn = get_connection()
-        try:
-            from db import create_shift_rule
-            create_shift_rule(conn, shift_id, from_date, to_date, g_user_id, dept_id)
-        except Exception as exc:
-            flash(request, str(exc), 'error')
-            return RedirectResponse('/settings', status_code=303)
-        finally:
-            conn.close()
-        flash(request, "Shift rule added.", 'success')
-    else:
-        flash(request, "Shift, from date, and a target (employee or department) are required.", 'error')
-    return RedirectResponse('/settings', status_code=303)
+    if not shift_id or not from_date:
+        return redirect_with_flash('/settings', 'error', 'Shift and from-date are required.')
 
+    # Collect all target IDs based on type
+    g_user_ids = []
+    dept_id    = dir_id = sec_id = unit_id = None
+
+    if target_type == 'employee':
+        raw = form.getlist('global_user_id[]') or form.getlist('global_user_id')
+        g_user_ids = [_int_param(v) for v in raw if _int_param(v)]
+        if not g_user_ids:
+            return redirect_with_flash('/settings', 'error', 'Select at least one employee.')
+    elif target_type == 'department':
+        dept_id = _int_param(form.get('department_id'))
+        if not dept_id:
+            return redirect_with_flash('/settings', 'error', 'Select a department.')
+    elif target_type == 'section':
+        sec_id = _int_param(form.get('section_id'))
+        if not sec_id:
+            return redirect_with_flash('/settings', 'error', 'Select a section.')
+    elif target_type == 'unit':
+        unit_id = _int_param(form.get('unit_id'))
+        if not unit_id:
+            return redirect_with_flash('/settings', 'error', 'Select a unit.')
+    elif target_type == 'directorate':
+        dir_id = _int_param(form.get('directorate_id'))
+        if not dir_id:
+            return redirect_with_flash('/settings', 'error', 'Select a directorate.')
+
+    conn = get_connection()
+    try:
+        from db import create_shift_rule
+        if g_user_ids:
+            for gid in g_user_ids:
+                create_shift_rule(conn, shift_id, from_date, to_date, gid,
+                                  None, None, None, None)
+        else:
+            create_shift_rule(conn, shift_id, from_date, to_date, None,
+                              dept_id, dir_id, sec_id, unit_id)
+    except Exception as exc:
+        return redirect_with_flash('/settings', 'error', str(exc))
+    finally:
+        conn.close()
+    count = len(g_user_ids) if g_user_ids else 1
+    return redirect_with_flash('/settings', 'success',
+                                f"{count} shift rule(s) added.")
 
 @app.post("/settings/shift-rules/{rule_id}/delete")
 async def delete_shift_rule_route(request: Request, rule_id: int):
@@ -2014,26 +2147,29 @@ async def delete_shift_rule_route(request: Request, rule_id: int):
         from db import delete_shift_rule
         delete_shift_rule(conn, rule_id)
     except Exception as exc:
-        flash(request, str(exc), 'error')
+        return redirect_with_flash('/settings', 'error', str(exc))
     finally:
         conn.close()
-    flash(request, "Shift rule deleted.", 'success')
-    return RedirectResponse('/settings', status_code=303)
+    return redirect_with_flash('/settings', 'success', 'Shift rule deleted.')
 
 
-@app.post("/settings/employees/{global_id}/department")
-async def set_emp_department(request: Request, global_id: int):
-    form = await request.form()
+# ── Employee Org Assignment ───────────────────────────────────────────────────
+
+@app.post("/settings/employees/{global_id}/org")
+async def set_emp_org(request: Request, global_id: int):
+    form    = await request.form()
     dept_id = _int_param(form.get('department_id'))
+    sec_id  = _int_param(form.get('section_id'))
+    unit_id = _int_param(form.get('unit_id'))
     conn = get_connection()
     try:
-        from db import set_employee_department
-        set_employee_department(conn, global_id, dept_id)
+        from db import set_employee_org
+        set_employee_org(conn, global_id, dept_id, sec_id, unit_id)
     except Exception as exc:
-        flash(request, str(exc), 'error')
+        return redirect_with_flash('/settings', 'error', str(exc))
     finally:
         conn.close()
-    return RedirectResponse('/settings', status_code=303)
+    return redirect_with_flash('/settings', 'success', 'Employee org assignment updated.')
 
 
 # ---- Schedule editor ----------------------------------------------------

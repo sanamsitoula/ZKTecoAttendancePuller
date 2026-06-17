@@ -4,8 +4,49 @@
 <section class="page-head">
   <div>
     <p class="eyebrow">Settings</p>
-    <h1>Departments, Shifts &amp; Shift Rules</h1>
+    <h1>Org Hierarchy, Shifts &amp; Shift Rules</h1>
   </div>
+</section>
+
+{# ── Directorates ─────────────────────────────────────────────────────────── #}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Directorates</h2>
+    <span class="muted">{{ directorates | length }} total</span>
+  </div>
+
+  <div class="table-wrap" style="margin-bottom:14px">
+    <table class="table">
+      <thead><tr><th>#</th><th>Name</th><th style="width:80px">Action</th></tr></thead>
+      <tbody>
+        {% for dr in directorates %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ dr.name }}</td>
+          <td>
+            <form method="post" action="/settings/directorates/{{ dr.id }}/delete"
+                  onsubmit="return confirm('Delete directorate {{ dr.name }}?')">
+              <button class="btn small danger" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="empty">No directorates yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <form method="post" action="/settings/directorates/add" class="form">
+    <div class="filter-bar-flex" style="gap:10px;align-items:flex-end">
+      <label style="flex:1;max-width:280px">New Directorate Name
+        <input type="text" name="name" placeholder="e.g. Finance Directorate" required>
+      </label>
+      <div class="filter-actions" style="padding-top:4px">
+        <button class="btn primary" type="submit">Add Directorate</button>
+      </div>
+    </div>
+  </form>
 </section>
 
 {# ── Departments ──────────────────────────────────────────────────────────── #}
@@ -17,12 +58,13 @@
 
   <div class="table-wrap" style="margin-bottom:14px">
     <table class="table">
-      <thead><tr><th>#</th><th>Name</th><th style="width:80px">Action</th></tr></thead>
+      <thead><tr><th>#</th><th>Name</th><th>Directorate</th><th style="width:80px">Action</th></tr></thead>
       <tbody>
         {% for d in departments %}
         <tr>
           <td>{{ loop.index }}</td>
           <td>{{ d.name }}</td>
+          <td>{{ d.directorate_name or '&mdash;' }}</td>
           <td>
             <form method="post" action="/settings/departments/{{ d.id }}/delete"
                   onsubmit="return confirm('Delete department {{ d.name }}?')">
@@ -31,19 +73,137 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="3" class="empty">No departments yet.</td></tr>
+        <tr><td colspan="4" class="empty">No departments yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
   <form method="post" action="/settings/departments/add" class="form">
-    <div class="filter-bar-flex" style="gap:10px;align-items:flex-end">
-      <label style="flex:1;max-width:280px">New Department Name
+    <div class="filter-bar-flex" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <label style="flex:1;max-width:240px">New Department Name
         <input type="text" name="name" placeholder="e.g. Administration" required>
+      </label>
+      <label style="flex:1;max-width:220px">Directorate (optional)
+        <select name="directorate_id">
+          <option value="">-- none --</option>
+          {% for dr in directorates %}
+          <option value="{{ dr.id }}">{{ dr.name }}</option>
+          {% endfor %}
+        </select>
       </label>
       <div class="filter-actions" style="padding-top:4px">
         <button class="btn primary" type="submit">Add Department</button>
+      </div>
+    </div>
+  </form>
+</section>
+
+{# ── Sections ─────────────────────────────────────────────────────────────── #}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Sections</h2>
+    <span class="muted">{{ sections | length }} total</span>
+  </div>
+
+  <div class="table-wrap" style="margin-bottom:14px">
+    <table class="table">
+      <thead><tr><th>#</th><th>Name</th><th>Department</th><th>Directorate</th><th style="width:80px">Action</th></tr></thead>
+      <tbody>
+        {% for s in sections %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ s.name }}</td>
+          <td>{{ s.department_name or '&mdash;' }}</td>
+          <td>{{ s.directorate_name or '&mdash;' }}</td>
+          <td>
+            <form method="post" action="/settings/sections/{{ s.id }}/delete"
+                  onsubmit="return confirm('Delete section {{ s.name }}?')">
+              <button class="btn small danger" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">No sections yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <form method="post" action="/settings/sections/add" class="form" id="sec-add-form">
+    <div class="filter-bar-flex" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <label style="flex:1;max-width:220px">New Section Name
+        <input type="text" name="name" placeholder="e.g. Accounts Section" required>
+      </label>
+      <label style="width:180px">Filter by Directorate
+        <select id="sec-dir-filter" onchange="secFilterDept(this.value)">
+          <option value="">-- all directorates --</option>
+          {% for dr in directorates %}
+          <option value="{{ dr.id }}">{{ dr.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label style="flex:1;max-width:220px">Department
+        <select name="department_id" id="sec-dept-select" required>
+          <option value="">-- select department --</option>
+          {% for d in departments %}
+          <option value="{{ d.id }}" data-dir="{{ d.directorate_id or '' }}">{{ d.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="filter-actions" style="padding-top:4px">
+        <button class="btn primary" type="submit">Add Section</button>
+      </div>
+    </div>
+  </form>
+</section>
+
+{# ── Units ────────────────────────────────────────────────────────────────── #}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Units</h2>
+    <span class="muted">{{ units | length }} total</span>
+  </div>
+
+  <div class="table-wrap" style="margin-bottom:14px">
+    <table class="table">
+      <thead><tr><th>#</th><th>Name</th><th>Section</th><th>Department</th><th style="width:80px">Action</th></tr></thead>
+      <tbody>
+        {% for u in units %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ u.name }}</td>
+          <td>{{ u.section_name or '&mdash;' }}</td>
+          <td>{{ u.department_name or '&mdash;' }}</td>
+          <td>
+            <form method="post" action="/settings/units/{{ u.id }}/delete"
+                  onsubmit="return confirm('Delete unit {{ u.name }}?')">
+              <button class="btn small danger" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">No units yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <form method="post" action="/settings/units/add" class="form">
+    <div class="filter-bar-flex" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <label style="flex:1;max-width:220px">New Unit Name
+        <input type="text" name="name" placeholder="e.g. Revenue Unit" required>
+      </label>
+      <label style="flex:1;max-width:220px">Section
+        <select name="section_id" required>
+          <option value="">-- select section --</option>
+          {% for s in sections %}
+          <option value="{{ s.id }}">{{ s.name }}{% if s.department_name %} ({{ s.department_name }}){% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="filter-actions" style="padding-top:4px">
+        <button class="btn primary" type="submit">Add Unit</button>
       </div>
     </div>
   </form>
@@ -114,10 +274,9 @@
 <section class="panel">
   <div class="panel-head">
     <h2>Shift Rules</h2>
-    <span class="muted">Employee or department &rarr; shift mapping with date range</span>
+    <span class="muted">Priority: Employee &gt; Unit &gt; Section &gt; Department &gt; Directorate</span>
   </div>
   <p class="muted" style="font-size:12px;margin:0 0 10px">
-    Employee-level rules take priority over department-level rules.
     Leave &laquo;To Date&raquo; blank for open-ended rules.
   </p>
 
@@ -137,9 +296,20 @@
             {% if r.employee_name %}
             <span class="status success" style="font-size:11px">Employee</span>
             {{ r.employee_name }}
+            {% elif r.unit_name %}
+            <span class="status info" style="font-size:11px">Unit</span>
+            {{ r.unit_name }}
+            {% elif r.section_name %}
+            <span class="status info" style="font-size:11px">Section</span>
+            {{ r.section_name }}
             {% elif r.department_name %}
             <span class="status info" style="font-size:11px">Dept</span>
             {{ r.department_name }}
+            {% elif r.directorate_name %}
+            <span class="status info" style="font-size:11px">Dir</span>
+            {{ r.directorate_name }}
+            {% else %}
+            <span class="muted">&mdash;</span>
             {% endif %}
           </td>
           <td>
@@ -164,8 +334,9 @@
 
   {# Add rule form #}
   <form method="post" action="/settings/shift-rules/add" class="form" id="rule-form">
-    <div class="filter-bar-flex" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
-      <label style="width:160px">Shift
+    <div class="filter-bar-flex" style="gap:10px;align-items:flex-start;flex-wrap:wrap">
+
+      <label style="width:180px">Shift
         <select name="shift_id" required>
           <option value="">-- select shift --</option>
           {% for s in shifts %}
@@ -174,43 +345,60 @@
         </select>
       </label>
 
-      <label style="width:120px">Target Type
-        <select name="target_type" id="rule-target-type" onchange="ruleTargetChange(this.value)">
-          <option value="employee">Employee</option>
-          <option value="department">Department</option>
-        </select>
-      </label>
-
-      <div id="rule-emp-wrap">
-        <label>Employee
-          <div class="emp-picker" id="rule-emp-picker" style="max-width:280px">
-            <div class="emp-picker-trigger" id="rule-trigger" onclick="ruleEmpToggle(event)">
-              <span id="rule-emp-display">-- select employee --</span>
-              <span class="emp-arrow">&#9660;</span>
-            </div>
-            <div class="emp-panel" id="rule-emp-panel" style="display:none">
-              <input type="text" class="emp-search-input" id="rule-emp-search"
-                     oninput="ruleEmpFilter(this.value)"
-                     placeholder="Search..." autocomplete="off">
-              <div class="emp-list" id="rule-emp-list">
-                {% for emp in employees %}
-                <div class="emp-item"
-                     data-gid="{{ emp.id }}"
-                     data-search="{{ (emp.name or '')|lower }} {{ emp.company_id or '' }}"
-                     onclick="ruleEmpPick(this)">
-                  <div class="emp-item-name">{{ emp.name or '(no name)' }}
-                    {% if emp.company_id %}<span class="emp-item-id">{{ emp.company_id }}</span>{% endif %}
-                  </div>
-                </div>
-                {% endfor %}
-              </div>
-            </div>
-            <input type="hidden" name="global_user_id" id="rule-emp-hidden" value="">
-          </div>
-        </label>
+      <div>
+        <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600">From Date (BS)</label>
+        <input class="bsdp" data-ad-target="rule_from_ad" placeholder="Click to pick BS date" style="min-width:140px">
+        <input type="hidden" name="from_date" id="rule_from_ad">
       </div>
 
-      <div id="rule-dept-wrap" style="display:none">
+      <div>
+        <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600">To Date (BS, optional)</label>
+        <input class="bsdp" data-ad-target="rule_to_ad" placeholder="Click to pick BS date" style="min-width:140px">
+        <input type="hidden" name="to_date" id="rule_to_ad">
+      </div>
+
+      <div>
+        <label style="display:block;margin-bottom:6px;font-size:12px;font-weight:600">Target Type</label>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <label style="font-size:13px;font-weight:normal;cursor:pointer">
+            <input type="radio" name="target_type" value="employee" checked onchange="ruleTargetChange(this.value)"> Employee
+          </label>
+          <label style="font-size:13px;font-weight:normal;cursor:pointer">
+            <input type="radio" name="target_type" value="department" onchange="ruleTargetChange(this.value)"> Department
+          </label>
+          <label style="font-size:13px;font-weight:normal;cursor:pointer">
+            <input type="radio" name="target_type" value="section" onchange="ruleTargetChange(this.value)"> Section
+          </label>
+          <label style="font-size:13px;font-weight:normal;cursor:pointer">
+            <input type="radio" name="target_type" value="unit" onchange="ruleTargetChange(this.value)"> Unit
+          </label>
+          <label style="font-size:13px;font-weight:normal;cursor:pointer">
+            <input type="radio" name="target_type" value="directorate" onchange="ruleTargetChange(this.value)"> Directorate
+          </label>
+        </div>
+      </div>
+
+      {# Employee multi-select #}
+      <div id="rule-emp-wrap" style="min-width:240px">
+        <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600">Employees</label>
+        <input type="text" id="rule-emp-search" placeholder="Search employees..."
+               oninput="ruleEmpFilter(this.value)"
+               style="width:100%;margin-bottom:4px;padding:4px 6px;font-size:12px">
+        <div id="rule-emp-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--border,#ddd);border-radius:4px;padding:4px">
+          {% for emp in employees %}
+          <label style="display:flex;align-items:center;gap:6px;padding:3px 4px;cursor:pointer;font-size:13px;font-weight:normal"
+                 data-search="{{ (emp.name or '')|lower }} {{ emp.company_id or '' }}">
+            <input type="checkbox" name="global_user_id[]" value="{{ emp.id }}">
+            <span>{{ emp.name or '(no name)' }}{% if emp.company_id %} <span class="muted" style="font-size:11px">{{ emp.company_id }}</span>{% endif %}</span>
+          </label>
+          {% else %}
+          <p class="muted" style="font-size:12px;padding:4px">No employees found.</p>
+          {% endfor %}
+        </div>
+      </div>
+
+      {# Department single-select #}
+      <div id="rule-dept-wrap" style="display:none;min-width:180px">
         <label>Department
           <select name="department_id" id="rule-dept-select">
             <option value="">-- select department --</option>
@@ -221,30 +409,64 @@
         </label>
       </div>
 
-      <label style="width:120px">From Date
-        <input type="date" name="from_date" required>
-      </label>
-      <label style="width:120px">To Date (optional)
-        <input type="date" name="to_date">
-      </label>
-      <div class="filter-actions" style="padding-top:4px">
-        <button class="btn primary" type="submit">Add Rule</button>
+      {# Section single-select #}
+      <div id="rule-sec-wrap" style="display:none;min-width:180px">
+        <label>Section
+          <select name="section_id" id="rule-sec-select">
+            <option value="">-- select section --</option>
+            {% for s in sections %}
+            <option value="{{ s.id }}">{{ s.name }}{% if s.department_name %} ({{ s.department_name }}){% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
       </div>
+
+      {# Unit single-select #}
+      <div id="rule-unit-wrap" style="display:none;min-width:180px">
+        <label>Unit
+          <select name="unit_id" id="rule-unit-select">
+            <option value="">-- select unit --</option>
+            {% for u in units %}
+            <option value="{{ u.id }}">{{ u.name }}{% if u.section_name %} ({{ u.section_name }}){% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+
+      {# Directorate single-select #}
+      <div id="rule-dir-wrap" style="display:none;min-width:180px">
+        <label>Directorate
+          <select name="directorate_id" id="rule-dir-select">
+            <option value="">-- select directorate --</option>
+            {% for dr in directorates %}
+            <option value="{{ dr.id }}">{{ dr.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+
+    </div>
+    <div style="margin-top:10px">
+      <button class="btn primary" type="submit">Add Shift Rule</button>
     </div>
   </form>
 </section>
 
-{# ── Employee Department Assignments ─────────────────────────────────────── #}
+{# ── Employee Org Assignment ──────────────────────────────────────────────── #}
 <section class="panel">
   <div class="panel-head">
-    <h2>Employee Department Assignments</h2>
-    <span class="muted">Set each employee&rsquo;s department</span>
+    <h2>Employee Org Assignment</h2>
+    <span class="muted">Assign department, section and unit per employee</span>
   </div>
 
   <div class="table-wrap">
     <table class="table">
       <thead>
-        <tr><th>#</th><th>Employee</th><th>Company ID</th><th>Department</th></tr>
+        <tr>
+          <th>#</th><th>Employee</th><th>Company ID</th>
+          <th>Department</th><th>Section</th><th>Unit</th>
+          <th style="width:60px">Save</th>
+        </tr>
       </thead>
       <tbody>
         {% for emp in employees %}
@@ -252,13 +474,25 @@
           <td>{{ loop.index }}</td>
           <td>{{ emp.name or '(no name)' }}</td>
           <td>{{ emp.company_id or '&mdash;' }}</td>
-          <td>
-            <form method="post" action="/settings/employees/{{ emp.id }}/department"
-                  style="display:flex;gap:6px;align-items:center">
-              <select name="department_id" style="min-width:160px">
-                <option value="">-- no department --</option>
+          <td colspan="4">
+            <form method="post" action="/settings/employees/{{ emp.id }}/org"
+                  style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <select name="department_id" style="min-width:140px">
+                <option value="">-- dept --</option>
                 {% for d in departments %}
                 <option value="{{ d.id }}" {% if emp.department_id == d.id %}selected{% endif %}>{{ d.name }}</option>
+                {% endfor %}
+              </select>
+              <select name="section_id" style="min-width:130px">
+                <option value="">-- section --</option>
+                {% for s in sections %}
+                <option value="{{ s.id }}" {% if emp.section_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+                {% endfor %}
+              </select>
+              <select name="unit_id" style="min-width:120px">
+                <option value="">-- unit --</option>
+                {% for u in units %}
+                <option value="{{ u.id }}" {% if emp.unit_id == u.id %}selected{% endif %}>{{ u.name }}</option>
                 {% endfor %}
               </select>
               <button class="btn small" type="submit">Save</button>
@@ -266,7 +500,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="4" class="empty">No employees found in global_users.</td></tr>
+        <tr><td colspan="7" class="empty">No employees found in global_users.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -274,49 +508,35 @@
 </section>
 
 <script>
+/* ── Target type toggle for shift rule form ──────────────────────────────── */
 function ruleTargetChange(v) {
-  document.getElementById('rule-emp-wrap').style.display  = v === 'employee'   ? '' : 'none';
-  document.getElementById('rule-dept-wrap').style.display = v === 'department' ? '' : 'none';
+  var ids = ['emp', 'dept', 'sec', 'unit', 'dir'];
+  var map  = { employee: 'emp', department: 'dept', section: 'sec', unit: 'unit', directorate: 'dir' };
+  ids.forEach(function (k) {
+    var el = document.getElementById('rule-' + k + '-wrap');
+    if (el) el.style.display = (map[v] === k) ? '' : 'none';
+  });
 }
 
-/* Rule form — employee picker */
-window.ruleEmpToggle = function (e) {
-  e.stopPropagation();
-  var p = document.getElementById('rule-emp-panel');
-  if (p.style.display === 'none' || !p.style.display) {
-    p.style.display = 'block';
-    var inp = document.getElementById('rule-emp-search');
-    inp.value = '';
-    ruleEmpFilter('');
-    setTimeout(function () { inp.focus(); }, 50);
-  } else {
-    p.style.display = 'none';
-  }
-};
-
+/* ── Employee multi-select search ────────────────────────────────────────── */
 window.ruleEmpFilter = function (q) {
   q = (q || '').toLowerCase();
-  document.querySelectorAll('#rule-emp-list .emp-item').forEach(function (item) {
-    var txt = (item.getAttribute('data-search') || '').toLowerCase();
-    item.style.display = txt.indexOf(q) !== -1 ? '' : 'none';
+  document.querySelectorAll('#rule-emp-list label').forEach(function (lbl) {
+    var txt = (lbl.getAttribute('data-search') || '').toLowerCase();
+    lbl.style.display = txt.indexOf(q) !== -1 ? '' : 'none';
   });
 };
 
-window.ruleEmpPick = function (item) {
-  var gid  = item.getAttribute('data-gid');
-  var name = item.querySelector('.emp-item-name').childNodes[0].textContent.trim();
-  document.getElementById('rule-emp-hidden').value  = gid;
-  document.getElementById('rule-emp-display').textContent = name;
-  document.getElementById('rule-emp-panel').style.display = 'none';
-};
-
-document.addEventListener('click', function (e) {
-  ['rule-emp-picker'].forEach(function (id) {
-    var picker = document.getElementById(id);
-    var panel  = document.getElementById(id.replace('picker', 'panel'));
-    if (picker && panel && !picker.contains(e.target)) panel.style.display = 'none';
+/* ── Add Section form: filter departments by directorate ─────────────────── */
+window.secFilterDept = function (dirId) {
+  var sel = document.getElementById('sec-dept-select');
+  Array.from(sel.options).forEach(function (opt) {
+    if (!opt.value) return; // keep placeholder
+    opt.hidden = dirId ? (opt.getAttribute('data-dir') !== dirId) : false;
   });
-});
+  // Reset selection if now hidden
+  if (sel.selectedOptions.length && sel.selectedOptions[0].hidden) sel.value = '';
+};
 </script>
 
 {% endblock %}
