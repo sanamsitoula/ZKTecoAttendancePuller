@@ -408,6 +408,101 @@ sudo journalctl -u zkteco-web -f
 
 ---
 
+## Bulk-Migrating Device Employees to Global Users
+
+After the first pull from your ZKTeco devices, the `employees` table is populated but the `global_users` table is empty. Reports, leaves, and balances all require Global Users. Use the script in `queries/import_global_users.sql` to create them in bulk instead of adding 600+ employees one by one.
+
+### How it works
+
+| Table | Role |
+|---|---|
+| `employees` | Raw device data — one row per device per person; pulled automatically |
+| `global_users` | Your HR record — org, shift, bank number; created manually or via bulk import |
+| `employees.global_user_id` | The link — nullable; set during pull if a match exists, or via this script |
+
+If the same person is enrolled on 3 devices, there are 3 `employees` rows. The import creates **one** `global_users` row and links all 3 employees to it.
+
+### Step-by-step
+
+#### Step 1 — Pull from all devices first
+
+Trigger a pull from every device via Dashboard → Pull button. This populates the `employees` table.
+
+#### Step 2 — Open pgAdmin (Ubuntu) or any SQL client
+
+```bash
+# Install pgAdmin on Ubuntu if not available
+sudo apt install pgadmin4-web
+sudo /usr/pgadmin4/bin/setup-web.sh
+# Then open: http://localhost/pgadmin4
+```
+
+Or use psql directly:
+```bash
+PGPASSWORD="your_password" psql -U postgres -d zkteco
+```
+
+#### Step 3 — Run the preview query (Step 0 — read-only, no changes)
+
+Open `queries/import_global_users.sql` and run the **Step 0** block only.
+
+```
+att_id | chosen_name           | device_rows | devices               | action
+-------+-----------------------+-------------+-----------------------+-------------
+1      | Yadunathpoudel        | 1           | Gmoffice              | WILL IMPORT
+2      | Badri Khatri          | 2           | Gmoffice, Testing     | WILL IMPORT
+509    | Basudeb Rokaya        | 2           | Gmoffice, Testing     | SKIP (exists)
+```
+
+- **WILL IMPORT** — new global user will be created
+- **SKIP (exists)** — already in global_users, will not be touched
+
+#### Step 4 — Run Step 1 (INSERT) then Step 2 (LINK)
+
+```bash
+# Run the full file in one go
+PGPASSWORD="your_password" psql -U postgres -d zkteco -f queries/import_global_users.sql
+```
+
+Or in pgAdmin: highlight each block individually → F5.
+
+#### Step 5 — Verify
+
+Step 3 of the script shows:
+- Total employees / linked / still unlinked
+- Total global users created
+- Any users still missing a name (need manual edit)
+
+#### Step 6 — Fill in org details
+
+The imported global users have **name** and **Att. ID** set. Open **Users → Global Users**, use the Edit button on each row to fill in:
+- Employee ID (HR/payroll ID)
+- Department, Section, Unit
+- Shift
+- Phone, bank number
+
+Use the column filters to sort by Department or find blanks quickly.
+
+### Diagnostic queries (if Step 0 returns 0 rows)
+
+```sql
+-- Check: are all employees already linked?
+SELECT
+    count(*)                                    AS total_rows,
+    count(global_user_id)                       AS already_linked,
+    count(*) - count(global_user_id)            AS unlinked
+FROM employees;
+
+-- See actual values
+SELECT id, user_id, name, global_user_id
+FROM   employees
+LIMIT  20;
+```
+
+If `unlinked = 0`, all employees were already linked during the last pull (because Global Users already existed with matching Att. IDs).
+
+---
+
 ## Migrating to Another PC
 
 This is a **full migration** — moves all code, data, device configs, and employee records to a new machine. After migration the old PC can be decommissioned.
@@ -754,8 +849,12 @@ ZKTecePuller/
 │
 ├── db_config.json.example  ← Copy to db_config.json and set credentials
 ├── devices.json.example    ← Reference only; devices are managed via web UI
+├── fresh_seed.sh           ← Ubuntu: reset + re-seed data for testing (Mode 1: partial reset + pull; Mode 2: full wipe + sample data)
 ├── requirements.txt
-└── README.md
+├── README.md
+│
+└── queries/
+    └── import_global_users.sql  ← Bulk-create Global Users from device employees; 4-step (preview → insert → link → verify)
 ```
 
 ---
