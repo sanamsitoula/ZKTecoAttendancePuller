@@ -202,13 +202,207 @@ Edit `users.json`:
 
 **Ubuntu / Linux:**
 ```bash
-chmod +x start_web.sh   # first time only
+# Fix line endings (REQUIRED if the repo was cloned or edited on Windows)
+sed -i 's/\r//' start_web.sh
+
+# Make executable (first time only)
+chmod +x start_web.sh
+
+# Run
 ./start_web.sh
 ```
 
-Then open: **http://localhost:8097** and log in with your credentials.
+Then open **http://localhost:8097** and log in with your credentials.
 
 Add your ZKTeco devices via **Dashboard → Add Device**, then click **Pull** to import employees and attendance.
+
+---
+
+## Running on Ubuntu — Full Guide
+
+### Why `start_web.sh` may fail
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `/usr/bin/env: 'bash\r': No such file or directory` | Windows CRLF line endings | `sed -i 's/\r//' start_web.sh` |
+| `Permission denied` | Not executable | `chmod +x start_web.sh` |
+| `python: command not found` | Ubuntu uses `python3` | Script handles this automatically; or `sudo apt install python-is-python3` |
+| `lsof: command not found` | lsof not installed | Script falls back to `fuser` (installed by default); or `sudo apt install lsof` |
+| `ERROR: Virtual environment not found` | `.venv/` not created | Run `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt` |
+| `ERROR: db_config.json not found` | Config file missing | `cp db_config.json.example db_config.json && nano db_config.json` |
+| `ERROR: users.json not found` | Auth file missing | `cp users.json.example users.json && nano users.json` |
+
+---
+
+### Complete Step-by-Step (fresh Ubuntu server)
+
+#### 1 — Install system dependencies
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-pip python3-venv postgresql git
+# Optional but useful:
+sudo apt install -y python-is-python3
+```
+
+#### 2 — Start PostgreSQL
+
+```bash
+sudo systemctl enable postgresql
+sudo systemctl start postgresql
+sudo systemctl status postgresql   # should show "active (running)"
+```
+
+#### 3 — Create the database
+
+```bash
+sudo -u postgres psql -c "CREATE DATABASE zkteco;"
+# Optional: set a password for the postgres user
+sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'yourpassword';"
+```
+
+#### 4 — Clone and set up the app
+
+```bash
+git clone https://github.com/sanamsitoula/ZKTecoAttendancePuller.git ~/ZKTecePuller
+cd ~/ZKTecePuller
+
+# Fix line endings (if cloned on a Windows machine or via GitHub)
+sed -i 's/\r//' start_web.sh
+
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+#### 5 — Create config files
+
+```bash
+cp db_config.json.example db_config.json
+nano db_config.json
+```
+
+Edit with your PostgreSQL details:
+```json
+{
+  "host": "localhost",
+  "port": 5432,
+  "dbname": "zkteco",
+  "user": "postgres",
+  "password": "yourpassword"
+}
+```
+
+```bash
+cp users.json.example users.json
+```
+
+Generate a bcrypt password hash:
+```bash
+.venv/bin/python -c "import bcrypt; print(bcrypt.hashpw(b'your_password', bcrypt.gensalt(12)).decode())"
+```
+
+Edit `users.json`:
+```json
+{
+  "secret_key": "replace-with-a-long-random-string",
+  "users": [
+    {
+      "id": 1,
+      "username": "admin",
+      "display_name": "Admin",
+      "role": "admin",
+      "password_hash": "<paste the hash above>"
+    }
+  ]
+}
+```
+
+#### 6 — Run
+
+```bash
+chmod +x start_web.sh
+./start_web.sh
+```
+
+Open **http://localhost:8097** in a browser.
+
+---
+
+### Manual startup (without the script)
+
+If the script still does not work, run the app directly:
+
+```bash
+cd ~/ZKTecePuller
+source .venv/bin/activate
+python -m web.run_web --port 8097
+```
+
+Or with `python3` explicitly:
+
+```bash
+cd ~/ZKTecePuller
+source .venv/bin/activate
+python3 -m web.run_web --port 8097
+```
+
+---
+
+### Run in background (keep running after SSH logout)
+
+```bash
+# Using nohup
+nohup ./start_web.sh > ~/zkteco.log 2>&1 &
+echo "PID: $!"
+
+# Or using screen
+screen -S zkteco
+./start_web.sh
+# Detach: Ctrl+A then D
+# Reattach: screen -r zkteco
+```
+
+---
+
+### Auto-start on boot (systemd)
+
+```bash
+sudo nano /etc/systemd/system/zkteco-web.service
+```
+
+Paste (replace `YOUR_USERNAME` and path):
+```ini
+[Unit]
+Description=ZKTeco Attendance Web UI
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/home/YOUR_USERNAME/ZKTecePuller
+ExecStart=/home/YOUR_USERNAME/ZKTecePuller/.venv/bin/python -m web.run_web --port 8097
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable zkteco-web
+sudo systemctl start zkteco-web
+sudo systemctl status zkteco-web   # should show "active (running)"
+```
+
+View logs:
+```bash
+sudo journalctl -u zkteco-web -f
+```
 
 ---
 
