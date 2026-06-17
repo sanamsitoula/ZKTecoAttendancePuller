@@ -1,0 +1,11 @@
+{
+  "secret_key": "replace-this-with-a-long-random-secret-string",
+  "users": [
+    {
+      "id": 1,
+      "username": "admin",
+      "display_name": "Admin",
+      "password_hash": "<run: python -c \"import bcrypt; print(bcrypt.hashpw(b'your_password', bcrypt.gensalt(12)).decode())\">"
+    }
+  ]
+}

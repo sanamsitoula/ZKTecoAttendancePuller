@@ -291,6 +291,25 @@ CREATE INDEX IF NOT EXISTS idx_holidays_ad ON holidays (holiday_ad);
 """
 
 
+_AUDIT_COLUMNS_SQL = """
+-- ── Audit columns: track which app user created/updated/deleted records ─────
+ALTER TABLE devices         ADD COLUMN IF NOT EXISTS created_by  INTEGER;
+ALTER TABLE devices         ADD COLUMN IF NOT EXISTS updated_by  INTEGER;
+ALTER TABLE global_users    ADD COLUMN IF NOT EXISTS created_by  INTEGER;
+ALTER TABLE global_users    ADD COLUMN IF NOT EXISTS updated_by  INTEGER;
+ALTER TABLE departments     ADD COLUMN IF NOT EXISTS created_by  INTEGER;
+ALTER TABLE directorates    ADD COLUMN IF NOT EXISTS created_by  INTEGER;
+ALTER TABLE sections        ADD COLUMN IF NOT EXISTS created_by  INTEGER;
+ALTER TABLE units           ADD COLUMN IF NOT EXISTS created_by  INTEGER;
+ALTER TABLE shifts          ADD COLUMN IF NOT EXISTS created_by  INTEGER;
+ALTER TABLE shift_rules     ADD COLUMN IF NOT EXISTS created_by  INTEGER;
+ALTER TABLE leave_types     ADD COLUMN IF NOT EXISTS created_by  INTEGER;
+ALTER TABLE leave_applications ADD COLUMN IF NOT EXISTS created_by INTEGER;
+ALTER TABLE leave_applications ADD COLUMN IF NOT EXISTS updated_by INTEGER;
+ALTER TABLE holidays        ADD COLUMN IF NOT EXISTS created_by  INTEGER;
+"""
+
+
 _LEAVE_TYPES_SEED = """
 INSERT INTO leave_types (name, code, days_per_year, max_accumulate, carry_forward, is_paid, description)
 VALUES
@@ -311,12 +330,19 @@ def get_connection():
 
 
 def init_schema(conn) -> None:
-    # Phase 1: DDL — committed immediately so locks are released before seeding
+    # Phase 1: core DDL
     with conn.cursor() as cur:
         cur.execute(SCHEMA_SQL)
     conn.commit()
-    # Phase 2: seed leave types — separate transaction so a deadlock here
-    # doesn't roll back the schema changes above
+    # Phase 2: audit columns migration (additive, safe to re-run)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_AUDIT_COLUMNS_SQL)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Audit columns migration skipped: %s", e)
+    # Phase 3: seed leave types
     try:
         with conn.cursor() as cur:
             cur.execute(_LEAVE_TYPES_SEED)
@@ -613,22 +639,22 @@ def get_device(conn, device_id: int):
         return dict(row) if row else None
 
 
-def create_device(conn, device: dict) -> int:
+def create_device(conn, device: dict, app_user_id: int = 0) -> int:
     sql = """
-        INSERT INTO devices (name, ip_address, port, password, model, is_active, created_bs)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO devices (name, ip_address, port, password, model, is_active, created_bs, created_by, updated_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """
     with conn.cursor() as cur:
         cur.execute(sql, (
             device.get("name"), device.get("ip_address"), device.get("port", 4370),
             device.get("password", ""), device.get("model", ""), bool(device.get("is_active", True)),
-            _today_bs(),
+            _today_bs(), app_user_id or None, app_user_id or None,
         ))
         return cur.fetchone()[0]
 
 
-def update_device(conn, device_id: int, device: dict) -> None:
+def update_device(conn, device_id: int, device: dict, app_user_id: int = 0) -> None:
     sql = """
         UPDATE devices SET
             name = %s,
@@ -636,14 +662,15 @@ def update_device(conn, device_id: int, device: dict) -> None:
             port = %s,
             password = %s,
             model = %s,
-            is_active = %s
+            is_active = %s,
+            updated_by = %s
         WHERE id = %s
     """
     with conn.cursor() as cur:
         cur.execute(sql, (
             device.get("name"), device.get("ip_address"), device.get("port", 4370),
             device.get("password", ""), device.get("model", ""), bool(device.get("is_active", True)),
-            device_id,
+            app_user_id or None, device_id,
         ))
 
 
@@ -660,15 +687,17 @@ def list_global_users(conn):
         return [dict(row) for row in cur.fetchall()]
 
 
-def create_global_user(conn, global_user_id: str, name: str, privilege: int = 0, card: str | None = None) -> int:
+def create_global_user(conn, global_user_id: str, name: str, privilege: int = 0,
+                        card: str | None = None, app_user_id: int = 0) -> int:
     sql = """
-        INSERT INTO global_users (global_user_id, name, privilege, card, created_bs, updated_bs)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO global_users (global_user_id, name, privilege, card, created_bs, updated_bs, created_by, updated_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """
     with conn.cursor() as cur:
         today = _today_bs()
-        cur.execute(sql, (global_user_id, name, int(privilege), card, today, today))
+        cur.execute(sql, (global_user_id, name, int(privilege), card, today, today,
+                          app_user_id or None, app_user_id or None))
         return cur.fetchone()[0]
 
 
@@ -951,9 +980,10 @@ def get_all_departments(conn) -> list:
         cur.execute(sql)
         return [dict(r) for r in cur.fetchall()]
 
-def create_department(conn, name: str) -> int:
+def create_department(conn, name: str, app_user_id: int = 0) -> int:
     with conn.cursor() as cur:
-        cur.execute("INSERT INTO departments (name) VALUES (%s) RETURNING id", (name.strip(),))
+        cur.execute("INSERT INTO departments (name, created_by) VALUES (%s, %s) RETURNING id",
+                    (name.strip(), app_user_id or None))
         row = cur.fetchone()
     conn.commit()
     return row[0]
@@ -981,11 +1011,11 @@ def get_all_shifts(conn) -> list:
         """)
         return [dict(r) for r in cur.fetchall()]
 
-def create_shift(conn, name: str, start_time: str, end_time: str) -> int:
+def create_shift(conn, name: str, start_time: str, end_time: str, app_user_id: int = 0) -> int:
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO shifts (name, start_time, end_time) VALUES (%s, %s, %s) RETURNING id",
-            (name.strip(), start_time, end_time),
+            "INSERT INTO shifts (name, start_time, end_time, created_by) VALUES (%s, %s, %s, %s) RETURNING id",
+            (name.strip(), start_time, end_time, app_user_id or None),
         )
         row = cur.fetchone()
     conn.commit()
@@ -1042,15 +1072,17 @@ def get_all_shift_rules(conn) -> list:
 
 def create_shift_rule(conn, shift_id: int, from_date: str, to_date=None,
                       global_user_id=None, department_id=None,
-                      directorate_id=None, section_id=None, unit_id=None) -> int:
+                      directorate_id=None, section_id=None, unit_id=None,
+                      app_user_id: int = 0) -> int:
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO shift_rules
                 (shift_id, from_date, to_date, global_user_id, department_id,
-                 directorate_id, section_id, unit_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+                 directorate_id, section_id, unit_id, created_by)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
         """, (int(shift_id), from_date, to_date or None,
-              global_user_id, department_id, directorate_id, section_id, unit_id))
+              global_user_id, department_id, directorate_id, section_id, unit_id,
+              app_user_id or None))
         row = cur.fetchone()
     conn.commit()
     return row[0]
@@ -1188,9 +1220,10 @@ def get_all_directorates(conn) -> list:
         cur.execute("SELECT id, name FROM directorates ORDER BY name")
         return [dict(r) for r in cur.fetchall()]
 
-def create_directorate(conn, name: str) -> int:
+def create_directorate(conn, name: str, app_user_id: int = 0) -> int:
     with conn.cursor() as cur:
-        cur.execute("INSERT INTO directorates (name) VALUES (%s) RETURNING id", (name.strip(),))
+        cur.execute("INSERT INTO directorates (name, created_by) VALUES (%s, %s) RETURNING id",
+                    (name.strip(), app_user_id or None))
         row = cur.fetchone()
     conn.commit()
     return row[0]
@@ -1217,10 +1250,10 @@ def get_all_sections(conn) -> list:
         cur.execute(sql)
         return [dict(r) for r in cur.fetchall()]
 
-def create_section(conn, name: str, department_id: int) -> int:
+def create_section(conn, name: str, department_id: int, app_user_id: int = 0) -> int:
     with conn.cursor() as cur:
-        cur.execute("INSERT INTO sections (name, department_id) VALUES (%s, %s) RETURNING id",
-                    (name.strip(), department_id))
+        cur.execute("INSERT INTO sections (name, department_id, created_by) VALUES (%s, %s, %s) RETURNING id",
+                    (name.strip(), department_id, app_user_id or None))
         row = cur.fetchone()
     conn.commit()
     return row[0]
@@ -1247,10 +1280,10 @@ def get_all_units(conn) -> list:
         cur.execute(sql)
         return [dict(r) for r in cur.fetchall()]
 
-def create_unit(conn, name: str, section_id: int) -> int:
+def create_unit(conn, name: str, section_id: int, app_user_id: int = 0) -> int:
     with conn.cursor() as cur:
-        cur.execute("INSERT INTO units (name, section_id) VALUES (%s, %s) RETURNING id",
-                    (name.strip(), section_id))
+        cur.execute("INSERT INTO units (name, section_id, created_by) VALUES (%s, %s, %s) RETURNING id",
+                    (name.strip(), section_id, app_user_id or None))
         row = cur.fetchone()
     conn.commit()
     return row[0]
@@ -1437,26 +1470,28 @@ def create_leave_application(conn, global_user_id: int, leave_type_id: int,
                               from_ad: str, to_ad: str,
                               days: float, reason: str = '',
                               applied_bs: str = '',
-                              status: str = 'pending') -> int:
+                              status: str = 'pending',
+                              app_user_id: int = 0) -> int:
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO leave_applications
                 (global_user_id, leave_type_id, from_bs, to_bs, from_ad, to_ad,
-                 days, reason, applied_bs, applied_ad, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, %s)
+                 days, reason, applied_bs, applied_ad, status, created_by, updated_by)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, %s, %s, %s)
             RETURNING id
         """, (global_user_id, leave_type_id, from_bs, to_bs, from_ad, to_ad,
-              float(days), reason or '', applied_bs or '', status))
+              float(days), reason or '', applied_bs or '', status,
+              app_user_id or None, app_user_id or None))
         row = cur.fetchone()
     conn.commit()
-    # Update days_taken in leave_balances if approved
     if status == 'approved':
         _update_balance_taken(conn, global_user_id, leave_type_id, from_ad, float(days))
     return row[0]
 
 
 def update_leave_status(conn, app_id: int, status: str,
-                        remarks: str = '', approved_by: str = ''):
+                        remarks: str = '', approved_by: str = '',
+                        app_user_id: int = 0):
     with conn.cursor() as cur:
         cur.execute("""
             SELECT global_user_id, leave_type_id, from_ad, days, status AS old_status
@@ -1469,9 +1504,9 @@ def update_leave_status(conn, app_id: int, status: str,
     with conn.cursor() as cur:
         cur.execute("""
             UPDATE leave_applications
-            SET status=%s, remarks=%s, approved_by=%s
+            SET status=%s, remarks=%s, approved_by=%s, updated_by=%s
             WHERE id=%s
-        """, (status, remarks or '', approved_by or '', app_id))
+        """, (status, remarks or '', approved_by or '', app_user_id or None, app_id))
     conn.commit()
     # Maintain days_taken balance
     if old_status != 'approved' and status == 'approved':
@@ -1561,12 +1596,14 @@ def get_holidays(conn, from_ad: str | None = None, to_ad: str | None = None) -> 
 
 
 def create_holiday(conn, name: str, holiday_ad: str, holiday_bs: str,
-                   holiday_type: str = 'public', description: str = '') -> int:
+                   holiday_type: str = 'public', description: str = '',
+                   app_user_id: int = 0) -> int:
     with conn.cursor() as cur:
         cur.execute("""
-            INSERT INTO holidays (name, holiday_ad, holiday_bs, holiday_type, description)
-            VALUES (%s, %s, %s, %s, %s) RETURNING id
-        """, (name.strip(), holiday_ad, holiday_bs, holiday_type, description or ''))
+            INSERT INTO holidays (name, holiday_ad, holiday_bs, holiday_type, description, created_by)
+            VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
+        """, (name.strip(), holiday_ad, holiday_bs, holiday_type, description or '',
+              app_user_id or None))
         row = cur.fetchone()
     conn.commit()
     return row[0]

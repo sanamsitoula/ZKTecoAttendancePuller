@@ -2,6 +2,7 @@
 .env
 db_config.json
 devices.json
+users.json
 
 # Python
 __pycache__/

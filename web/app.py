@@ -1,8 +1,9 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import csv
@@ -31,6 +32,7 @@ from config import COMPANY_NAME, COMPANY_ADDRESS, COMPANY_EMAIL, COMPANY_WEBSITE
 from urllib.parse import urlencode
 from web.flash import redirect_with_flash
 from web.helpers import render, device_config_from_row, attendance_to_dict, action_label
+from web.auth import get_secret_key, find_user_by_username, verify_password, get_session_user
 import nepali_utils
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -108,9 +110,72 @@ async def _app_lifespan(fastapi_app: FastAPI):
 
 
 app = FastAPI(title="ZKTeco Puller — Web UI", lifespan=_app_lifespan)
+app.add_middleware(SessionMiddleware, secret_key=get_secret_key(), session_cookie="zk_session", max_age=86400 * 7)
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 nepali_utils.register_filters(templates)
+
+# ─── Auth helpers ──────────────────────────────────────────────────────────────
+
+_PUBLIC_PATHS = {"/login", "/static"}
+
+
+def _current_user(request: Request) -> dict | None:
+    return get_session_user(request)
+
+
+def _current_user_id(request: Request) -> int:
+    u = _current_user(request)
+    return u['id'] if u else 0
+
+
+@app.middleware("http")
+async def _auth_gate(request: Request, call_next):
+    path = request.url.path
+    if path == "/login" or path.startswith("/static"):
+        return await call_next(request)
+    if not request.session.get("user_id"):
+        if path.startswith("/api/"):
+            return JSONResponse({"error": "Not authenticated"}, status_code=401)
+        return RedirectResponse(url=f"/login?next={path}", status_code=302)
+    return await call_next(request)
+
+
+# ─── Login / Logout ────────────────────────────────────────────────────────────
+
+@app.get("/login")
+def login_get(request: Request, next: str | None = None):
+    if request.session.get("user_id"):
+        return RedirectResponse(url=next or "/", status_code=302)
+    return templates.TemplateResponse("login.html", {"request": request, "error": None, "username": ""})
+
+
+@app.post("/login")
+def login_post(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/login")):
+    user = find_user_by_username(username)
+    if user and verify_password(password, user["password_hash"]):
+        request.session["user_id"]      = user["id"]
+        request.session["username"]     = user["username"]
+        request.session["display_name"] = user.get("display_name", user["username"])
+        dest = next if next and next not in ("/login", "") else "/"
+        return RedirectResponse(url=dest, status_code=302)
+    return templates.TemplateResponse("login.html", {
+        "request": request,
+        "error": "Invalid username or password.",
+        "username": username,
+    })
+
+
+@app.post("/logout")
+def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=302)
+
+
+@app.get("/logout")
+def logout_get(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=302)
 
 
 def _fmt_schedule() -> list[str]:
@@ -287,7 +352,7 @@ def device_add(request: Request,
             "model": model,
             "is_active": True if is_active == "on" else False,
         }
-        create_device(conn, device)
+        create_device(conn, device, app_user_id=_current_user_id(request))
         conn.commit()
         write_devices_json_from_db(conn)
         return redirect_with_flash("/", "success", f'Device "{name}" was added.')
@@ -321,7 +386,7 @@ def device_edit(request: Request, device_id: int,
             "model": model,
             "is_active": True if is_active == "on" else False,
         }
-        update_device(conn, device_id, device)
+        update_device(conn, device_id, device, app_user_id=_current_user_id(request))
         conn.commit()
         write_devices_json_from_db(conn)
         return redirect_with_flash("/", "success", f'Device "{name}" was updated.')
@@ -504,7 +569,7 @@ def user_add(request: Request,
     # enroll_devices is optional CSV of device ids
     conn = get_connection()
     try:
-        gid = create_global_user(conn, global_user_id, name, int(privilege), card)
+        gid = create_global_user(conn, global_user_id, name, int(privilege), card, app_user_id=_current_user_id(request))
         conn.commit()
         # push to selected devices
         if enroll_devices:
@@ -1983,7 +2048,7 @@ async def add_directorate(request: Request):
     conn = get_connection()
     try:
         from db import create_directorate
-        create_directorate(conn, name)
+        create_directorate(conn, name, app_user_id=_current_user_id(request))
     except Exception as exc:
         return redirect_with_flash('/settings', 'error', str(exc))
     finally:
@@ -2015,7 +2080,7 @@ async def add_department(request: Request):
     conn = get_connection()
     try:
         from db import create_department
-        create_department(conn, name)
+        create_department(conn, name, app_user_id=_current_user_id(request))
         if dir_id:
             with conn.cursor() as cur:
                 cur.execute("UPDATE departments SET directorate_id=%s WHERE name=%s", (dir_id, name))
@@ -2051,7 +2116,7 @@ async def add_section(request: Request):
     conn = get_connection()
     try:
         from db import create_section
-        create_section(conn, name, dept_id)
+        create_section(conn, name, dept_id, app_user_id=_current_user_id(request))
     except Exception as exc:
         return redirect_with_flash('/settings', 'error', str(exc))
     finally:
@@ -2083,7 +2148,7 @@ async def add_unit(request: Request):
     conn = get_connection()
     try:
         from db import create_unit
-        create_unit(conn, name, sec_id)
+        create_unit(conn, name, sec_id, app_user_id=_current_user_id(request))
     except Exception as exc:
         return redirect_with_flash('/settings', 'error', str(exc))
     finally:
@@ -2116,7 +2181,7 @@ async def add_shift(request: Request):
     conn = get_connection()
     try:
         from db import create_shift
-        create_shift(conn, name, start, end)
+        create_shift(conn, name, start, end, app_user_id=_current_user_id(request))
     except Exception as exc:
         return redirect_with_flash('/settings', 'error', str(exc))
     finally:
@@ -2178,13 +2243,14 @@ async def add_shift_rule(request: Request):
     conn = get_connection()
     try:
         from db import create_shift_rule
+        uid_who = _current_user_id(request)
         if g_user_ids:
             for gid in g_user_ids:
                 create_shift_rule(conn, shift_id, from_date, to_date, gid,
-                                  None, None, None, None)
+                                  None, None, None, None, app_user_id=uid_who)
         else:
             create_shift_rule(conn, shift_id, from_date, to_date, None,
-                              dept_id, dir_id, sec_id, unit_id)
+                              dept_id, dir_id, sec_id, unit_id, app_user_id=uid_who)
     except Exception as exc:
         return redirect_with_flash('/settings', 'error', str(exc))
     finally:
@@ -2342,7 +2408,8 @@ async def add_leave(request: Request):
     try:
         create_leave_application(conn, global_user_id, leave_type_id,
                                   from_bs, to_bs, from_ad, to_ad,
-                                  days_val, reason, today_bs, status)
+                                  days_val, reason, today_bs, status,
+                                  app_user_id=_current_user_id(request))
     except Exception as exc:
         return redirect_with_flash('/leaves', 'error', str(exc))
     finally:
@@ -2358,7 +2425,10 @@ async def approve_leave(request: Request, app_id: int):
     remarks = (form.get('remarks') or '').strip()
     conn = get_connection()
     try:
-        update_leave_status(conn, app_id, 'approved', remarks, 'admin')
+        cu = _current_user(request)
+        approver = cu['display_name'] if cu else 'admin'
+        update_leave_status(conn, app_id, 'approved', remarks, approver,
+                            app_user_id=_current_user_id(request))
     except Exception as exc:
         return redirect_with_flash('/leaves', 'error', str(exc))
     finally:
@@ -2373,7 +2443,10 @@ async def reject_leave(request: Request, app_id: int):
     remarks = (form.get('remarks') or '').strip()
     conn = get_connection()
     try:
-        update_leave_status(conn, app_id, 'rejected', remarks, 'admin')
+        cu = _current_user(request)
+        approver = cu['display_name'] if cu else 'admin'
+        update_leave_status(conn, app_id, 'rejected', remarks, approver,
+                            app_user_id=_current_user_id(request))
     except Exception as exc:
         return redirect_with_flash('/leaves', 'error', str(exc))
     finally:
@@ -2551,7 +2624,8 @@ async def add_holiday_route(request: Request):
 
     conn = get_connection()
     try:
-        create_holiday(conn, name, holiday_ad, holiday_bs, holiday_type, description)
+        create_holiday(conn, name, holiday_ad, holiday_bs, holiday_type, description,
+                       app_user_id=_current_user_id(request))
     except Exception as exc:
         return redirect_with_flash(redirect_to, 'error', str(exc))
     finally:

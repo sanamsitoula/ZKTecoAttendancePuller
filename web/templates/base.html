@@ -39,6 +39,12 @@
         </div>
         <a href="/settings" class="{{ 'active' if request.url.path.startswith('/settings') else '' }}">Settings</a>
       </div>
+      <div class="nav-user">
+        <span class="nav-user-name">{{ request.session.get('display_name', request.session.get('username', '')) }}</span>
+        <form method="post" action="/logout" style="display:inline">
+          <button type="submit" class="btn-logout">Logout</button>
+        </form>
+      </div>
     </nav>
     {% if flashes %}
     <div class="toast-stack" id="toast-stack" aria-live="polite">
