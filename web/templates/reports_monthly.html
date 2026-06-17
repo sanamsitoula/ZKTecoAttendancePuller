@@ -16,10 +16,10 @@
   </div>
 </section>
 
-{# Month picker #}
+{# Month + Org Filters #}
 <section class="panel">
   <form method="get" action="/reports/monthly" class="form" style="max-width:none">
-    <div class="filter-bar-flex" style="gap:14px;align-items:flex-end;flex-wrap:wrap">
+    <div class="filter-bar-flex" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
       <label style="width:90px">Year (BS)
         <input type="number" name="bs_year" value="{{ sel_bs_year }}" min="2060" max="2100">
       </label>
@@ -32,8 +32,42 @@
           {% endfor %}
         </select>
       </label>
-      <div class="filter-actions" style="padding-top:4px">
+      <label style="width:180px">Search Name/ID
+        <input type="text" name="search" value="{{ f_srch }}" placeholder="name, ID, dept…">
+      </label>
+      {% if all_dirs %}
+      <label style="width:160px">Directorate
+        <select name="directorate_id">
+          <option value="">All Directorates</option>
+          {% for dr in all_dirs %}
+          <option value="{{ dr.id }}" {% if f_dir|string == dr.id|string %}selected{% endif %}>{{ dr.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      {% if all_depts %}
+      <label style="width:160px">Department
+        <select name="department_id">
+          <option value="">All Departments</option>
+          {% for dp in all_depts %}
+          <option value="{{ dp.id }}" {% if f_dept|string == dp.id|string %}selected{% endif %}>{{ dp.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      {% if all_sections %}
+      <label style="width:150px">Section
+        <select name="section_id">
+          <option value="">All Sections</option>
+          {% for sc in all_sections %}
+          <option value="{{ sc.id }}" {% if f_sec|string == sc.id|string %}selected{% endif %}>{{ sc.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <div class="filter-actions" style="padding-top:4px;display:flex;gap:6px">
         <button class="btn primary" type="submit">Apply</button>
+        <a class="btn ghost" href="/reports/monthly?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}">Reset</a>
       </div>
     </div>
   </form>
@@ -43,18 +77,21 @@
 <section class="panel">
   <div class="panel-head">
     <h2>Employees</h2>
-    <span class="muted">{{ total_employees }} total</span>
+    <span class="muted">{{ total_employees }} shown{% if total_unfiltered and total_unfiltered != total_employees %} of {{ total_unfiltered }}{% endif %}</span>
   </div>
   <div class="table-wrap">
-    <table class="table">
+    <table class="table" id="emp-list-table">
       <thead>
         <tr>
-          <th style="width:40px">SN</th>
+          <th style="width:36px">SN</th>
           <th>Name</th>
-          <th>Company ID</th>
+          <th>ID</th>
+          <th>Directorate</th>
           <th>Department</th>
+          <th>Section</th>
+          <th>Unit</th>
           <th>Devices</th>
-          <th style="width:120px">Action</th>
+          <th style="width:110px">Action</th>
         </tr>
       </thead>
       <tbody>
@@ -64,7 +101,10 @@
           <td>{{ offset + loop.index }}</td>
           <td><strong>{{ emp.display_name }}</strong></td>
           <td>{{ emp.company_id or '&mdash;' }}</td>
+          <td>{{ emp.directorate_name or '&mdash;' }}</td>
           <td>{{ emp.department_name or '&mdash;' }}</td>
+          <td>{{ emp.section_name or '&mdash;' }}</td>
+          <td>{{ emp.unit_name or '&mdash;' }}</td>
           <td>
             {% for dv in emp.devices %}
             <span class="status info" style="font-size:11px;margin:1px 2px">{{ dv.device_name }} ({{ dv.user_id }})</span>
@@ -73,34 +113,39 @@
           <td>
             <a class="btn small primary"
                href="/reports/monthly/view?emp_key={{ emp.key }}&bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}">
-              View Report
+              View
             </a>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="empty">No employees found. Pull data from devices first.</td></tr>
+        <tr><td colspan="9" class="empty">No employees match the selected filters.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
+  {% set fp = 'bs_year=' ~ sel_bs_year ~ '&bs_month=' ~ sel_bs_month %}
+  {% if f_srch %}{% set fp = fp ~ '&search=' ~ f_srch %}{% endif %}
+  {% if f_dir %}{% set fp = fp ~ '&directorate_id=' ~ f_dir %}{% endif %}
+  {% if f_dept %}{% set fp = fp ~ '&department_id=' ~ f_dept %}{% endif %}
+  {% if f_sec %}{% set fp = fp ~ '&section_id=' ~ f_sec %}{% endif %}
   {% if total_pages > 1 %}
   <nav class="pagination" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;align-items:center">
     <span class="muted" style="margin-right:6px">Page {{ page }} of {{ total_pages }}</span>
     {% if page > 1 %}
-      <a class="btn small" href="/reports/monthly?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}&page={{ page - 1 }}">&#8592; Prev</a>
+      <a class="btn small" href="/reports/monthly?{{ fp }}&page={{ page - 1 }}">&#8592; Prev</a>
     {% endif %}
     {% for p in range(1, total_pages + 1) %}
       {% if p == page %}
         <span class="btn small primary">{{ p }}</span>
       {% elif p <= 2 or p >= total_pages - 1 or (p >= page - 2 and p <= page + 2) %}
-        <a class="btn small" href="/reports/monthly?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}&page={{ p }}">{{ p }}</a>
+        <a class="btn small" href="/reports/monthly?{{ fp }}&page={{ p }}">{{ p }}</a>
       {% elif p == 3 or p == total_pages - 2 %}
         <span class="muted">&hellip;</span>
       {% endif %}
     {% endfor %}
     {% if page < total_pages %}
-      <a class="btn small" href="/reports/monthly?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}&page={{ page + 1 }}">Next &#8594;</a>
+      <a class="btn small" href="/reports/monthly?{{ fp }}&page={{ page + 1 }}">Next &#8594;</a>
     {% endif %}
   </nav>
   {% endif %}
@@ -113,11 +158,12 @@
 
 {# Print header — only visible when printing #}
 {% if report %}
-<div class="print-only" style="position:relative;max-width:100%;margin:0 auto 6px auto;font-size:8pt">
+<div class="print-only" style="position:relative;max-width:100%;margin:0 auto 6px auto;font-size:8pt;border-bottom:2px solid #000;padding-bottom:6px">
   <div style="position:absolute;top:0;right:0;font-size:7pt">Print Time: {{ now_str }}</div>
-  <div style="text-align:center;margin-bottom:4px">
-    <div style="font-size:13pt;font-weight:bold">{{ COMPANY_NAME }}</div>
-    <div style="font-size:10pt;font-weight:bold">
+  <div style="text-align:center;margin-bottom:5px">
+    <div style="font-size:14pt;font-weight:bold;letter-spacing:.5px">{{ COMPANY_NAME }}</div>
+    <div style="font-size:8pt;color:#555">Sanothimi, Bhaktapur &nbsp;&middot;&nbsp; info@janakedu.org.np &nbsp;&middot;&nbsp; www.janakedu.org.np</div>
+    <div style="font-size:11pt;font-weight:bold;margin-top:3px">
       Periodic Attendance Report &mdash; {{ report.month_name }} {{ report.bs_year }} BS
     </div>
     <div style="font-size:8pt">{{ report.from_bs_disp }} to {{ report.to_bs_disp }}</div>
@@ -126,14 +172,17 @@
     <tr>
       <td style="border:1px solid #000;padding:2px 8px;font-weight:bold">Employee Id</td>
       <td style="border:1px solid #000;padding:2px 8px;min-width:80px">{{ report.emp_user_id }}</td>
-      <td style="width:16px"></td>
+      <td style="width:14px"></td>
       <td style="border:1px solid #000;padding:2px 8px;font-weight:bold">Employee Name</td>
       <td style="border:1px solid #000;padding:2px 8px;min-width:140px">{{ report.emp_name }}</td>
       {% if report.department %}
-      <td style="width:16px"></td>
+      <td style="width:14px"></td>
       <td style="border:1px solid #000;padding:2px 8px;font-weight:bold">Department</td>
       <td style="border:1px solid #000;padding:2px 8px">{{ report.department }}</td>
       {% endif %}
+      <td style="width:14px"></td>
+      <td style="border:1px solid #000;padding:2px 8px;font-weight:bold">Device(s)</td>
+      <td style="border:1px solid #000;padding:2px 8px">{{ report.device_name }}</td>
     </tr>
   </table>
 </div>

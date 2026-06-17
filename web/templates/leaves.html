@@ -1,0 +1,443 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+{# ── Company header (print only) ──────────────────────────────────────── #}
+<div class="company-header print-only">
+  <h2>{{ COMPANY_NAME }}</h2>
+  <hr>
+  <p>Leave Management Report</p>
+</div>
+
+{# ── Page head ─────────────────────────────────────────────────────────── #}
+<section class="page-head no-print">
+  <div>
+    <p class="eyebrow">HR</p>
+    <h1>Leave Management</h1>
+  </div>
+  <div class="head-actions">
+    <button class="btn" type="button" onclick="window.print()">Print</button>
+    <button class="btn" type="button" id="pdf-btn">Download PDF</button>
+  </div>
+</section>
+
+{# ── Filter bar ────────────────────────────────────────────────────────── #}
+<section class="panel no-print">
+  <form method="get" action="/leaves">
+    <div class="filter-bar-flex">
+
+      <label style="min-width:200px">Employee
+        <select name="emp_key" id="filter-emp-key">
+          <option value="">All Employees</option>
+          {% for emp in all_emps %}
+          <option value="g{{ emp.id }}"
+            {% if sel_emp_key == 'g' ~ emp.id %}selected{% endif %}>
+            {{ emp.name }}{% if emp.department_name %} — {{ emp.department_name }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label style="min-width:140px">Status
+        <select name="status">
+          <option value="" {% if not sel_status %}selected{% endif %}>All</option>
+          <option value="pending"  {% if sel_status == 'pending'  %}selected{% endif %}>Pending</option>
+          <option value="approved" {% if sel_status == 'approved' %}selected{% endif %}>Approved</option>
+          <option value="rejected" {% if sel_status == 'rejected' %}selected{% endif %}>Rejected</option>
+        </select>
+      </label>
+
+      <label style="min-width:155px">From Date (BS)
+        <input class="bsdp" name="from_bs" id="from_bs_filter"
+               value="{{ sel_from_bs }}" placeholder="YYYY-MM-DD"
+               data-ad-target="from_ad_filter_h">
+        <input type="hidden" id="from_ad_filter_h">
+      </label>
+
+      <label style="min-width:155px">To Date (BS)
+        <input class="bsdp" name="to_bs" id="to_bs_filter"
+               value="{{ sel_to_bs }}" placeholder="YYYY-MM-DD"
+               data-ad-target="to_ad_filter_h">
+        <input type="hidden" id="to_ad_filter_h">
+      </label>
+
+      <label style="min-width:100px">Balance Year
+        <input type="number" name="year" value="{{ sel_year }}" min="2070" max="2100" placeholder="2082">
+      </label>
+
+      <div class="filter-actions">
+        <button class="btn primary" type="submit">Search</button>
+        <a class="btn" href="/leaves">Reset</a>
+      </div>
+    </div>
+  </form>
+</section>
+
+{# ── Employee balance panel ────────────────────────────────────────────── #}
+{% if sel_gid and emp_balance %}
+<section class="panel no-print">
+  <div class="panel-head">
+    <h2>Leave Balance &mdash; {{ emp_balance[0].leave_type_name | replace(emp_balance[0].leave_type_name, '') }}
+      {% for eb in emp_balance %}{% if loop.first %}{% set _ = namespace(name='') %}{% endif %}{% endfor %}
+      {% for emp in all_emps %}{% if emp.id == sel_gid %}{{ emp.name }}{% endif %}{% endfor %}
+    </h2>
+    <span class="muted">BS Year {{ sel_year }}</span>
+  </div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap">
+    {% for eb in emp_balance %}
+    {% set avail = eb.available | float %}
+    {% if avail > 3 %}
+      {% set avail_color = 'var(--green, #22c55e)' %}
+    {% elif avail >= 1 %}
+      {% set avail_color = 'var(--amber, #f59e0b)' %}
+    {% else %}
+      {% set avail_color = 'var(--red, #ef4444)' %}
+    {% endif %}
+    <div class="card" style="min-width:160px;padding:14px 18px">
+      <div style="font-weight:600;margin-bottom:6px">{{ eb.leave_type_name }}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Code: {{ eb.code }}</div>
+      <table style="font-size:12px;width:100%;border-collapse:collapse">
+        <tr><td style="color:var(--muted)">Opening</td><td style="text-align:right">{{ '%.1f'|format(eb.opening_balance|float) }}</td></tr>
+        <tr><td style="color:var(--muted)">Earned</td><td style="text-align:right">{{ '%.1f'|format(eb.days_earned|float) }}</td></tr>
+        <tr><td style="color:var(--muted)">Taken</td><td style="text-align:right">{{ '%.1f'|format(eb.days_taken|float) }}</td></tr>
+        <tr style="border-top:1px solid var(--border)">
+          <td style="font-weight:600">Available</td>
+          <td style="text-align:right;font-weight:700;color:{{ avail_color }}">
+            {{ '%.1f'|format(avail) }}
+          </td>
+        </tr>
+      </table>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{# ── Leave applications table ──────────────────────────────────────────── #}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Leave Applications</h2>
+    <span class="muted"><span id="leaves-table-count"></span></span>
+  </div>
+
+  <div class="no-print" style="margin-bottom:10px">
+    <input class="inline-search" data-table-filter="leaves-table"
+           placeholder="Quick filter…" style="max-width:280px">
+  </div>
+
+  <div class="table-wrap">
+    <table class="table" id="leaves-table">
+      <thead>
+        <tr>
+          <th style="width:36px">#</th>
+          <th>Employee</th>
+          <th>Dept</th>
+          <th>Leave Type</th>
+          <th>From (BS)</th>
+          <th>To (BS)</th>
+          <th style="width:52px">Days</th>
+          <th>Reason</th>
+          <th style="width:90px">Status</th>
+          <th>Applied</th>
+          <th class="no-print" style="width:140px">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for app in leave_apps %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>
+            <strong>{{ app.employee_name }}</strong>
+            {% if app.company_id %}<br><small class="muted">{{ app.company_id }}</small>{% endif %}
+          </td>
+          <td>{{ app.department_name or '—' }}</td>
+          <td>
+            {{ app.leave_type_name }}
+            <br><small class="muted">{{ app.leave_code }}{% if not app.is_paid %} · Unpaid{% endif %}</small>
+          </td>
+          <td>{{ app.from_bs }}</td>
+          <td>{{ app.to_bs }}</td>
+          <td style="text-align:center">{{ '%.1f'|format(app.days|float) }}</td>
+          <td style="max-width:180px;word-break:break-word">{{ app.reason or '—' }}</td>
+          <td>
+            <span class="status-badge status-{{ app.status }}">{{ app.status | capitalize }}</span>
+          </td>
+          <td>
+            <small>{{ app.applied_bs }}</small>
+            {% if app.remarks %}<br><small class="muted">{{ app.remarks }}</small>{% endif %}
+          </td>
+          <td class="no-print">
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              {% if app.status == 'pending' %}
+              <form method="post" action="/leaves/{{ app.id }}/approve" style="display:inline">
+                <button class="btn small primary" type="submit">Approve</button>
+              </form>
+              <form method="post" action="/leaves/{{ app.id }}/reject" style="display:inline">
+                <button class="btn small danger" type="submit">Reject</button>
+              </form>
+              {% endif %}
+              <form method="post" action="/leaves/{{ app.id }}/delete" style="display:inline"
+                    onsubmit="return confirm('Delete this leave application?')">
+                <button class="btn small ghost" type="submit">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="11" class="empty">No leave applications match the current filter.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{# ── Add Leave Form ────────────────────────────────────────────────────── #}
+<section class="panel no-print">
+  <div class="panel-head">
+    <h2>Add Leave Application</h2>
+  </div>
+  <form method="post" action="/leaves/add" class="form">
+    <div class="form-grid">
+
+      <label>Employee <span style="color:var(--red)">*</span>
+        <select name="employee_id" id="add-emp-select" required>
+          <option value="">— Select employee —</option>
+          {% for emp in all_emps %}
+          <option value="{{ emp.id }}">
+            {{ emp.name }}{% if emp.department_name %} — {{ emp.department_name }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>Leave Type <span style="color:var(--red)">*</span>
+        <select name="leave_type_id" id="add-leave-type" required>
+          <option value="">— Select type —</option>
+          {% for lt in leave_types %}
+          <option value="{{ lt.id }}" data-days="{{ lt.days_per_year }}">
+            {{ lt.name }} ({{ lt.code }}){% if not lt.is_paid %} · Unpaid{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>From Date (BS) <span style="color:var(--red)">*</span>
+        <input class="bsdp" name="from_bs" id="add-from-bs"
+               placeholder="YYYY-MM-DD" data-ad-target="from_ad_h" required>
+        <input type="hidden" name="from_ad" id="from_ad_h">
+      </label>
+
+      <label>To Date (BS) <span style="color:var(--red)">*</span>
+        <input class="bsdp" name="to_bs" id="add-to-bs"
+               placeholder="YYYY-MM-DD" data-ad-target="to_ad_h" required>
+        <input type="hidden" name="to_ad" id="to_ad_h">
+      </label>
+
+      <label>Days
+        <input type="number" name="days" id="add-days"
+               min="0.5" step="0.5" placeholder="Auto-calculated">
+        <small class="muted">Auto-filled from dates. Edit for half-days.</small>
+      </label>
+
+      <label>Status
+        <select name="status">
+          <option value="approved">Approved</option>
+          <option value="pending">Pending</option>
+        </select>
+      </label>
+
+    </div>
+
+    <label style="display:block;margin-top:12px">Reason
+      <textarea name="reason" rows="3" placeholder="Reason for leave…" style="width:100%;max-width:600px"></textarea>
+    </label>
+
+    <div style="margin-top:14px">
+      <button class="btn primary" type="submit">Add Leave</button>
+    </div>
+  </form>
+</section>
+
+{# ── Leave Types Reference ─────────────────────────────────────────────── #}
+<section class="panel no-print">
+  <div class="panel-head">
+    <h2>Leave Types</h2>
+    <span class="muted">{{ leave_types | length }} types configured</span>
+  </div>
+  <div class="table-wrap">
+    <table class="table compact">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Code</th>
+          <th style="text-align:center">Days/Year</th>
+          <th style="text-align:center">Max Accum.</th>
+          <th style="text-align:center">Carry Fwd</th>
+          <th style="text-align:center">Paid</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for lt in leave_types %}
+        <tr>
+          <td><strong>{{ lt.name }}</strong></td>
+          <td><span class="status info" style="font-size:11px">{{ lt.code }}</span></td>
+          <td style="text-align:center">{{ lt.days_per_year }}</td>
+          <td style="text-align:center">{{ lt.max_accumulate if lt.max_accumulate else '—' }}</td>
+          <td style="text-align:center">
+            {% if lt.carry_forward %}
+            <span class="status success" style="font-size:11px">Yes</span>
+            {% else %}
+            <span class="status" style="font-size:11px;background:var(--border)">No</span>
+            {% endif %}
+          </td>
+          <td style="text-align:center">
+            {% if lt.is_paid %}
+            <span class="status success" style="font-size:11px">Paid</span>
+            {% else %}
+            <span class="status danger" style="font-size:11px">Unpaid</span>
+            {% endif %}
+          </td>
+          <td><small>{{ lt.description or '—' }}</small></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="empty">No leave types configured.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{# ── All Employees Balance ─────────────────────────────────────────────── #}
+{% if balances %}
+<section class="panel no-print">
+  <div class="panel-head">
+    <h2>All Leave Balances — BS {{ sel_year }}</h2>
+    <span class="muted">{{ balances | length }} records</span>
+  </div>
+  <div style="margin-bottom:10px">
+    <input class="inline-search" data-table-filter="balances-table"
+           placeholder="Filter by employee, department, leave type…" style="max-width:300px">
+  </div>
+  <div class="table-wrap">
+    <table class="table compact" id="balances-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Employee</th>
+          <th>ID</th>
+          <th>Department</th>
+          <th>Leave Type</th>
+          <th>Code</th>
+          <th style="text-align:right">Opening</th>
+          <th style="text-align:right">Earned</th>
+          <th style="text-align:right">Taken</th>
+          <th style="text-align:right">Available</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in balances %}
+        {% set avail = b.available | float %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td><strong>{{ b.employee_name }}</strong></td>
+          <td><small>{{ b.company_id or '—' }}</small></td>
+          <td>{{ b.department_name or '—' }}</td>
+          <td>{{ b.leave_type_name }}</td>
+          <td><span class="status info" style="font-size:11px">{{ b.code }}</span></td>
+          <td style="text-align:right">{{ '%.1f'|format(b.opening_balance|float) }}</td>
+          <td style="text-align:right">{{ '%.1f'|format(b.days_earned|float) }}</td>
+          <td style="text-align:right">{{ '%.1f'|format(b.days_taken|float) }}</td>
+          <td style="text-align:right;font-weight:600;
+            color:{% if avail > 3 %}var(--green,#22c55e){% elif avail >= 1 %}var(--amber,#f59e0b){% else %}var(--red,#ef4444){% endif %}">
+            {{ '%.1f'|format(avail) }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{# ── Allocate Annual Leaves ────────────────────────────────────────────── #}
+<section class="panel no-print">
+  <div class="panel-head">
+    <h2>Allocate Annual Leaves</h2>
+  </div>
+  <form method="post" action="/leaves/allocate" class="form" style="max-width:420px">
+    <label>BS Year
+      <input type="number" name="bs_year" value="{{ sel_year }}" min="2070" max="2100" required>
+    </label>
+    <p class="muted" style="font-size:12px;margin:8px 0 12px">
+      Creates or refreshes leave balance records for all employees for the given BS year.
+      Home Leave and Sick Leave carry forward unused balance from the previous year.
+    </p>
+    <button class="btn primary" type="submit">Allocate</button>
+  </form>
+</section>
+
+{# ── JS ────────────────────────────────────────────────────────────────── #}
+<script src="/static/html2pdf.bundle.min.js" defer></script>
+<script>
+(function () {
+  'use strict';
+
+  /* ── Auto-calculate days from AD date fields ── */
+  function calcDays() {
+    var fromAd = document.getElementById('from_ad_h');
+    var toAd   = document.getElementById('to_ad_h');
+    var daysEl = document.getElementById('add-days');
+    if (!fromAd || !toAd || !daysEl) return;
+    var f = fromAd.value, t = toAd.value;
+    if (!f || !t) return;
+    fetch('/api/leave-days?from_ad=' + encodeURIComponent(f) + '&to_ad=' + encodeURIComponent(t))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (data && data.days !== undefined) {
+          daysEl.value = data.days;
+        }
+      })
+      .catch(function () {});
+  }
+
+  /* Watch the hidden AD fields for changes (bs-datepicker writes to them) */
+  function watchHidden(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var last = el.value;
+    var obs = new MutationObserver(function () {
+      if (el.value !== last) { last = el.value; calcDays(); }
+    });
+    obs.observe(el, { attributes: true, attributeFilter: ['value'] });
+    /* Also poll — datepicker sets .value directly without triggering MutationObserver */
+    setInterval(function () {
+      if (el.value !== last) { last = el.value; calcDays(); }
+    }, 300);
+  }
+
+  watchHidden('from_ad_h');
+  watchHidden('to_ad_h');
+
+  /* ── PDF export ── */
+  var pdfBtn = document.getElementById('pdf-btn');
+  if (pdfBtn) {
+    pdfBtn.addEventListener('click', function () {
+      var target = document.getElementById('leaves-table');
+      if (!target || typeof html2pdf === 'undefined') { window.print(); return; }
+      html2pdf()
+        .set({
+          margin: 10,
+          filename: 'leave-applications.pdf',
+          html2canvas: { scale: 2 },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+        })
+        .from(target)
+        .save();
+    });
+  }
+
+})();
+</script>
+
+{% endblock %}

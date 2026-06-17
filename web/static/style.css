@@ -785,3 +785,138 @@ td input[type="checkbox"] {
 
   .print-header { max-width: 100% !important; }
 }
+
+/* ── Nav Dropdown ──────────────────────────────────────────────────────────── */
+.nav-dropdown { position: relative; display: inline-block; }
+.nav-dropdown > a { display: inline-flex; align-items: center; gap: 2px; cursor: pointer; }
+.nav-dropdown-menu {
+  display: none; position: absolute; top: 100%; left: 0; min-width: 160px; z-index: 999;
+  background: #1e293b; border: 1px solid #334155; border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.35); padding: 4px 0;
+}
+.nav-dropdown:hover .nav-dropdown-menu { display: block; }
+.nav-dropdown-menu a {
+  display: block; padding: 7px 14px; color: #cbd5e1; font-size: .82rem;
+  text-decoration: none; white-space: nowrap;
+}
+.nav-dropdown-menu a:hover { background: #334155; color: #fff; }
+
+/* ── Leave / Holiday page helpers ─────────────────────────────────────────── */
+.status-badge {
+  display: inline-block; padding: 2px 10px; border-radius: 12px;
+  font-size: .75rem; font-weight: 600; letter-spacing: .02em;
+}
+.status-approved  { background: #dcfce7; color: #166534; }
+.status-pending   { background: #fef9c3; color: #854d0e; }
+.status-rejected  { background: #fee2e2; color: #991b1b; }
+
+.holiday-public   { background: #fee2e2; color: #991b1b; }
+.holiday-festival { background: #fef3c7; color: #92400e; }
+.holiday-other    { background: #ede9fe; color: #5b21b6; }
+
+/* ── Calendar grid ─────────────────────────────────────────────────────────── */
+.cal-grid { border-collapse: collapse; width: 100%; }
+.cal-grid th { background: #1e293b; color: #cbd5e1; padding: 6px; text-align: center; font-size: .8rem; }
+.cal-grid td { border: 1px solid #e2e8f0; padding: 6px 8px; vertical-align: top;
+               min-width: 64px; min-height: 52px; }
+.cal-day-num { font-size: .85rem; font-weight: 600; color: #1e293b; }
+.cal-day-ad  { font-size: .7rem; color: #94a3b8; }
+.cal-empty   { background: #f8fafc; }
+.cal-weekend { background: #fef9c3; }
+.cal-holiday-public   { background: #fee2e2; }
+.cal-holiday-festival { background: #fef3c7; }
+.cal-holiday-other    { background: #f3e8ff; }
+.cal-holiday-label { font-size: .68rem; color: #ef4444; display: block; line-height: 1.2; }
+
+/* ── Summary stat boxes ───────────────────────────────────────────────────── */
+.stat-boxes { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.stat-box { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+            padding: 16px 22px; min-width: 110px; text-align: center; }
+.stat-box .stat-val { font-size: 2rem; font-weight: 700; color: #1e293b; line-height: 1; }
+.stat-box .stat-lbl { font-size: .75rem; color: #64748b; margin-top: 4px; }
+.stat-box.green .stat-val { color: #16a34a; }
+.stat-box.red   .stat-val { color: #dc2626; }
+.stat-box.amber .stat-val { color: #d97706; }
+.stat-box.blue  .stat-val { color: #2563eb; }
+
+/* ── Balance table ─────────────────────────────────────────────────────────── */
+.balance-ok   { color: #16a34a; font-weight: 600; }
+.balance-low  { color: #d97706; font-weight: 600; }
+.balance-zero { color: #dc2626; font-weight: 600; }
+
+/* ── Print: daily/summary reports ─────────────────────────────────────────── */
+@media print {
+  .no-print { display: none !important; }
+  .print-report-header { margin-bottom: 8px; text-align: center; }
+}
+
+/* ── Settings quick-nav ───────────────────────────────────────────────────── */
+.settings-quicknav {
+  display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px;
+  background: #f1f5f9; border-radius: 8px; padding: 8px 12px;
+}
+.settings-quicknav a {
+  padding: 4px 12px; border-radius: 14px; font-size: .8rem; font-weight: 500;
+  color: #475569; text-decoration: none; background: #fff;
+  border: 1px solid #e2e8f0; transition: background .15s, color .15s;
+}
+.settings-quicknav a:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
+
+/* ── Shift rule form card ─────────────────────────────────────────────────── */
+.add-rule-card {
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+  padding: 20px 22px;
+}
+.rule-form-grid {
+  display: grid; grid-template-columns: 1fr 1.6fr; gap: 28px;
+}
+@media (max-width: 760px) { .rule-form-grid { grid-template-columns: 1fr; } }
+
+.rule-form-col { display: flex; flex-direction: column; }
+
+.target-type-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.pill-radio { display: flex; align-items: center; gap: 0; cursor: pointer; }
+.pill-radio input { display: none; }
+.pill-radio span {
+  padding: 5px 13px; border-radius: 16px; font-size: .82rem; font-weight: 500;
+  border: 1.5px solid #cbd5e1; color: #475569; cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s; white-space: nowrap;
+}
+.pill-radio input:checked + span {
+  background: #2563eb; border-color: #2563eb; color: #fff;
+}
+.pill-radio span:hover { border-color: #2563eb; color: #2563eb; }
+
+/* ── Employee tags picker ─────────────────────────────────────────────────── */
+.emp-tags-picker {
+  border: 1.5px solid #cbd5e1; border-radius: 8px; background: #fff;
+  overflow: hidden; position: relative;
+}
+.emp-tags-display {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  padding: 7px 10px; min-height: 40px; cursor: text;
+}
+.emp-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #dbeafe; color: #1d4ed8; border-radius: 12px;
+  padding: 2px 8px 2px 10px; font-size: .78rem; font-weight: 500; white-space: nowrap;
+}
+.emp-tag button {
+  background: none; border: none; cursor: pointer; padding: 0; color: #2563eb;
+  font-size: 14px; line-height: 1; font-weight: 700;
+}
+.emp-tag button:hover { color: #dc2626; }
+.emp-tags-dropdown {
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 200;
+  background: #fff; border: 1.5px solid #cbd5e1; border-top: none;
+  border-radius: 0 0 8px 8px; max-height: 220px; overflow-y: auto;
+  box-shadow: 0 6px 16px rgba(0,0,0,.1);
+}
+.rule-emp-opt {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+  cursor: pointer; font-size: .84rem; transition: background .1s;
+}
+.rule-emp-opt:hover { background: #f0f7ff; }
+.rule-emp-opt.selected { background: #eff6ff; }
+.emp-opt-check { font-size: 14px; color: #64748b; min-width: 16px; }
+.rule-emp-opt.selected .emp-opt-check { color: #2563eb; }

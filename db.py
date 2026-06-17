@@ -233,6 +233,72 @@ BEGIN
             FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE;
     END IF;
 END$$;
+
+-- ── Leave Management ────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS leave_types (
+    id             SERIAL PRIMARY KEY,
+    name           VARCHAR(100) NOT NULL,
+    code           VARCHAR(20)  NOT NULL UNIQUE,
+    days_per_year  NUMERIC(5,1) NOT NULL DEFAULT 0,
+    max_accumulate NUMERIC(5,1) NOT NULL DEFAULT 0,
+    carry_forward  BOOLEAN      NOT NULL DEFAULT FALSE,
+    is_paid        BOOLEAN      NOT NULL DEFAULT TRUE,
+    description    TEXT
+);
+INSERT INTO leave_types (name, code, days_per_year, max_accumulate, carry_forward, is_paid, description)
+VALUES
+  ('Home Leave',      'HOME',      13, 60, TRUE,  TRUE,  'Gharbidha Bida — 13 days/year, accumulates up to 60'),
+  ('Sick Leave',      'SICK',      12, 45, TRUE,  TRUE,  'Birami Bida — 12 days/year, accumulates up to 45'),
+  ('Casual Leave',    'CASUAL',    12,  0, FALSE, TRUE,  'Aakasmic Bida — 12 days/year, does not carry forward'),
+  ('Maternity Leave', 'MATERNITY', 98,  0, FALSE, TRUE,  '98 days total'),
+  ('Paternity Leave', 'PATERNITY', 15,  0, FALSE, TRUE,  '15 days'),
+  ('Mourning Leave',  'MOURNING',  13,  0, FALSE, TRUE,  'Sog Bida — 13 days for immediate family'),
+  ('Study Leave',     'STUDY',      0,  0, FALSE, TRUE,  'As sanctioned by management'),
+  ('Unpaid Leave',    'UNPAID',     0,  0, FALSE, FALSE, 'Without pay')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS leave_balances (
+    id              SERIAL PRIMARY KEY,
+    global_user_id  INTEGER NOT NULL REFERENCES global_users(id) ON DELETE CASCADE,
+    leave_type_id   INTEGER NOT NULL REFERENCES leave_types(id)  ON DELETE CASCADE,
+    bs_year         INTEGER NOT NULL,
+    opening_balance NUMERIC(5,1) NOT NULL DEFAULT 0,
+    days_earned     NUMERIC(5,1) NOT NULL DEFAULT 0,
+    days_taken      NUMERIC(5,1) NOT NULL DEFAULT 0,
+    UNIQUE (global_user_id, leave_type_id, bs_year)
+);
+
+CREATE TABLE IF NOT EXISTS leave_applications (
+    id             SERIAL PRIMARY KEY,
+    global_user_id INTEGER NOT NULL REFERENCES global_users(id) ON DELETE CASCADE,
+    leave_type_id  INTEGER NOT NULL REFERENCES leave_types(id),
+    from_bs        VARCHAR(10) NOT NULL,
+    to_bs          VARCHAR(10) NOT NULL,
+    from_ad        DATE NOT NULL,
+    to_ad          DATE NOT NULL,
+    days           NUMERIC(5,1) NOT NULL,
+    reason         TEXT,
+    status         VARCHAR(20)  NOT NULL DEFAULT 'pending',
+    applied_bs     VARCHAR(10),
+    applied_ad     DATE DEFAULT CURRENT_DATE,
+    remarks        TEXT,
+    approved_by    VARCHAR(100),
+    created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_leave_apps_user  ON leave_applications (global_user_id, from_ad);
+CREATE INDEX IF NOT EXISTS idx_leave_apps_dates ON leave_applications (from_ad, to_ad, status);
+
+-- ── Holiday Calendar ─────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS holidays (
+    id           SERIAL PRIMARY KEY,
+    name         VARCHAR(200) NOT NULL,
+    holiday_ad   DATE         NOT NULL,
+    holiday_bs   VARCHAR(10)  NOT NULL,
+    holiday_type VARCHAR(50)  NOT NULL DEFAULT 'public',
+    description  TEXT,
+    UNIQUE (holiday_ad)
+);
+CREATE INDEX IF NOT EXISTS idx_holidays_ad ON holidays (holiday_ad);
 """
 
 
@@ -689,14 +755,24 @@ def get_employees_for_report(conn) -> list:
             gu.global_user_id                      AS company_id,
             dept.id                                AS department_id,
             dept.name                              AS department_name,
+            dir.id                                 AS directorate_id,
+            dir.name                               AS directorate_name,
+            sect.id                                AS section_id,
+            sect.name                              AS section_name,
+            unt.id                                 AS unit_id,
+            unt.name                               AS unit_name,
             e.device_id,
             e.user_id,
             d.name                                 AS device_name
         FROM employees e
-        JOIN devices d ON e.device_id = d.id
-        LEFT JOIN global_users gu  ON e.global_user_id = gu.id
-        LEFT JOIN departments dept ON gu.department_id  = dept.id
-        ORDER BY dept.name NULLS LAST, LOWER(COALESCE(gu.name, e.name, e.user_id)), d.name
+        JOIN devices d     ON e.device_id       = d.id
+        LEFT JOIN global_users gu  ON e.global_user_id  = gu.id
+        LEFT JOIN departments dept ON gu.department_id   = dept.id
+        LEFT JOIN directorates dir ON dept.directorate_id = dir.id
+        LEFT JOIN sections    sect ON gu.section_id      = sect.id
+        LEFT JOIN units       unt  ON gu.unit_id         = unt.id
+        ORDER BY dir.name NULLS LAST, dept.name NULLS LAST,
+                 LOWER(COALESCE(gu.name, e.name, e.user_id)), d.name
     """
     from collections import OrderedDict
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -709,13 +785,19 @@ def get_employees_for_report(conn) -> list:
         key = f"g{gid}" if gid else f"n:{(r['display_name'] or '').lower().strip()}"
         if key not in groups:
             groups[key] = {
-                'key':             key,
-                'display_name':    r['display_name'] or '(Unknown)',
-                'company_id':      r.get('company_id') or '',
-                'global_id':       gid,
-                'department_id':   r.get('department_id'),
-                'department_name': r.get('department_name') or '',
-                'devices':         [],
+                'key':              key,
+                'display_name':     r['display_name'] or '(Unknown)',
+                'company_id':       r.get('company_id') or '',
+                'global_id':        gid,
+                'department_id':    r.get('department_id'),
+                'department_name':  r.get('department_name') or '',
+                'directorate_id':   r.get('directorate_id'),
+                'directorate_name': r.get('directorate_name') or '',
+                'section_id':       r.get('section_id'),
+                'section_name':     r.get('section_name') or '',
+                'unit_id':          r.get('unit_id'),
+                'unit_name':        r.get('unit_name') or '',
+                'devices':          [],
             }
         groups[key]['devices'].append({
             'device_id':   r['device_id'],
@@ -1162,3 +1244,563 @@ def delete_unit(conn, uid: int):
     with conn.cursor() as cur:
         cur.execute("DELETE FROM units WHERE id=%s", (uid,))
     conn.commit()
+
+
+# ─── Leave Types ──────────────────────────────────────────────────────────────
+
+def get_all_leave_types(conn) -> list:
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("SELECT * FROM leave_types ORDER BY name")
+        return [dict(r) for r in cur.fetchall()]
+
+
+def create_leave_type(conn, name: str, code: str, days_per_year: float,
+                      max_accumulate: float, carry_forward: bool,
+                      is_paid: bool, description: str = '') -> int:
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO leave_types (name, code, days_per_year, max_accumulate,
+                                     carry_forward, is_paid, description)
+            VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id
+        """, (name.strip(), code.strip().upper(), float(days_per_year),
+              float(max_accumulate), bool(carry_forward), bool(is_paid), description or ''))
+        row = cur.fetchone()
+    conn.commit()
+    return row[0]
+
+
+def update_leave_type(conn, lt_id: int, name: str, days_per_year: float,
+                      max_accumulate: float, carry_forward: bool,
+                      is_paid: bool, description: str = ''):
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE leave_types
+            SET name=%s, days_per_year=%s, max_accumulate=%s,
+                carry_forward=%s, is_paid=%s, description=%s
+            WHERE id=%s
+        """, (name.strip(), float(days_per_year), float(max_accumulate),
+              bool(carry_forward), bool(is_paid), description or '', lt_id))
+    conn.commit()
+
+
+def delete_leave_type(conn, lt_id: int):
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM leave_types WHERE id=%s", (lt_id,))
+    conn.commit()
+
+
+# ─── Leave Balances ───────────────────────────────────────────────────────────
+
+def get_leave_balances(conn, bs_year: int) -> list:
+    sql = """
+        SELECT lb.*,
+               gu.name AS employee_name, gu.global_user_id AS company_id,
+               d.name  AS department_name,
+               lt.name AS leave_type_name, lt.code,
+               (lb.opening_balance + lb.days_earned - lb.days_taken) AS available
+        FROM leave_balances lb
+        JOIN global_users gu ON gu.id = lb.global_user_id
+        JOIN leave_types  lt ON lt.id = lb.leave_type_id
+        LEFT JOIN departments d ON d.id = gu.department_id
+        WHERE lb.bs_year = %s
+        ORDER BY gu.name, lt.name
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (bs_year,))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_employee_leave_balance(conn, global_user_id: int, bs_year: int) -> list:
+    sql = """
+        SELECT lt.id AS leave_type_id, lt.name AS leave_type_name, lt.code,
+               lt.days_per_year, lt.carry_forward, lt.is_paid,
+               COALESCE(lb.opening_balance, 0) AS opening_balance,
+               COALESCE(lb.days_earned,     lt.days_per_year) AS days_earned,
+               COALESCE(lb.days_taken,      0) AS days_taken,
+               COALESCE(lb.opening_balance, 0) + COALESCE(lb.days_earned, lt.days_per_year)
+                   - COALESCE(lb.days_taken, 0) AS available
+        FROM leave_types lt
+        LEFT JOIN leave_balances lb ON lb.leave_type_id = lt.id
+            AND lb.global_user_id = %s AND lb.bs_year = %s
+        ORDER BY lt.name
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (global_user_id, bs_year))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def allocate_annual_leaves(conn, bs_year: int) -> int:
+    """Create or refresh leave_balances for all employees for the given BS year.
+    Returns count of rows upserted."""
+    employees  = get_all_global_users_with_dept(conn)
+    ltypes     = get_all_leave_types(conn)
+    count      = 0
+    for emp in employees:
+        for lt in ltypes:
+            opening = 0.0
+            if lt['carry_forward'] and lt['days_per_year'] > 0:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT GREATEST(0,
+                            COALESCE(opening_balance,0) + COALESCE(days_earned,0)
+                            - COALESCE(days_taken,0))
+                        FROM leave_balances
+                        WHERE global_user_id=%s AND leave_type_id=%s AND bs_year=%s
+                    """, (emp['id'], lt['id'], bs_year - 1))
+                    row = cur.fetchone()
+                    if row and row[0] is not None:
+                        cap     = lt['max_accumulate'] or 999
+                        opening = float(min(float(row[0]), cap))
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO leave_balances
+                        (global_user_id, leave_type_id, bs_year, opening_balance, days_earned)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (global_user_id, leave_type_id, bs_year) DO UPDATE
+                        SET days_earned = EXCLUDED.days_earned
+                """, (emp['id'], lt['id'], bs_year, opening, float(lt['days_per_year'])))
+            count += 1
+    conn.commit()
+    return count
+
+
+# ─── Leave Applications ───────────────────────────────────────────────────────
+
+def get_leave_applications(conn, global_user_id=None, status=None,
+                            from_ad=None, to_ad=None, limit: int = 300) -> list:
+    sql = """
+        SELECT la.*,
+               gu.name AS employee_name, gu.global_user_id AS company_id,
+               d.name  AS department_name,
+               lt.name AS leave_type_name, lt.code AS leave_code, lt.is_paid
+        FROM leave_applications la
+        JOIN global_users gu ON gu.id = la.global_user_id
+        JOIN leave_types  lt ON lt.id = la.leave_type_id
+        LEFT JOIN departments d ON d.id = gu.department_id
+        WHERE 1=1
+    """
+    params: list = []
+    if global_user_id:
+        sql += " AND la.global_user_id = %s"
+        params.append(global_user_id)
+    if status:
+        sql += " AND la.status = %s"
+        params.append(status)
+    if from_ad:
+        sql += " AND la.to_ad >= %s"
+        params.append(from_ad)
+    if to_ad:
+        sql += " AND la.from_ad <= %s"
+        params.append(to_ad)
+    sql += " ORDER BY la.created_at DESC LIMIT %s"
+    params.append(limit)
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, params)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_leaves_for_date(conn, date_ad: str) -> list:
+    sql = """
+        SELECT la.global_user_id, la.days, la.reason,
+               gu.name AS employee_name, gu.global_user_id AS company_id,
+               d.name  AS department_name,
+               lt.name AS leave_type_name, lt.code
+        FROM leave_applications la
+        JOIN global_users gu ON gu.id = la.global_user_id
+        JOIN leave_types  lt ON lt.id = la.leave_type_id
+        LEFT JOIN departments d ON d.id = gu.department_id
+        WHERE la.from_ad <= %s AND la.to_ad >= %s AND la.status = 'approved'
+        ORDER BY d.name NULLS LAST, gu.name
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (date_ad, date_ad))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def create_leave_application(conn, global_user_id: int, leave_type_id: int,
+                              from_bs: str, to_bs: str,
+                              from_ad: str, to_ad: str,
+                              days: float, reason: str = '',
+                              applied_bs: str = '',
+                              status: str = 'pending') -> int:
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO leave_applications
+                (global_user_id, leave_type_id, from_bs, to_bs, from_ad, to_ad,
+                 days, reason, applied_bs, applied_ad, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, %s)
+            RETURNING id
+        """, (global_user_id, leave_type_id, from_bs, to_bs, from_ad, to_ad,
+              float(days), reason or '', applied_bs or '', status))
+        row = cur.fetchone()
+    conn.commit()
+    # Update days_taken in leave_balances if approved
+    if status == 'approved':
+        _update_balance_taken(conn, global_user_id, leave_type_id, from_ad, float(days))
+    return row[0]
+
+
+def update_leave_status(conn, app_id: int, status: str,
+                        remarks: str = '', approved_by: str = ''):
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT global_user_id, leave_type_id, from_ad, days, status AS old_status
+            FROM leave_applications WHERE id=%s
+        """, (app_id,))
+        row = cur.fetchone()
+    if not row:
+        return
+    g_id, lt_id, from_ad, days, old_status = row
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE leave_applications
+            SET status=%s, remarks=%s, approved_by=%s
+            WHERE id=%s
+        """, (status, remarks or '', approved_by or '', app_id))
+    conn.commit()
+    # Maintain days_taken balance
+    if old_status != 'approved' and status == 'approved':
+        _update_balance_taken(conn, g_id, lt_id, from_ad, float(days))
+    elif old_status == 'approved' and status != 'approved':
+        _update_balance_taken(conn, g_id, lt_id, from_ad, -float(days))
+
+
+def _update_balance_taken(conn, global_user_id: int, leave_type_id: int,
+                           from_ad, delta: float):
+    """Add delta (positive = more taken, negative = reversal) to leave balance days_taken."""
+    try:
+        from nepali_utils import ad_to_bs_tuple
+        bs = ad_to_bs_tuple(from_ad)
+        bs_year = bs[0] if bs else None
+    except Exception:
+        bs_year = None
+    if not bs_year:
+        return
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO leave_balances (global_user_id, leave_type_id, bs_year, days_taken)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (global_user_id, leave_type_id, bs_year) DO UPDATE
+                SET days_taken = GREATEST(0, leave_balances.days_taken + EXCLUDED.days_taken)
+        """, (global_user_id, leave_type_id, bs_year, delta))
+    conn.commit()
+
+
+def delete_leave_application(conn, app_id: int):
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT global_user_id, leave_type_id, from_ad, days, status
+            FROM leave_applications WHERE id=%s
+        """, (app_id,))
+        row = cur.fetchone()
+    if row:
+        g_id, lt_id, from_ad, days, status = row
+        if status == 'approved':
+            _update_balance_taken(conn, g_id, lt_id, from_ad, -float(days))
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM leave_applications WHERE id=%s", (app_id,))
+    conn.commit()
+
+
+def count_leave_working_days(from_ad: str, to_ad: str,
+                              holiday_dates: list | None = None) -> float:
+    """Count Mon–Fri non-holiday days between two AD dates inclusive.
+    Nepal: Saturday is the only fixed weekly off day (isoweekday()%7 == 6)."""
+    from datetime import date, timedelta
+    hset = set()
+    for h in (holiday_dates or []):
+        if isinstance(h, str):
+            hset.add(h)
+        elif hasattr(h, 'isoformat'):
+            hset.add(h.isoformat())
+        elif isinstance(h, dict):
+            v = h.get('holiday_ad')
+            if v:
+                hset.add(v.isoformat() if hasattr(v, 'isoformat') else str(v))
+    from_d = date.fromisoformat(from_ad)
+    to_d   = date.fromisoformat(to_ad)
+    days   = 0.0
+    cur    = from_d
+    while cur <= to_d:
+        if cur.isoweekday() % 7 != 6 and cur.isoformat() not in hset:
+            days += 1.0
+        cur += timedelta(days=1)
+    return days
+
+
+# ─── Holidays ─────────────────────────────────────────────────────────────────
+
+def get_holidays(conn, from_ad: str | None = None, to_ad: str | None = None) -> list:
+    sql    = "SELECT * FROM holidays WHERE 1=1"
+    params: list = []
+    if from_ad:
+        sql += " AND holiday_ad >= %s"
+        params.append(from_ad)
+    if to_ad:
+        sql += " AND holiday_ad <= %s"
+        params.append(to_ad)
+    sql += " ORDER BY holiday_ad"
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, params)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def create_holiday(conn, name: str, holiday_ad: str, holiday_bs: str,
+                   holiday_type: str = 'public', description: str = '') -> int:
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO holidays (name, holiday_ad, holiday_bs, holiday_type, description)
+            VALUES (%s, %s, %s, %s, %s) RETURNING id
+        """, (name.strip(), holiday_ad, holiday_bs, holiday_type, description or ''))
+        row = cur.fetchone()
+    conn.commit()
+    return row[0]
+
+
+def delete_holiday(conn, h_id: int):
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM holidays WHERE id=%s", (h_id,))
+    conn.commit()
+
+
+# ─── Daily Attendance Summary ─────────────────────────────────────────────────
+
+def get_daily_attendance_summary(conn, date_ad: str) -> dict:
+    from datetime import date as _date
+    from nepali_utils import ad_to_bs_tuple
+
+    d_obj     = _date.fromisoformat(date_ad)
+    is_saturday = (d_obj.isoweekday() % 7 == 6)
+    bs_t      = ad_to_bs_tuple(d_obj)
+    date_bs   = f"{bs_t[0]}-{bs_t[1]:02d}-{bs_t[2]:02d}" if bs_t else ''
+
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("SELECT * FROM holidays WHERE holiday_ad = %s", (date_ad,))
+        h_row   = cur.fetchone()
+    holiday = dict(h_row) if h_row else None
+
+    all_emps = get_all_global_users_with_dept(conn)
+
+    sql_pres = """
+        SELECT
+            gu.id                 AS global_user_id,
+            gu.name               AS emp_name,
+            gu.global_user_id     AS company_id,
+            dept.name             AS department_name,
+            sect.name             AS section_name,
+            MIN(al.timestamp AT TIME ZONE 'Asia/Kathmandu') AS first_punch,
+            MAX(al.timestamp AT TIME ZONE 'Asia/Kathmandu') AS last_punch
+        FROM attendance_logs al
+        JOIN employees e   ON e.device_id = al.device_id AND e.user_id = al.user_id
+        JOIN global_users gu ON gu.id = e.global_user_id
+        LEFT JOIN departments dept ON dept.id = gu.department_id
+        LEFT JOIN sections    sect ON sect.id = gu.section_id
+        WHERE DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') = %s
+          AND gu.id IS NOT NULL
+        GROUP BY gu.id, gu.name, gu.global_user_id, dept.name, sect.name
+        ORDER BY dept.name NULLS LAST, gu.name
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql_pres, (date_ad,))
+        pres_rows = [dict(r) for r in cur.fetchall()]
+
+    present_map: dict = {}
+    for row in pres_rows:
+        uid = row['global_user_id']
+        if uid not in present_map:
+            present_map[uid] = dict(row)
+        else:
+            e = present_map[uid]
+            if row['first_punch'] and (not e['first_punch'] or row['first_punch'] < e['first_punch']):
+                e['first_punch'] = row['first_punch']
+            if row['last_punch'] and (not e['last_punch'] or row['last_punch'] > e['last_punch']):
+                e['last_punch'] = row['last_punch']
+
+    present_ids = set(present_map.keys())
+    leave_rows  = get_leaves_for_date(conn, date_ad)
+    on_leave_map = {r['global_user_id']: r for r in leave_rows}
+    on_leave_ids = set(on_leave_map.keys())
+
+    present_list  = sorted(present_map.values(), key=lambda x: (x['department_name'] or '', x['emp_name'] or ''))
+    on_leave_list = [r for r in leave_rows if r['global_user_id'] not in present_ids]
+    absent_list: list = []
+
+    if not is_saturday and not holiday:
+        for emp in all_emps:
+            uid = emp['id']
+            if uid in present_ids or uid in on_leave_ids:
+                continue
+            absent_list.append({
+                'global_user_id': uid,
+                'emp_name':       emp.get('name') or '(unknown)',
+                'company_id':     emp.get('company_id') or '',
+                'department_name': emp.get('department_name') or '',
+                'section_name':   emp.get('section_name') or '',
+            })
+
+    dept_summary: dict = {}
+    for emp in present_list:
+        dn = emp['department_name'] or 'No Department'
+        dept_summary.setdefault(dn, {'present': 0, 'absent': 0, 'on_leave': 0})
+        dept_summary[dn]['present'] += 1
+    for emp in on_leave_list:
+        dn = emp.get('department_name') or 'No Department'
+        dept_summary.setdefault(dn, {'present': 0, 'absent': 0, 'on_leave': 0})
+        dept_summary[dn]['on_leave'] += 1
+    for emp in absent_list:
+        dn = emp.get('department_name') or 'No Department'
+        dept_summary.setdefault(dn, {'present': 0, 'absent': 0, 'on_leave': 0})
+        dept_summary[dn]['absent'] += 1
+
+    return {
+        'date_ad':        date_ad,
+        'date_bs':        date_bs,
+        'is_saturday':    is_saturday,
+        'is_holiday':     bool(holiday),
+        'holiday':        holiday,
+        'total_employees': len(all_emps),
+        'present':        present_list,
+        'on_leave':       on_leave_list,
+        'absent':         absent_list,
+        'dept_summary':   dict(sorted(dept_summary.items())),
+        'totals': {
+            'present':  len(present_list),
+            'on_leave': len(on_leave_list),
+            'absent':   len(absent_list),
+        },
+    }
+
+
+# ─── Monthly Attendance Summary ───────────────────────────────────────────────
+
+def get_monthly_attendance_summary(conn, bs_year: int, bs_month: int) -> dict:
+    from datetime import date as _date, timedelta
+    from collections import defaultdict
+    from nepali_utils import bs_month_info, ad_to_bs_tuple
+
+    mi = bs_month_info(bs_year, bs_month)
+    if not mi:
+        return {}
+
+    from_ad = mi['first_ad']
+    to_ad   = mi['last_ad']
+
+    holiday_rows = get_holidays(conn, from_ad, to_ad)
+    holiday_map: dict = {}
+    for h in holiday_rows:
+        k = h['holiday_ad'].isoformat() if hasattr(h['holiday_ad'], 'isoformat') else str(h['holiday_ad'])
+        holiday_map[k] = h
+
+    all_emps = get_all_global_users_with_dept(conn)
+
+    sql_att = """
+        SELECT e.global_user_id,
+               DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') AS work_date
+        FROM attendance_logs al
+        JOIN employees e ON e.device_id = al.device_id AND e.user_id = al.user_id
+        WHERE DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') BETWEEN %s AND %s
+          AND e.global_user_id IS NOT NULL
+        GROUP BY e.global_user_id, work_date
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql_att, (from_ad, to_ad))
+        att_rows = cur.fetchall()
+
+    emp_attended: dict = defaultdict(set)
+    for gid, wd in att_rows:
+        emp_attended[gid].add(wd if isinstance(wd, _date) else _date.fromisoformat(str(wd)))
+
+    leave_rows = get_leave_applications(conn, status='approved', from_ad=from_ad, to_ad=to_ad)
+    emp_leaves: dict = defaultdict(list)
+    for lr in leave_rows:
+        fa = lr['from_ad'] if isinstance(lr['from_ad'], _date) else _date.fromisoformat(str(lr['from_ad']))
+        ta = lr['to_ad']   if isinstance(lr['to_ad'],   _date) else _date.fromisoformat(str(lr['to_ad']))
+        emp_leaves[lr['global_user_id']].append({
+            'from': fa, 'to': ta,
+            'type': lr['leave_type_name'], 'code': lr['leave_code'],
+        })
+
+    NEPAL_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    days_info: list = []
+    d = _date.fromisoformat(from_ad)
+    to_d = _date.fromisoformat(to_ad)
+    while d <= to_d:
+        dow        = d.isoweekday() % 7
+        is_sat     = (dow == 6)
+        ds         = d.isoformat()
+        h          = holiday_map.get(ds)
+        bs_t       = ad_to_bs_tuple(d)
+        bs_day_num = bs_t[2] if bs_t else d.day
+        days_info.append({
+            'date':         d,
+            'date_ad':      ds,
+            'bs_day':       bs_day_num,
+            'day_name':     NEPAL_DAYS[dow],
+            'is_weekend':   is_sat,
+            'is_holiday':   bool(h),
+            'holiday_name': h['name'] if h else '',
+            'holiday_type': h['holiday_type'] if h else '',
+            'is_working':   not is_sat and not h,
+        })
+        d += timedelta(days=1)
+
+    working_days_total = sum(1 for dd in days_info if dd['is_working'])
+
+    emp_summaries: list = []
+    for emp in all_emps:
+        uid      = emp['id']
+        attended = emp_attended.get(uid, set())
+        leaves   = emp_leaves.get(uid, [])
+        present  = 0
+        absent   = 0
+        on_leave = 0
+        late     = 0
+        leave_by_type: dict = defaultdict(float)
+
+        for dd in days_info:
+            if not dd['is_working']:
+                continue
+            d_obj = dd['date']
+            on_lv = False
+            for lv in leaves:
+                if lv['from'] <= d_obj <= lv['to']:
+                    on_lv = True
+                    leave_by_type[lv['type']] += 1
+                    break
+            if d_obj in attended:
+                present += 1
+            elif on_lv:
+                on_leave += 1
+            else:
+                absent += 1
+
+        emp_summaries.append({
+            'global_user_id':  uid,
+            'emp_name':        emp.get('name') or '(unknown)',
+            'company_id':      emp.get('company_id') or '',
+            'department_name': emp.get('department_name') or '',
+            'section_name':    emp.get('section_name') or '',
+            'directorate_name': emp.get('directorate_name') or '',
+            'unit_name':       emp.get('unit_name') or '',
+            'present':         present,
+            'absent':          absent,
+            'on_leave':        on_leave,
+            'working_days':    working_days_total,
+            'leave_by_type':   dict(leave_by_type),
+        })
+
+    from nepali_utils import NEPALI_MONTHS
+    return {
+        'bs_year':        bs_year,
+        'bs_month':       bs_month,
+        'month_name':     NEPALI_MONTHS[bs_month] if 1 <= bs_month <= 12 else str(bs_month),
+        'from_ad':        from_ad,
+        'to_ad':          to_ad,
+        'days':           days_info,
+        'working_days':   working_days_total,
+        'holiday_count':  sum(1 for dd in days_info if dd['is_holiday']),
+        'weekend_count':  sum(1 for dd in days_info if dd['is_weekend']),
+        'total_days':     len(days_info),
+        'holidays':       holiday_rows,
+        'employees':      emp_summaries,
+    }

@@ -8,8 +8,19 @@
   </div>
 </section>
 
+{# ── Quick navigation ─────────────────────────────────────────────────────── #}
+<nav class="settings-quicknav" aria-label="Section navigation">
+  <a href="#sec-directorates">Directorates</a>
+  <a href="#sec-departments">Departments</a>
+  <a href="#sec-sections">Sections</a>
+  <a href="#sec-units">Units</a>
+  <a href="#sec-shifts">Shifts</a>
+  <a href="#sec-shift-rules">Shift Rules</a>
+  <a href="#sec-emp-org">Employee Org</a>
+</nav>
+
 {# ── Directorates ─────────────────────────────────────────────────────────── #}
-<section class="panel">
+<section class="panel" id="sec-directorates">
   <div class="panel-head">
     <h2>Directorates</h2>
     <span class="muted">{{ directorates | length }} total</span>
@@ -50,7 +61,7 @@
 </section>
 
 {# ── Departments ──────────────────────────────────────────────────────────── #}
-<section class="panel">
+<section class="panel" id="sec-departments">
   <div class="panel-head">
     <h2>Departments</h2>
     <span class="muted">{{ departments | length }} total</span>
@@ -100,7 +111,7 @@
 </section>
 
 {# ── Sections ─────────────────────────────────────────────────────────────── #}
-<section class="panel">
+<section class="panel" id="sec-sections">
   <div class="panel-head">
     <h2>Sections</h2>
     <span class="muted">{{ sections | length }} total</span>
@@ -159,7 +170,7 @@
 </section>
 
 {# ── Units ────────────────────────────────────────────────────────────────── #}
-<section class="panel">
+<section class="panel" id="sec-units">
   <div class="panel-head">
     <h2>Units</h2>
     <span class="muted">{{ units | length }} total</span>
@@ -210,7 +221,7 @@
 </section>
 
 {# ── Shifts ───────────────────────────────────────────────────────────────── #}
-<section class="panel">
+<section class="panel" id="sec-shifts">
   <div class="panel-head">
     <h2>Shifts</h2>
     <span class="muted">{{ shifts | length }} defined</span>
@@ -271,21 +282,21 @@
 </section>
 
 {# ── Shift Rules ──────────────────────────────────────────────────────────── #}
-<section class="panel">
+<section class="panel" id="sec-shift-rules">
   <div class="panel-head">
     <h2>Shift Rules</h2>
     <span class="muted">Priority: Employee &gt; Unit &gt; Section &gt; Department &gt; Directorate</span>
   </div>
-  <p class="muted" style="font-size:12px;margin:0 0 10px">
-    Leave &laquo;To Date&raquo; blank for open-ended rules.
-  </p>
 
-  <div class="table-wrap" style="margin-bottom:14px">
-    <table class="table">
+  {# Current rules table #}
+  <div class="table-wrap" style="margin-bottom:20px">
+    <input data-table-filter="shift-rules-table" placeholder="Filter rules…"
+           style="margin-bottom:8px;padding:5px 10px;width:260px;font-size:13px">
+    <table class="table" id="shift-rules-table">
       <thead>
         <tr>
           <th>#</th><th>Target</th><th>Shift</th>
-          <th>From</th><th>To</th><th style="width:80px">Action</th>
+          <th>From (AD)</th><th>To (AD)</th><th style="width:80px">Action</th>
         </tr>
       </thead>
       <tbody>
@@ -294,22 +305,17 @@
           <td>{{ loop.index }}</td>
           <td>
             {% if r.employee_name %}
-            <span class="status success" style="font-size:11px">Employee</span>
-            {{ r.employee_name }}
+              <span class="status success" style="font-size:11px">Employee</span> {{ r.employee_name }}
             {% elif r.unit_name %}
-            <span class="status info" style="font-size:11px">Unit</span>
-            {{ r.unit_name }}
+              <span class="status info" style="font-size:11px">Unit</span> {{ r.unit_name }}
             {% elif r.section_name %}
-            <span class="status info" style="font-size:11px">Section</span>
-            {{ r.section_name }}
+              <span class="status info" style="font-size:11px">Section</span> {{ r.section_name }}
             {% elif r.department_name %}
-            <span class="status info" style="font-size:11px">Dept</span>
-            {{ r.department_name }}
+              <span class="status info" style="font-size:11px">Dept</span> {{ r.department_name }}
             {% elif r.directorate_name %}
-            <span class="status info" style="font-size:11px">Dir</span>
-            {{ r.directorate_name }}
+              <span class="status info" style="font-size:11px">Dir</span> {{ r.directorate_name }}
             {% else %}
-            <span class="muted">&mdash;</span>
+              <span class="muted">&mdash;</span>
             {% endif %}
           </td>
           <td>
@@ -332,128 +338,144 @@
     </table>
   </div>
 
-  {# Add rule form #}
-  <form method="post" action="/settings/shift-rules/add" class="form" id="rule-form">
-    <div class="filter-bar-flex" style="gap:10px;align-items:flex-start;flex-wrap:wrap">
+  {# ── Add Rule Form ─────────────────────────────────────────────────────── #}
+  <div class="add-rule-card">
+    <h3 style="margin:0 0 16px;font-size:14px;font-weight:700;color:#1e293b;border-bottom:1px solid #e2e8f0;padding-bottom:8px">
+      ＋ Add New Shift Rule
+    </h3>
+    <form method="post" action="/settings/shift-rules/add" id="rule-form">
+      <div class="rule-form-grid">
 
-      <label style="width:180px">Shift
-        <select name="shift_id" required>
-          <option value="">-- select shift --</option>
-          {% for s in shifts %}
-          <option value="{{ s.id }}">{{ s.name }} ({{ s.start_time[:5] }}&ndash;{{ s.end_time[:5] }})</option>
-          {% endfor %}
-        </select>
-      </label>
+        {# Col 1: Shift + Dates #}
+        <div class="rule-form-col">
+          <label>Shift <span style="color:red">*</span>
+            <select name="shift_id" required style="margin-top:4px">
+              <option value="">— select shift —</option>
+              {% for s in shifts %}
+              <option value="{{ s.id }}">{{ s.name }} &nbsp;({{ s.start_time[:5] }}&ndash;{{ s.end_time[:5] }})</option>
+              {% endfor %}
+            </select>
+          </label>
 
-      <div>
-        <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600">From Date (BS)</label>
-        <input class="bsdp" data-ad-target="rule_from_ad" placeholder="Click to pick BS date" style="min-width:140px">
-        <input type="hidden" name="from_date" id="rule_from_ad">
-      </div>
+          <label style="margin-top:14px">From Date (BS) <span style="color:red">*</span>
+            <input class="bsdp" data-ad-target="rule_from_ad" placeholder="Pick BS date" style="margin-top:4px">
+            <input type="hidden" name="from_date" id="rule_from_ad">
+          </label>
 
-      <div>
-        <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600">To Date (BS, optional)</label>
-        <input class="bsdp" data-ad-target="rule_to_ad" placeholder="Click to pick BS date" style="min-width:140px">
-        <input type="hidden" name="to_date" id="rule_to_ad">
-      </div>
-
-      <div>
-        <label style="display:block;margin-bottom:6px;font-size:12px;font-weight:600">Target Type</label>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <label style="font-size:13px;font-weight:normal;cursor:pointer">
-            <input type="radio" name="target_type" value="employee" checked onchange="ruleTargetChange(this.value)"> Employee
-          </label>
-          <label style="font-size:13px;font-weight:normal;cursor:pointer">
-            <input type="radio" name="target_type" value="department" onchange="ruleTargetChange(this.value)"> Department
-          </label>
-          <label style="font-size:13px;font-weight:normal;cursor:pointer">
-            <input type="radio" name="target_type" value="section" onchange="ruleTargetChange(this.value)"> Section
-          </label>
-          <label style="font-size:13px;font-weight:normal;cursor:pointer">
-            <input type="radio" name="target_type" value="unit" onchange="ruleTargetChange(this.value)"> Unit
-          </label>
-          <label style="font-size:13px;font-weight:normal;cursor:pointer">
-            <input type="radio" name="target_type" value="directorate" onchange="ruleTargetChange(this.value)"> Directorate
+          <label style="margin-top:14px">To Date (BS) <small class="muted">(optional — leave blank for open-ended)</small>
+            <input class="bsdp" data-ad-target="rule_to_ad" placeholder="Pick BS date" style="margin-top:4px">
+            <input type="hidden" name="to_date" id="rule_to_ad">
           </label>
         </div>
-      </div>
 
-      {# Employee multi-select #}
-      <div id="rule-emp-wrap" style="min-width:240px">
-        <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600">Employees</label>
-        <input type="text" id="rule-emp-search" placeholder="Search employees..."
-               oninput="ruleEmpFilter(this.value)"
-               style="width:100%;margin-bottom:4px;padding:4px 6px;font-size:12px">
-        <div id="rule-emp-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--border,#ddd);border-radius:4px;padding:4px">
-          {% for emp in employees %}
-          <label style="display:flex;align-items:center;gap:6px;padding:3px 4px;cursor:pointer;font-size:13px;font-weight:normal"
-                 data-search="{{ (emp.name or '')|lower }} {{ emp.company_id or '' }}">
-            <input type="checkbox" name="global_user_id[]" value="{{ emp.id }}">
-            <span>{{ emp.name or '(no name)' }}{% if emp.company_id %} <span class="muted" style="font-size:11px">{{ emp.company_id }}</span>{% endif %}</span>
-          </label>
-          {% else %}
-          <p class="muted" style="font-size:12px;padding:4px">No employees found.</p>
-          {% endfor %}
-        </div>
-      </div>
-
-      {# Department single-select #}
-      <div id="rule-dept-wrap" style="display:none;min-width:180px">
-        <label>Department
-          <select name="department_id" id="rule-dept-select">
-            <option value="">-- select department --</option>
-            {% for d in departments %}
-            <option value="{{ d.id }}">{{ d.name }}</option>
+        {# Col 2: Target Type + Selector #}
+        <div class="rule-form-col">
+          <label style="display:block;margin-bottom:8px">Target Type</label>
+          <div class="target-type-pills">
+            {% for tv, tl in [('employee','Employee'),('department','Department'),
+                               ('section','Section'),('unit','Unit'),('directorate','Directorate')] %}
+            <label class="pill-radio">
+              <input type="radio" name="target_type" value="{{ tv }}"
+                     {% if tv == 'employee' %}checked{% endif %}
+                     onchange="ruleTargetChange(this.value)">
+              <span>{{ tl }}</span>
+            </label>
             {% endfor %}
-          </select>
-        </label>
-      </div>
+          </div>
 
-      {# Section single-select #}
-      <div id="rule-sec-wrap" style="display:none;min-width:180px">
-        <label>Section
-          <select name="section_id" id="rule-sec-select">
-            <option value="">-- select section --</option>
-            {% for s in sections %}
-            <option value="{{ s.id }}">{{ s.name }}{% if s.department_name %} ({{ s.department_name }}){% endif %}</option>
-            {% endfor %}
-          </select>
-        </label>
-      </div>
+          {# Employee tags multi-picker #}
+          <div id="rule-emp-wrap" style="margin-top:12px">
+            <div class="emp-tags-picker">
+              <div id="rule-emp-tags" class="emp-tags-display" onclick="document.getElementById('rule-emp-search').focus()">
+                <span id="rule-emp-placeholder" style="color:#94a3b8;font-size:12px;padding:2px 4px">Click or type to select employees…</span>
+              </div>
+              <input type="text" id="rule-emp-search" placeholder="Search by name, ID, or department…"
+                     oninput="ruleEmpFilter(this.value)" onfocus="ruleEmpDropOpen()"
+                     autocomplete="off" style="border:none;border-top:1px solid #e2e8f0;padding:8px 10px;width:100%;font-size:13px;outline:none;background:#fff">
+              <div id="rule-emp-dropdown" class="emp-tags-dropdown" style="display:none">
+                {% for emp in employees %}
+                <div class="rule-emp-opt" tabindex="0"
+                     data-id="{{ emp.id }}"
+                     data-name="{{ emp.name or '(no name)' }}"
+                     data-search="{{ (emp.name or '')|lower }} {{ emp.company_id or '' }} {{ (emp.department_name or '')|lower }}"
+                     onclick="ruleEmpToggle(this)">
+                  <span class="emp-opt-check" id="rule-emp-ck-{{ emp.id }}">&#x25A1;</span>
+                  <span>{{ emp.name or '(no name)' }}
+                    {% if emp.company_id %}<span class="muted" style="font-size:11px">&nbsp;{{ emp.company_id }}</span>{% endif %}
+                    {% if emp.department_name %}<span style="color:#64748b;font-size:11px">&nbsp;—&nbsp;{{ emp.department_name }}</span>{% endif %}
+                  </span>
+                </div>
+                {% else %}
+                <div style="padding:12px;color:#94a3b8;font-size:13px">No employees in global_users yet.</div>
+                {% endfor %}
+              </div>
+            </div>
+            {# Hidden checkboxes submitted with form #}
+            <div id="rule-emp-hidden" style="display:none">
+              {% for emp in employees %}
+              <input type="checkbox" name="global_user_id[]" value="{{ emp.id }}" id="rule-emp-cb-{{ emp.id }}">
+              {% endfor %}
+            </div>
+          </div>
 
-      {# Unit single-select #}
-      <div id="rule-unit-wrap" style="display:none;min-width:180px">
-        <label>Unit
-          <select name="unit_id" id="rule-unit-select">
-            <option value="">-- select unit --</option>
-            {% for u in units %}
-            <option value="{{ u.id }}">{{ u.name }}{% if u.section_name %} ({{ u.section_name }}){% endif %}</option>
-            {% endfor %}
-          </select>
-        </label>
-      </div>
+          {# Org single-selects #}
+          <div id="rule-dept-wrap" style="display:none;margin-top:12px">
+            <label>Department <span style="color:red">*</span>
+              <select name="department_id" id="rule-dept-select" style="margin-top:4px">
+                <option value="">— select department —</option>
+                {% for d in departments %}
+                <option value="{{ d.id }}">{{ d.name }}{% if d.directorate_name %} ({{ d.directorate_name }}){% endif %}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
 
-      {# Directorate single-select #}
-      <div id="rule-dir-wrap" style="display:none;min-width:180px">
-        <label>Directorate
-          <select name="directorate_id" id="rule-dir-select">
-            <option value="">-- select directorate --</option>
-            {% for dr in directorates %}
-            <option value="{{ dr.id }}">{{ dr.name }}</option>
-            {% endfor %}
-          </select>
-        </label>
-      </div>
+          <div id="rule-sec-wrap" style="display:none;margin-top:12px">
+            <label>Section <span style="color:red">*</span>
+              <select name="section_id" id="rule-sec-select" style="margin-top:4px">
+                <option value="">— select section —</option>
+                {% for s in sections %}
+                <option value="{{ s.id }}">{{ s.name }}{% if s.department_name %} ({{ s.department_name }}){% endif %}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
 
-    </div>
-    <div style="margin-top:10px">
-      <button class="btn primary" type="submit">Add Shift Rule</button>
-    </div>
-  </form>
+          <div id="rule-unit-wrap" style="display:none;margin-top:12px">
+            <label>Unit <span style="color:red">*</span>
+              <select name="unit_id" id="rule-unit-select" style="margin-top:4px">
+                <option value="">— select unit —</option>
+                {% for u in units %}
+                <option value="{{ u.id }}">{{ u.name }}{% if u.section_name %} ({{ u.section_name }}){% endif %}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
+
+          <div id="rule-dir-wrap" style="display:none;margin-top:12px">
+            <label>Directorate <span style="color:red">*</span>
+              <select name="directorate_id" id="rule-dir-select" style="margin-top:4px">
+                <option value="">— select directorate —</option>
+                {% for dr in directorates %}
+                <option value="{{ dr.id }}">{{ dr.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
+
+        </div>{# /rule-form-col #}
+      </div>{# /rule-form-grid #}
+
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid #e2e8f0;display:flex;gap:10px;align-items:center">
+        <button class="btn primary" type="submit" style="padding:9px 22px">Add Shift Rule</button>
+        <span id="rule-emp-count-badge" class="muted" style="font-size:13px"></span>
+      </div>
+    </form>
+  </div>
 </section>
 
 {# ── Employee Org Assignment ──────────────────────────────────────────────── #}
-<section class="panel">
+<section class="panel" id="sec-emp-org">
   <div class="panel-head">
     <h2>Employee Org Assignment</h2>
     <span class="muted">Assign department, section and unit per employee</span>
@@ -508,33 +530,99 @@
 </section>
 
 <script>
-/* ── Target type toggle for shift rule form ──────────────────────────────── */
+/* ── Target type toggle ─────────────────────────────────────────────────── */
 function ruleTargetChange(v) {
-  var ids = ['emp', 'dept', 'sec', 'unit', 'dir'];
-  var map  = { employee: 'emp', department: 'dept', section: 'sec', unit: 'unit', directorate: 'dir' };
-  ids.forEach(function (k) {
+  var map = { employee: 'emp', department: 'dept', section: 'sec', unit: 'unit', directorate: 'dir' };
+  ['emp','dept','sec','unit','dir'].forEach(function (k) {
     var el = document.getElementById('rule-' + k + '-wrap');
     if (el) el.style.display = (map[v] === k) ? '' : 'none';
   });
 }
 
-/* ── Employee multi-select search ────────────────────────────────────────── */
-window.ruleEmpFilter = function (q) {
-  q = (q || '').toLowerCase();
-  document.querySelectorAll('#rule-emp-list label').forEach(function (lbl) {
-    var txt = (lbl.getAttribute('data-search') || '').toLowerCase();
-    lbl.style.display = txt.indexOf(q) !== -1 ? '' : 'none';
+/* ── Tags-style multi-employee picker ───────────────────────────────────── */
+(function () {
+  var selected = {};   // {id: name}
+
+  function updateTags() {
+    var tagsEl = document.getElementById('rule-emp-tags');
+    var ph     = document.getElementById('rule-emp-placeholder');
+    var badge  = document.getElementById('rule-emp-count-badge');
+    if (!tagsEl) return;
+
+    // Remove old tags (keep placeholder)
+    tagsEl.querySelectorAll('.emp-tag').forEach(function (t) { t.remove(); });
+
+    var count = Object.keys(selected).length;
+    ph.style.display = count ? 'none' : '';
+    if (badge) badge.textContent = count ? count + ' employee(s) selected' : '';
+
+    Object.keys(selected).forEach(function (id) {
+      var tag = document.createElement('span');
+      tag.className = 'emp-tag';
+      tag.innerHTML = selected[id] + ' <button type="button" onclick="ruleEmpRemove(\'' + id + '\')">&times;</button>';
+      tagsEl.insertBefore(tag, ph);
+    });
+  }
+
+  window.ruleEmpToggle = function (el) {
+    var id   = el.getAttribute('data-id');
+    var name = el.getAttribute('data-name');
+    var cb   = document.getElementById('rule-emp-cb-' + id);
+    var ck   = document.getElementById('rule-emp-ck-' + id);
+    if (selected[id]) {
+      delete selected[id];
+      if (cb) cb.checked = false;
+      if (ck) ck.textContent = '□';
+      el.classList.remove('selected');
+    } else {
+      selected[id] = name;
+      if (cb) cb.checked = true;
+      if (ck) ck.textContent = '☑';
+      el.classList.add('selected');
+    }
+    updateTags();
+  };
+
+  window.ruleEmpRemove = function (id) {
+    delete selected[id];
+    var cb  = document.getElementById('rule-emp-cb-' + id);
+    var ck  = document.getElementById('rule-emp-ck-' + id);
+    var opt = document.querySelector('.rule-emp-opt[data-id="' + id + '"]');
+    if (cb) cb.checked = false;
+    if (ck) ck.textContent = '□';
+    if (opt) opt.classList.remove('selected');
+    updateTags();
+  };
+
+  window.ruleEmpFilter = function (q) {
+    q = (q || '').toLowerCase();
+    document.querySelectorAll('.rule-emp-opt').forEach(function (opt) {
+      var txt = (opt.getAttribute('data-search') || '').toLowerCase();
+      opt.style.display = txt.indexOf(q) !== -1 ? '' : 'none';
+    });
+    ruleEmpDropOpen();
+  };
+
+  window.ruleEmpDropOpen = function () {
+    var d = document.getElementById('rule-emp-dropdown');
+    if (d) d.style.display = '';
+  };
+
+  // Close dropdown on outside click
+  document.addEventListener('click', function (e) {
+    var wrap = document.getElementById('rule-emp-wrap');
+    var dd   = document.getElementById('rule-emp-dropdown');
+    if (wrap && dd && !wrap.contains(e.target)) dd.style.display = 'none';
   });
-};
+})();
 
 /* ── Add Section form: filter departments by directorate ─────────────────── */
 window.secFilterDept = function (dirId) {
   var sel = document.getElementById('sec-dept-select');
   Array.from(sel.options).forEach(function (opt) {
-    if (!opt.value) return; // keep placeholder
+    if (!opt.value) return;
     opt.hidden = dirId ? (opt.getAttribute('data-dir') !== dirId) : false;
   });
-  // Reset selection if now hidden
   if (sel.selectedOptions.length && sel.selectedOptions[0].hidden) sel.value = '';
 };
 </script>

@@ -1697,9 +1697,14 @@ def _month_name(m: int) -> str:
 @app.get("/reports/monthly")
 def reports_monthly_list(
     request: Request,
-    bs_year:  str | None = None,
-    bs_month: str | None = None,
-    page:     str | None = None,
+    bs_year:        str | None = None,
+    bs_month:       str | None = None,
+    page:           str | None = None,
+    search:         str | None = None,
+    department_id:  str | None = None,
+    section_id:     str | None = None,
+    unit_id:        str | None = None,
+    directorate_id: str | None = None,
 ):
     def_year, def_month = _bs_defaults()
     sel_year  = _int_param(bs_year)  or def_year
@@ -1707,28 +1712,67 @@ def reports_monthly_list(
     page_num  = max(1, _int_param(page) or 1)
     per_page  = 25
 
+    f_dept  = _int_param(department_id)
+    f_sec   = _int_param(section_id)
+    f_unit  = _int_param(unit_id)
+    f_dir   = _int_param(directorate_id)
+    f_srch  = (search or '').strip().lower()
+
     conn = get_connection()
     try:
-        from db import get_employees_for_report as _gef
-        all_emps = _gef(conn)
+        from db import (get_employees_for_report as _gef,
+                        get_all_departments, get_all_directorates,
+                        get_all_sections, get_all_units)
+        all_emps     = _gef(conn)
+        all_depts    = get_all_departments(conn)
+        all_dirs     = get_all_directorates(conn)
+        all_sections = get_all_sections(conn)
+        all_units_l  = get_all_units(conn)
     finally:
         conn.close()
 
-    total       = len(all_emps)
+    # Apply filters
+    filtered = all_emps
+    if f_dir:
+        filtered = [e for e in filtered if e.get('directorate_id') == f_dir]
+    if f_dept:
+        filtered = [e for e in filtered if e.get('department_id') == f_dept]
+    if f_sec:
+        filtered = [e for e in filtered if e.get('section_id') == f_sec]
+    if f_unit:
+        filtered = [e for e in filtered if e.get('unit_id') == f_unit]
+    if f_srch:
+        filtered = [e for e in filtered
+                    if f_srch in (e.get('display_name') or '').lower()
+                    or f_srch in (e.get('company_id') or '').lower()
+                    or f_srch in (e.get('department_name') or '').lower()
+                    or f_srch in (e.get('section_name') or '').lower()]
+
+    total       = len(filtered)
     total_pages = max(1, (total + per_page - 1) // per_page)
     page_num    = min(page_num, total_pages)
-    page_emps   = all_emps[(page_num - 1) * per_page: page_num * per_page]
+    page_emps   = filtered[(page_num - 1) * per_page: page_num * per_page]
 
     return render(templates, request, 'reports_monthly.html', {
         'view':            'list',
         'page_emps':       page_emps,
         'total_employees': total,
+        'total_unfiltered': len(all_emps),
         'page':            page_num,
         'total_pages':     total_pages,
         'sel_bs_year':     sel_year,
         'sel_bs_month':    sel_month,
         'def_year':        def_year,
         'def_month':       def_month,
+        'all_depts':       all_depts,
+        'all_dirs':        all_dirs,
+        'all_sections':    all_sections,
+        'all_units':       all_units_l,
+        'f_dept':          f_dept or '',
+        'f_dir':           f_dir or '',
+        'f_sec':           f_sec or '',
+        'f_unit':          f_unit or '',
+        'f_srch':          search or '',
         'report':          None,
         'error':           None,
         'now_str':         _npt_now_str(),
@@ -2170,6 +2214,423 @@ async def set_emp_org(request: Request, global_id: int):
     finally:
         conn.close()
     return redirect_with_flash('/settings', 'success', 'Employee org assignment updated.')
+
+
+# ─── Leave Management ────────────────────────────────────────────────────────
+
+
+@app.get("/leaves")
+def leaves_page(request: Request,
+                status:      str | None = None,
+                emp_key:     str | None = None,
+                from_bs:     str | None = None,
+                to_bs:       str | None = None,
+                bs_year:     str | None = None):
+    from db import (get_all_leave_types, get_leave_applications,
+                    get_all_global_users_with_dept, get_leave_balances,
+                    get_employee_leave_balance)
+    from nepali_utils import bs_to_ad, ad_to_bs_tuple, NEPALI_MONTHS
+    import datetime
+
+    today_bs = _today_bs()
+    cur_bs_year = int(today_bs[:4]) if today_bs else 2082
+
+    sel_year  = int(bs_year) if bs_year else cur_bs_year
+    from_ad = bs_to_ad(from_bs) if from_bs else None
+    to_ad   = bs_to_ad(to_bs)   if to_bs   else None
+
+    conn = get_connection()
+    try:
+        ltypes    = get_all_leave_types(conn)
+        all_emps  = get_all_global_users_with_dept(conn)
+
+        sel_gid = None
+        if emp_key:
+            if emp_key.startswith('g'):
+                try:
+                    sel_gid = int(emp_key[1:])
+                except ValueError:
+                    pass
+
+        apps = get_leave_applications(conn,
+                                      global_user_id=sel_gid,
+                                      status=status or None,
+                                      from_ad=from_ad,
+                                      to_ad=to_ad)
+
+        balances = get_leave_balances(conn, sel_year)
+
+        emp_balance: list = []
+        if sel_gid:
+            emp_balance = get_employee_leave_balance(conn, sel_gid, sel_year)
+    finally:
+        conn.close()
+
+    return render(templates, request, 'leaves.html', {
+        'leave_types':   ltypes,
+        'leave_apps':    apps,
+        'all_emps':      all_emps,
+        'balances':      balances,
+        'emp_balance':   emp_balance,
+        'sel_status':    status or '',
+        'sel_emp_key':   emp_key or '',
+        'sel_gid':       sel_gid,
+        'sel_from_bs':   from_bs or '',
+        'sel_to_bs':     to_bs or '',
+        'sel_year':      sel_year,
+        'nepali_months': NEPALI_MONTHS,
+        'today_bs':      today_bs,
+        'COMPANY_NAME':  COMPANY_NAME,
+    })
+
+
+@app.post("/leaves/add")
+async def add_leave(request: Request):
+    from db import (create_leave_application, get_holidays, count_leave_working_days)
+    from nepali_utils import bs_to_ad, ad_to_bs_tuple
+    form = await request.form()
+
+    def _fp(k, d=''):  return (form.get(k) or d).strip()
+    def _fi(k):
+        try: return int(form.get(k) or '')
+        except: return None
+
+    global_user_id = _fi('global_user_id')
+    leave_type_id  = _fi('leave_type_id')
+    from_bs        = _fp('from_bs')
+    to_bs          = _fp('to_bs')
+    reason         = _fp('reason')
+    status         = _fp('status') or 'approved'
+
+    if not global_user_id or not leave_type_id or not from_bs or not to_bs:
+        return redirect_with_flash('/leaves', 'error',
+                                   'Employee, leave type, and dates are required.')
+
+    from_ad = bs_to_ad(from_bs)
+    to_ad   = bs_to_ad(to_bs)
+    if not from_ad or not to_ad:
+        return redirect_with_flash('/leaves', 'error', 'Invalid BS dates.')
+    if from_ad > to_ad:
+        return redirect_with_flash('/leaves', 'error', 'From date must be before to date.')
+
+    try:
+        days_val = float(_fp('days') or '0')
+    except ValueError:
+        days_val = 0.0
+    if days_val <= 0:
+        conn = get_connection()
+        try:
+            hols = get_holidays(conn, from_ad, to_ad)
+        finally:
+            conn.close()
+        days_val = count_leave_working_days(from_ad, to_ad, hols)
+    if days_val <= 0:
+        return redirect_with_flash('/leaves', 'error',
+                                   'No working days in selected range (check for holidays/weekend).')
+
+    today_bs = _today_bs()
+    conn = get_connection()
+    try:
+        create_leave_application(conn, global_user_id, leave_type_id,
+                                  from_bs, to_bs, from_ad, to_ad,
+                                  days_val, reason, today_bs, status)
+    except Exception as exc:
+        return redirect_with_flash('/leaves', 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash('/leaves', 'success',
+                                f'Leave added ({days_val} days, {status}).')
+
+
+@app.post("/leaves/{app_id}/approve")
+async def approve_leave(request: Request, app_id: int):
+    from db import update_leave_status
+    form = await request.form()
+    remarks = (form.get('remarks') or '').strip()
+    conn = get_connection()
+    try:
+        update_leave_status(conn, app_id, 'approved', remarks, 'admin')
+    except Exception as exc:
+        return redirect_with_flash('/leaves', 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash('/leaves', 'success', 'Leave approved.')
+
+
+@app.post("/leaves/{app_id}/reject")
+async def reject_leave(request: Request, app_id: int):
+    from db import update_leave_status
+    form = await request.form()
+    remarks = (form.get('remarks') or '').strip()
+    conn = get_connection()
+    try:
+        update_leave_status(conn, app_id, 'rejected', remarks, 'admin')
+    except Exception as exc:
+        return redirect_with_flash('/leaves', 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash('/leaves', 'success', 'Leave rejected.')
+
+
+@app.post("/leaves/{app_id}/delete")
+async def delete_leave(request: Request, app_id: int):
+    from db import delete_leave_application
+    conn = get_connection()
+    try:
+        delete_leave_application(conn, app_id)
+    except Exception as exc:
+        return redirect_with_flash('/leaves', 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash('/leaves', 'success', 'Leave record deleted.')
+
+
+@app.post("/leaves/allocate")
+async def allocate_leaves(request: Request):
+    from db import allocate_annual_leaves
+    form    = await request.form()
+    bs_year = int(form.get('bs_year') or _today_bs()[:4])
+    conn    = get_connection()
+    try:
+        count = allocate_annual_leaves(conn, bs_year)
+    except Exception as exc:
+        return redirect_with_flash('/leaves', 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash('/leaves', 'success',
+                                f'Annual leaves allocated for {bs_year} BS ({count} records).')
+
+
+@app.get("/api/leave-days")
+def api_leave_days(from_ad: str, to_ad: str):
+    from db import get_holidays, count_leave_working_days
+    from fastapi.responses import JSONResponse
+    conn = get_connection()
+    try:
+        hols = get_holidays(conn, from_ad, to_ad)
+    finally:
+        conn.close()
+    days = count_leave_working_days(from_ad, to_ad, hols)
+    return JSONResponse({'days': days})
+
+
+# ─── Holiday / Monthly Calendar ───────────────────────────────────────────────
+
+
+@app.get("/calendar")
+def calendar_page(request: Request,
+                  bs_year:  str | None = None,
+                  bs_month: str | None = None):
+    from db import get_holidays
+    from nepali_utils import bs_month_info, ad_to_bs_tuple, NEPALI_MONTHS
+    import datetime
+
+    today_bs = _today_bs()
+    if not bs_year or not bs_month:
+        parts = today_bs.split('-') if today_bs else ['2082', '1', '1']
+        bs_year  = bs_year  or parts[0]
+        bs_month = bs_month or parts[1]
+
+    try:
+        y, m = int(bs_year), int(bs_month)
+    except ValueError:
+        y, m = 2082, 1
+
+    mi = bs_month_info(y, m)
+    if not mi:
+        return render(templates, request, 'calendar.html', {
+            'error': f'Invalid BS year/month: {y}/{m}',
+            'COMPANY_NAME': COMPANY_NAME,
+        })
+
+    from_ad, to_ad = mi['first_ad'], mi['last_ad']
+    conn = get_connection()
+    try:
+        holiday_rows = get_holidays(conn, from_ad, to_ad)
+    finally:
+        conn.close()
+
+    holiday_map = {}
+    for h in holiday_rows:
+        k = h['holiday_ad'].isoformat() if hasattr(h['holiday_ad'], 'isoformat') else str(h['holiday_ad'])
+        holiday_map[k] = h
+
+    from datetime import date as _date, timedelta
+    NEPAL_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    days_info: list = []
+    d     = _date.fromisoformat(from_ad)
+    to_d  = _date.fromisoformat(to_ad)
+    while d <= to_d:
+        dow    = d.isoweekday() % 7
+        is_sat = (dow == 6)
+        ds     = d.isoformat()
+        h      = holiday_map.get(ds)
+        bs_t   = ad_to_bs_tuple(d)
+        days_info.append({
+            'date_ad':      ds,
+            'bs_day':       bs_t[2] if bs_t else d.day,
+            'day_name':     NEPAL_DAYS[dow],
+            'is_weekend':   is_sat,
+            'is_holiday':   bool(h),
+            'holiday_name': h['name'] if h else '',
+            'holiday_type': h['holiday_type'] if h else '',
+        })
+        d += timedelta(days=1)
+
+    # Build calendar grid (weeks starting Sunday)
+    first_dow = mi['first_weekday']
+    cal_grid:  list = []
+    row: list = [None] * first_dow
+    for dd in days_info:
+        row.append(dd)
+        if len(row) == 7:
+            cal_grid.append(row)
+            row = []
+    if row:
+        while len(row) < 7:
+            row.append(None)
+        cal_grid.append(row)
+
+    working_days = sum(1 for dd in days_info if not dd['is_weekend'] and not dd['is_holiday'])
+    holiday_count = len(holiday_rows)
+    weekend_count = sum(1 for dd in days_info if dd['is_weekend'])
+
+    prev_m = m - 1 if m > 1 else 12
+    prev_y = y if m > 1 else y - 1
+    next_m = m + 1 if m < 12 else 1
+    next_y = y if m < 12 else y + 1
+
+    return render(templates, request, 'calendar.html', {
+        'bs_year':       y,
+        'bs_month':      m,
+        'month_name':    mi['month_name'],
+        'nepali_months': NEPALI_MONTHS,
+        'days':          days_info,
+        'cal_grid':      cal_grid,
+        'holidays':      holiday_rows,
+        'working_days':  working_days,
+        'holiday_count': holiday_count,
+        'weekend_count': weekend_count,
+        'total_days':    len(days_info),
+        'from_ad':       from_ad,
+        'to_ad':         to_ad,
+        'prev_y':        prev_y, 'prev_m': prev_m,
+        'next_y':        next_y, 'next_m': next_m,
+        'today_bs':      today_bs,
+        'COMPANY_NAME':  COMPANY_NAME,
+    })
+
+
+@app.post("/calendar/holidays/add")
+async def add_holiday_route(request: Request):
+    from db import create_holiday
+    from nepali_utils import bs_to_ad
+    form = await request.form()
+    name         = (form.get('name') or '').strip()
+    holiday_bs   = (form.get('holiday_bs') or '').strip()
+    holiday_ad   = (form.get('holiday_ad') or '').strip()
+    holiday_type = (form.get('holiday_type') or 'public').strip()
+    description  = (form.get('description') or '').strip()
+    redirect_to  = (form.get('redirect_to') or '/calendar').strip()
+
+    if not name or not holiday_bs:
+        return redirect_with_flash(redirect_to, 'error', 'Holiday name and BS date are required.')
+    if not holiday_ad:
+        holiday_ad = bs_to_ad(holiday_bs)
+    if not holiday_ad:
+        return redirect_with_flash(redirect_to, 'error', 'Invalid BS date — cannot convert to AD.')
+
+    conn = get_connection()
+    try:
+        create_holiday(conn, name, holiday_ad, holiday_bs, holiday_type, description)
+    except Exception as exc:
+        return redirect_with_flash(redirect_to, 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash(redirect_to, 'success', f'Holiday "{name}" added.')
+
+
+@app.post("/calendar/holidays/{h_id}/delete")
+async def delete_holiday_route(request: Request, h_id: int):
+    from db import delete_holiday
+    form        = await request.form()
+    redirect_to = (form.get('redirect_to') or '/calendar').strip()
+    conn = get_connection()
+    try:
+        delete_holiday(conn, h_id)
+    except Exception as exc:
+        return redirect_with_flash(redirect_to, 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash(redirect_to, 'success', 'Holiday deleted.')
+
+
+# ─── Daily Attendance Report ──────────────────────────────────────────────────
+
+
+@app.get("/reports/daily")
+def daily_report(request: Request,
+                 date_bs: str | None = None,
+                 date_ad: str | None = None):
+    from db import get_daily_attendance_summary
+    from nepali_utils import bs_to_ad, ad_to_bs
+    import datetime
+
+    if date_bs and not date_ad:
+        date_ad = bs_to_ad(date_bs)
+    if not date_ad:
+        date_ad = datetime.date.today().isoformat()
+    if not date_bs:
+        date_bs = ad_to_bs(date_ad) or ''
+
+    conn = get_connection()
+    try:
+        summary = get_daily_attendance_summary(conn, date_ad)
+    except Exception as exc:
+        summary = {'error': str(exc)}
+    finally:
+        conn.close()
+
+    summary['sel_date_bs'] = date_bs
+    summary['sel_date_ad'] = date_ad
+    summary['COMPANY_NAME'] = COMPANY_NAME
+    return render(templates, request, 'reports_daily.html', summary)
+
+
+# ─── Monthly Summary Report ───────────────────────────────────────────────────
+
+
+@app.get("/reports/monthly-summary")
+def monthly_summary_report(request: Request,
+                            bs_year:  str | None = None,
+                            bs_month: str | None = None):
+    from db import get_monthly_attendance_summary
+    from nepali_utils import NEPALI_MONTHS
+    import datetime
+
+    today_bs = _today_bs()
+    if not bs_year or not bs_month:
+        parts    = today_bs.split('-') if today_bs else ['2082', '1', '1']
+        bs_year  = bs_year  or parts[0]
+        bs_month = bs_month or parts[1]
+
+    try:
+        y, m = int(bs_year), int(bs_month)
+    except ValueError:
+        y, m = 2082, 1
+
+    conn = get_connection()
+    try:
+        summary = get_monthly_attendance_summary(conn, y, m)
+    except Exception as exc:
+        summary = {'error': str(exc)}
+    finally:
+        conn.close()
+
+    summary['nepali_months'] = NEPALI_MONTHS
+    summary['today_bs']      = today_bs
+    summary['COMPANY_NAME']  = COMPANY_NAME
+    return render(templates, request, 'reports_monthly_summary.html', summary)
 
 
 # ---- Schedule editor ----------------------------------------------------

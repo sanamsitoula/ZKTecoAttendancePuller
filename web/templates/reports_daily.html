@@ -1,0 +1,295 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<style>
+@media print {
+  .no-print { display: none !important; }
+  body { font-size: 9pt; }
+  @page { size: A4 portrait; margin: 15mm; }
+  .print-report-header { display: block !important; }
+  .panel { box-shadow: none !important; border: 1px solid #ccc; }
+}
+.print-report-header { display: none; }
+</style>
+
+{# ── Screen-only controls ──────────────────────────────────────────────────── #}
+<section class="page-head no-print">
+  <div>
+    <p class="eyebrow">Reports</p>
+    <h1>Daily Attendance Report</h1>
+  </div>
+  <div class="head-actions">
+    <button class="btn" type="button" onclick="window.print()">Print</button>
+    <button class="btn primary" type="button" onclick="downloadPDF()">Download PDF</button>
+  </div>
+</section>
+
+<section class="panel no-print">
+  <form method="get" action="/reports/daily" class="form" style="max-width:none">
+    <div class="filter-bar-flex" style="gap:14px;align-items:flex-end;flex-wrap:wrap">
+      <label style="min-width:180px">Date (BS)
+        <input class="bsdp" name="date_bs" value="{{ sel_date_bs }}" data-ad-target="date_ad_h"
+               autocomplete="off" placeholder="YYYY-MM-DD">
+        <input type="hidden" name="date_ad" id="date_ad_h" value="{{ sel_date_ad }}">
+      </label>
+      <div class="filter-actions" style="padding-top:4px">
+        <button class="btn primary" type="submit">View Report</button>
+      </div>
+    </div>
+  </form>
+</section>
+
+{% if error %}
+<section class="panel no-print"><p class="bad-text">{{ error }}</p></section>
+{% endif %}
+
+{# ── Printable report body ─────────────────────────────────────────────────── #}
+<div id="daily-report-content">
+
+  {# Print-only header #}
+  <div class="print-report-header" style="position:relative;margin-bottom:10px">
+    <div style="position:absolute;top:0;right:0;font-size:7pt" id="print-time"></div>
+    <div style="text-align:center">
+      <div style="font-size:14pt;font-weight:bold">{{ COMPANY_NAME }}</div>
+      <div style="font-size:11pt;font-weight:bold;margin-top:2px">Daily Attendance Report</div>
+      <div style="font-size:9pt;margin-top:2px">
+        {{ date_bs }} BS &nbsp;({{ date_ad }})
+      </div>
+    </div>
+  </div>
+
+  {# Day status banner #}
+  {% if is_saturday %}
+  <div class="panel" style="background:#fffbeb;border-left:4px solid #f59e0b;padding:10px 16px;margin-bottom:12px">
+    <strong style="color:#92400e">&#9888; Saturday &mdash; Weekly Off</strong>
+  </div>
+  {% elif is_holiday %}
+  <div class="panel" style="background:#fef2f2;border-left:4px solid #ef4444;padding:10px 16px;margin-bottom:12px">
+    <strong style="color:#991b1b">&#9940; Holiday: {{ holiday.name }} ({{ holiday.holiday_type }})</strong>
+    {% if holiday.description %}<div style="color:#7f1d1d;font-size:12px;margin-top:3px">{{ holiday.description }}</div>{% endif %}
+  </div>
+  {% else %}
+  <div class="panel" style="background:#f0fdf4;border-left:4px solid #22c55e;padding:10px 16px;margin-bottom:12px">
+    <strong style="color:#14532d">&#10003; Working Day</strong>
+  </div>
+  {% endif %}
+
+  {# Stat boxes #}
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px" class="stat-grid">
+
+    <div class="panel" style="text-align:center;padding:14px 8px">
+      <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Total Employees</div>
+      <div style="font-size:28px;font-weight:700;margin-top:4px">{{ total_employees }}</div>
+    </div>
+
+    <div class="panel" style="text-align:center;padding:14px 8px;border-top:3px solid #22c55e">
+      <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Present</div>
+      <div style="font-size:28px;font-weight:700;color:#15803d;margin-top:4px">{{ totals.present }}</div>
+    </div>
+
+    <div class="panel" style="text-align:center;padding:14px 8px;border-top:3px solid #f59e0b">
+      <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">On Leave</div>
+      <div style="font-size:28px;font-weight:700;color:#b45309;margin-top:4px">{{ totals.on_leave }}</div>
+    </div>
+
+    <div class="panel" style="text-align:center;padding:14px 8px;border-top:3px solid #ef4444">
+      <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Absent</div>
+      <div style="font-size:28px;font-weight:700;color:#b91c1c;margin-top:4px">{{ totals.absent }}</div>
+    </div>
+
+  </div>
+
+  {# ── Present Employees ───────────────────────────────────────────────────── #}
+  <section class="panel" style="margin-bottom:16px">
+    <div class="panel-head">
+      <h2>Present Employees ({{ totals.present }})</h2>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th style="width:36px">#</th>
+            <th>Name</th>
+            <th>ID</th>
+            <th>Department</th>
+            <th>Section</th>
+            <th style="width:80px">Check In</th>
+            <th style="width:80px">Check Out</th>
+            <th style="width:70px">Hours</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for emp in present %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td><strong>{{ emp.emp_name }}</strong></td>
+            <td>{{ emp.company_id or '&mdash;' }}</td>
+            <td>{{ emp.department_name or '&mdash;' }}</td>
+            <td>{{ emp.section_name or '&mdash;' }}</td>
+            <td>{{ (emp.first_punch | fmt_dt)[-5:] if emp.first_punch else '&mdash;' }}</td>
+            <td>
+              {% if emp.last_punch and emp.first_punch and emp.last_punch != emp.first_punch %}
+                {{ (emp.last_punch | fmt_dt)[-5:] }}
+              {% else %}
+                &mdash;
+              {% endif %}
+            </td>
+            <td>
+              {% if emp.first_punch and emp.last_punch and emp.first_punch != emp.last_punch %}
+                {% set total_secs = (emp.last_punch - emp.first_punch).total_seconds() %}
+                {% set h = (total_secs // 3600) | int %}
+                {% set m = ((total_secs % 3600) // 60) | int %}
+                {{ h }}:{{ '%02d' % m }}
+              {% else %}
+                &mdash;
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8" class="empty">No employees present.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {# ── On Leave ────────────────────────────────────────────────────────────── #}
+  {% if on_leave %}
+  <section class="panel" style="margin-bottom:16px">
+    <div class="panel-head">
+      <h2>On Leave ({{ on_leave | length }})</h2>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th style="width:36px">#</th>
+            <th>Name</th>
+            <th>ID</th>
+            <th>Department</th>
+            <th>Leave Type</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for emp in on_leave %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td><strong>{{ emp.employee_name }}</strong></td>
+            <td>{{ emp.company_id or '&mdash;' }}</td>
+            <td>{{ emp.department_name or '&mdash;' }}</td>
+            <td>{{ emp.leave_type_name or '&mdash;' }}</td>
+            <td>{{ emp.reason or '&mdash;' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  {# ── Absent Employees (not shown on Saturday / holiday) ─────────────────── #}
+  {% if absent and not is_saturday and not is_holiday %}
+  <section class="panel" style="margin-bottom:16px">
+    <div class="panel-head">
+      <h2>Absent ({{ totals.absent }})</h2>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th style="width:36px">#</th>
+            <th>Name</th>
+            <th>ID</th>
+            <th>Department</th>
+            <th>Section</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for emp in absent %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td><strong>{{ emp.emp_name }}</strong></td>
+            <td>{{ emp.company_id or '&mdash;' }}</td>
+            <td>{{ emp.department_name or '&mdash;' }}</td>
+            <td>{{ emp.section_name or '&mdash;' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  {# ── Department Summary ──────────────────────────────────────────────────── #}
+  {% if dept_summary %}
+  <section class="panel" style="margin-bottom:16px">
+    <div class="panel-head">
+      <h2>Department-wise Summary</h2>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Department</th>
+            <th style="width:90px;text-align:center">Present</th>
+            <th style="width:90px;text-align:center">On Leave</th>
+            <th style="width:90px;text-align:center">Absent</th>
+            <th style="width:90px;text-align:center">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for dept_name, counts in dept_summary.items() %}
+          <tr>
+            <td>{{ dept_name }}</td>
+            <td style="text-align:center;color:#15803d;font-weight:600">{{ counts.present }}</td>
+            <td style="text-align:center;color:#b45309;font-weight:600">{{ counts.on_leave }}</td>
+            <td style="text-align:center;color:#b91c1c;font-weight:600">{{ counts.absent }}</td>
+            <td style="text-align:center;font-weight:700">{{ counts.present + counts.on_leave + counts.absent }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="font-weight:700;background:#f9fafb">
+            <td>Total</td>
+            <td style="text-align:center;color:#15803d">{{ totals.present }}</td>
+            <td style="text-align:center;color:#b45309">{{ totals.on_leave }}</td>
+            <td style="text-align:center;color:#b91c1c">{{ totals.absent }}</td>
+            <td style="text-align:center">{{ totals.present + totals.on_leave + totals.absent }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+</div>{# end #daily-report-content #}
+
+<script src="/static/html2pdf.bundle.min.js"></script>
+<script>
+/* Set print timestamp */
+(function () {
+  var el = document.getElementById('print-time');
+  if (el) {
+    var now = new Date();
+    el.textContent = 'Print Time: ' + now.toLocaleString('en-NP');
+  }
+})();
+
+/* PDF download */
+function downloadPDF() {
+  var el = document.getElementById('daily-report-content');
+  if (!el) { alert('No report to download.'); return; }
+  var fn = 'DailyReport_{{ date_bs }}.pdf';
+  var opt = {
+    margin:      [10, 8, 10, 8],
+    filename:    fn,
+    image:       { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2, useCORS: true },
+    jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' }
+  };
+  html2pdf().set(opt).from(el).save();
+}
+</script>
+
+{% endblock %}

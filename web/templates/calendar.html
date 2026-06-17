@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Calendar</p>
+    <h1>Holiday Calendar &mdash; {{ month_name }} {{ bs_year }} BS</h1>
+  </div>
+
+  {# Month navigation #}
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <a class="btn" href="/calendar?bs_year={{ prev_y }}&bs_month={{ prev_m }}">&larr;</a>
+    <strong style="font-size:1.05rem;white-space:nowrap">{{ month_name }} {{ bs_year }} BS</strong>
+    <a class="btn" href="/calendar?bs_year={{ next_y }}&bs_month={{ next_m }}">&rarr;</a>
+
+    {# Quick month/year picker #}
+    <form method="get" action="/calendar" style="display:flex;gap:6px;align-items:center;margin-left:10px">
+      <select name="bs_month" style="min-width:110px">
+        {% for i in range(1, 13) %}
+        <option value="{{ i }}" {% if i == bs_month %}selected{% endif %}>{{ nepali_months[i] }}</option>
+        {% endfor %}
+      </select>
+      <input type="number" name="bs_year" value="{{ bs_year }}" min="2070" max="2099"
+             style="width:80px;text-align:center">
+      <button class="btn primary" type="submit">Go</button>
+    </form>
+  </div>
+</section>
+
+{# Error card #}
+{% if error %}
+<div class="panel" style="border-left:4px solid #dc2626;padding:18px 22px">
+  <strong style="color:#dc2626">Error</strong>
+  <p style="margin:6px 0 0">{{ error }}</p>
+</div>
+{% else %}
+
+{# ── Stat boxes ──────────────────────────────────────────────────────────── #}
+<div class="stat-boxes">
+  <div class="stat-box">
+    <div class="stat-val">{{ total_days }}</div>
+    <div class="stat-lbl">Total Days</div>
+  </div>
+  <div class="stat-box green">
+    <div class="stat-val">{{ working_days }}</div>
+    <div class="stat-lbl">Working Days</div>
+  </div>
+  <div class="stat-box red">
+    <div class="stat-val">{{ holiday_count }}</div>
+    <div class="stat-lbl">Holidays</div>
+  </div>
+  <div class="stat-box amber">
+    <div class="stat-val">{{ weekend_count }}</div>
+    <div class="stat-lbl">Weekends</div>
+  </div>
+</div>
+
+{# ── Two-column layout ───────────────────────────────────────────────────── #}
+<div style="display:grid;grid-template-columns:1fr 380px;gap:20px;align-items:start">
+
+  {# ── Left: Calendar grid ─────────────────────────────────────────────── #}
+  <section class="panel" style="padding:0;overflow:hidden">
+    <div class="panel-head" style="padding:14px 18px">
+      <h2 style="margin:0">{{ month_name }} {{ bs_year }}</h2>
+      <span class="muted" style="font-size:.82rem">{{ from_ad }} &rarr; {{ to_ad }}</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="cal-grid">
+        <thead>
+          <tr>
+            <th>Sun</th>
+            <th>Mon</th>
+            <th>Tue</th>
+            <th>Wed</th>
+            <th>Thu</th>
+            <th>Fri</th>
+            <th>Sat</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for week in cal_grid %}
+          <tr>
+            {% for day in week %}
+            {% if day is none %}
+            <td class="cal-empty"></td>
+            {% else %}
+            {# Determine cell CSS classes #}
+            {% set cell_class = '' %}
+            {% if day.is_holiday %}
+              {% if day.holiday_type == 'public' %}
+                {% set cell_class = 'cal-holiday-public' %}
+              {% elif day.holiday_type == 'festival' %}
+                {% set cell_class = 'cal-holiday-festival' %}
+              {% else %}
+                {% set cell_class = 'cal-holiday-other' %}
+              {% endif %}
+            {% elif day.is_weekend %}
+              {% set cell_class = 'cal-weekend' %}
+            {% endif %}
+            {# Today highlight: compare AD date string to today_bs-derived value via bs_day match #}
+            {% set today_parts = today_bs.split('-') if today_bs else [] %}
+            {% set is_today = (today_parts | length == 3
+                               and today_parts[0] | int == bs_year
+                               and today_parts[1] | int == bs_month
+                               and today_parts[2] | int == day.bs_day) %}
+            <td class="{{ cell_class }}"
+              {% if is_today %}style="border: 2px solid #2563eb;"{% endif %}>
+              <span class="cal-day-num">{{ day.bs_day }}</span>
+              {%- if day.date_ad %}
+              {%- set _ad_parts = day.date_ad.split('-') %}
+              {%- set _month_abbr = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
+              <span class="cal-day-ad">{{ _month_abbr[_ad_parts[1]|int] }} {{ _ad_parts[2]|int }}</span>
+              {%- endif %}
+              {% if day.is_holiday and day.holiday_name %}
+              <span class="cal-holiday-label">{{ day.holiday_name }}</span>
+              {% endif %}
+            </td>
+            {% endif %}
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {# Legend #}
+    <div style="display:flex;gap:14px;flex-wrap:wrap;padding:12px 18px;border-top:1px solid #e2e8f0;font-size:.75rem">
+      <span><span style="display:inline-block;width:12px;height:12px;background:#fef9c3;border:1px solid #e2e8f0;border-radius:2px;vertical-align:middle;margin-right:4px"></span>Weekend</span>
+      <span><span style="display:inline-block;width:12px;height:12px;background:#fee2e2;border:1px solid #e2e8f0;border-radius:2px;vertical-align:middle;margin-right:4px"></span>Public Holiday</span>
+      <span><span style="display:inline-block;width:12px;height:12px;background:#fef3c7;border:1px solid #e2e8f0;border-radius:2px;vertical-align:middle;margin-right:4px"></span>Festival</span>
+      <span><span style="display:inline-block;width:12px;height:12px;background:#f3e8ff;border:1px solid #e2e8f0;border-radius:2px;vertical-align:middle;margin-right:4px"></span>Other</span>
+      <span><span style="display:inline-block;width:12px;height:12px;border:2px solid #2563eb;border-radius:2px;vertical-align:middle;margin-right:4px"></span>Today</span>
+    </div>
+  </section>
+
+  {# ── Right column ────────────────────────────────────────────────────── #}
+  <div style="display:flex;flex-direction:column;gap:18px">
+
+    {# Holidays list #}
+    <section class="panel" style="padding:0;overflow:hidden">
+      <div class="panel-head" style="padding:14px 18px">
+        <h2 style="margin:0">Holidays This Month</h2>
+        <span class="muted">{{ holiday_count }} holiday{% if holiday_count != 1 %}s{% endif %}</span>
+      </div>
+      {% if holidays %}
+      <div style="overflow-x:auto">
+        <table class="table compact" style="min-width:auto">
+          <thead>
+            <tr>
+              <th>Date (BS)</th>
+              <th>Date (AD)</th>
+              <th>Name</th>
+              <th>Type</th>
+              <th style="width:50px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for h in holidays %}
+            <tr>
+              <td><small>{{ h.holiday_ad | bs_date }}</small></td>
+              <td><small>{{ h.holiday_ad }}</small></td>
+              <td>{{ h.name }}</td>
+              <td>
+                <span class="status holiday-{{ h.holiday_type or 'other' }}"
+                      style="font-size:.72rem;padding:2px 7px;min-height:auto;border-radius:4px">
+                  {{ (h.holiday_type or 'other') | capitalize }}
+                </span>
+              </td>
+              <td>
+                <form method="post" action="/calendar/holidays/{{ h.id }}/delete"
+                      style="margin:0"
+                      onsubmit="return confirm('Delete {{ h.name }}?')">
+                  <input type="hidden" name="redirect_to"
+                         value="/calendar?bs_year={{ bs_year }}&bs_month={{ bs_month }}">
+                  <button class="btn danger small" type="submit"
+                          style="padding:2px 8px;min-height:auto;font-size:.78rem">
+                    Del
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="empty" style="padding:16px 18px;margin:0;color:#94a3b8">No holidays this month.</p>
+      {% endif %}
+    </section>
+
+    {# Add holiday form #}
+    <section class="panel">
+      <div class="panel-head">
+        <h2 style="margin:0">Add Holiday</h2>
+      </div>
+      <form method="post" action="/calendar/holidays/add">
+        <input type="hidden" name="redirect_to"
+               value="/calendar?bs_year={{ bs_year }}&bs_month={{ bs_month }}">
+
+        <div style="display:flex;flex-direction:column;gap:12px">
+
+          <label>Name
+            <input type="text" name="name" required placeholder="Holiday name" style="width:100%">
+          </label>
+
+          <label>Date (BS)
+            <input class="bsdp" name="holiday_bs"
+                   placeholder="Click to pick BS date"
+                   data-ad-target="holiday_ad_h"
+                   style="width:100%">
+            <input type="hidden" name="holiday_ad" id="holiday_ad_h">
+            <small class="muted">Selecting a BS date auto-fills the AD date</small>
+          </label>
+
+          <label>Type
+            <select name="holiday_type" style="width:100%">
+              <option value="public">Public</option>
+              <option value="festival">Festival</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+
+          <label>Description <span class="muted">(optional)</span>
+            <input type="text" name="description" placeholder="Short description" style="width:100%">
+          </label>
+
+          <button class="btn primary" type="submit" style="align-self:flex-start">Add Holiday</button>
+        </div>
+      </form>
+    </section>
+
+  </div>{# end right column #}
+</div>{# end two-column grid #}
+
+{% endif %}{# end error check #}
+
+<style>
+  @media (max-width: 900px) {
+    div[style*="grid-template-columns:1fr 380px"] {
+      grid-template-columns: 1fr !important;
+    }
+  }
+</style>
+
+{% endblock %}

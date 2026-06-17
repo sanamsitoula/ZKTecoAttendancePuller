@@ -1,0 +1,296 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<style>
+/* ── Summary-specific styles ─────────────────────────────────────────────── */
+.stat-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.stat-box {
+  flex: 1;
+  min-width: 120px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px 18px;
+  text-align: center;
+  background: #fff;
+}
+.stat-box .stat-val {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.stat-box .stat-lbl {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: #64748b;
+  margin-top: 4px;
+}
+.stat-box.green  { border-color: #22c55e; background: #f0fdf4; }
+.stat-box.green  .stat-val { color: #16a34a; }
+.stat-box.red    { border-color: #ef4444; background: #fef2f2; }
+.stat-box.red    .stat-val { color: #dc2626; }
+.stat-box.amber  { border-color: #f59e0b; background: #fffbeb; }
+.stat-box.amber  .stat-val { color: #d97706; }
+
+.summary-table th, .summary-table td {
+  white-space: nowrap;
+}
+.summary-table td.cell-green { background: #dcfce7; }
+.summary-table td.cell-amber { background: #fef9c3; }
+.summary-table td.cell-red   { background: #fee2e2; }
+.summary-table tr.totals-row td {
+  font-weight: 700;
+  background: #f1f5f9;
+  border-top: 2px solid #94a3b8;
+}
+
+.holiday-table { font-size: 12px; }
+.holiday-table th, .holiday-table td { padding: 4px 10px; }
+
+/* Print header hidden on screen */
+.print-header { display: none; }
+
+@media print {
+  .no-print { display: none !important; }
+  body { font-size: 8pt; }
+  @page { size: A4 landscape; margin: 10mm; }
+  table { font-size: 7pt !important; }
+  th, td { padding: 2px 4px !important; }
+  .print-header { display: block !important; text-align: center; margin-bottom: 8px; }
+  .stat-row { break-inside: avoid; }
+  .panel { box-shadow: none !important; border: 1px solid #ccc; }
+}
+</style>
+
+{# ── Page header (no-print) ───────────────────────────────────────────────── #}
+<section class="page-head no-print">
+  <div>
+    <p class="eyebrow">Reports</p>
+    <h1>Monthly Attendance Summary</h1>
+  </div>
+  <div class="head-actions">
+    <button class="btn" type="button" onclick="window.print()">Print</button>
+    <button class="btn" type="button" onclick="downloadPDF()">Download PDF</button>
+  </div>
+</section>
+
+{# ── Month / year picker (no-print) ──────────────────────────────────────── #}
+<section class="panel no-print">
+  <form method="get" action="/reports/monthly-summary" class="form" style="max-width:none">
+    <div class="filter-bar-flex" style="gap:14px;align-items:flex-end;flex-wrap:wrap">
+      <label style="width:90px">Year (BS)
+        <input type="number" name="bs_year" value="{{ bs_year }}" min="2060" max="2100">
+      </label>
+      <label style="width:180px">Month (BS)
+        <select name="bs_month">
+          {% for i in range(1, 13) %}
+          <option value="{{ i }}" {% if bs_month == i %}selected{% endif %}>
+            {{ i }} &ndash; {{ nepali_months[i] }}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="filter-actions" style="padding-top:4px">
+        <button class="btn primary" type="submit">Search</button>
+      </div>
+    </div>
+  </form>
+</section>
+
+{% if error %}
+<section class="panel"><p class="bad-text">{{ error }}</p></section>
+{% endif %}
+
+{# ═══════════════════════════════════════════════════════════════════════════
+   REPORT CONTENT — targeted by PDF and print
+   ═══════════════════════════════════════════════════════════════════════════ #}
+<div id="summary-content">
+
+  {# ── Print-only header ─────────────────────────────────────────────────── #}
+  <div class="print-header">
+    <div style="font-size:14pt;font-weight:bold">{{ COMPANY_NAME }}</div>
+    <div style="font-size:11pt;font-weight:bold;margin-top:2px">
+      Monthly Attendance Summary &mdash; {{ month_name }} {{ bs_year }} BS
+    </div>
+    <div style="font-size:8pt;color:#555;margin-top:2px">
+      {{ from_ad }} to {{ to_ad }}
+    </div>
+  </div>
+
+  {# ── Calendar stats ────────────────────────────────────────────────────── #}
+  <section class="panel">
+    <div class="stat-row">
+      <div class="stat-box">
+        <div class="stat-val">{{ total_days }}</div>
+        <div class="stat-lbl">Total Days</div>
+      </div>
+      <div class="stat-box green">
+        <div class="stat-val">{{ working_days }}</div>
+        <div class="stat-lbl">Working Days</div>
+      </div>
+      <div class="stat-box red">
+        <div class="stat-val">{{ holiday_count }}</div>
+        <div class="stat-lbl">Holidays</div>
+      </div>
+      <div class="stat-box amber">
+        <div class="stat-val">{{ weekend_count }}</div>
+        <div class="stat-lbl">Weekends</div>
+      </div>
+    </div>
+
+    {# ── Holidays this month ──────────────────────────────────────────────── #}
+    {% if holidays %}
+    <div style="margin-top:8px">
+      <h3 style="font-size:13px;margin-bottom:6px;color:#475569">Holidays This Month</h3>
+      <div class="table-wrap">
+        <table class="table holiday-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>BS Date</th>
+              <th>Type</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for h in holidays %}
+            <tr>
+              <td>{{ h.name }}</td>
+              <td>{{ h.holiday_ad | bs_date }}</td>
+              <td>{{ h.holiday_type or '&mdash;' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+  </section>
+
+  {# ── Filter bar (no-print) ─────────────────────────────────────────────── #}
+  <div class="no-print" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+    <input data-table-filter="summary-table"
+           placeholder="Search employee&hellip;"
+           style="flex:1;min-width:200px;max-width:340px">
+    <select data-table-filter="summary-table" data-filter-col="3"
+            style="min-width:180px">
+      <option value="">All Departments</option>
+      {% set seen_depts = [] %}
+      {% for emp in employees | sort(attribute='department_name') %}
+        {% if emp.department_name and emp.department_name not in seen_depts %}
+          {% if seen_depts.append(emp.department_name) %}{% endif %}
+          <option value="{{ emp.department_name }}">{{ emp.department_name }}</option>
+        {% endif %}
+      {% endfor %}
+    </select>
+    <span class="muted" style="font-size:12px">
+      <span id="summary-table-count"></span>
+    </span>
+  </div>
+
+  {# ── Employee summary table ────────────────────────────────────────────── #}
+  <section class="panel" style="overflow-x:auto">
+    <table class="table summary-table" id="summary-table">
+      <thead>
+        <tr>
+          <th style="width:36px">#</th>
+          <th>Employee Name</th>
+          <th>ID</th>
+          <th>Department</th>
+          <th style="text-align:center">Working<br>Days</th>
+          <th style="text-align:center">Present</th>
+          <th style="text-align:center">Absent</th>
+          <th style="text-align:center">On Leave</th>
+          <th>Leave Details</th>
+          <th style="text-align:center">Present %</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set sorted_emps = employees | sort(attribute='emp_name') | sort(attribute='department_name') %}
+        {% set ns = namespace(row=0, t_working=0, t_present=0, t_absent=0, t_leave=0) %}
+        {% for emp in sorted_emps %}
+          {% set ns.row = ns.row + 1 %}
+          {% set ns.t_working = ns.t_working + (emp.working_days | default(0)) %}
+          {% set ns.t_present = ns.t_present + (emp.present | default(0)) %}
+          {% set ns.t_absent  = ns.t_absent  + (emp.absent  | default(0)) %}
+          {% set ns.t_leave   = ns.t_leave   + (emp.on_leave | default(0)) %}
+          {% set pct = (emp.present / emp.working_days * 100) if emp.working_days > 0 else 0 %}
+        <tr>
+          <td>{{ ns.row }}</td>
+          <td><strong>{{ emp.emp_name }}</strong></td>
+          <td>{{ emp.company_id or '&mdash;' }}</td>
+          <td>{{ emp.department_name or '&mdash;' }}</td>
+          <td style="text-align:center">{{ emp.working_days }}</td>
+          <td style="text-align:center"
+              class="{% if emp.present == emp.working_days and emp.working_days > 0 %}cell-green{% elif emp.present > 0 %}cell-amber{% else %}cell-red{% endif %}">
+            {{ emp.present }}
+          </td>
+          <td style="text-align:center"
+              class="{% if emp.absent > 0 %}cell-red{% endif %}">
+            {{ emp.absent }}
+          </td>
+          <td style="text-align:center">{{ emp.on_leave }}</td>
+          <td style="font-size:12px">
+            {% if emp.leave_by_type %}
+              {% set parts = [] %}
+              {% for lt, cnt in emp.leave_by_type.items() %}
+                {% if parts.append(lt ~ ': ' ~ cnt) %}{% endif %}
+              {% endfor %}
+              {{ parts | join(', ') }}
+            {% else %}
+              &mdash;
+            {% endif %}
+          </td>
+          <td style="text-align:center">{{ '%.0f' | format(pct) }}%</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="10" class="empty">No employee data for this period.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      {% if employees %}
+      <tfoot>
+        <tr class="totals-row">
+          <td colspan="4" style="text-align:right">Totals</td>
+          <td style="text-align:center">{{ ns.t_working }}</td>
+          <td style="text-align:center">{{ ns.t_present }}</td>
+          <td style="text-align:center">{{ ns.t_absent }}</td>
+          <td style="text-align:center">{{ ns.t_leave }}</td>
+          <td></td>
+          <td style="text-align:center">
+            {{ '%.0f' | format((ns.t_present / ns.t_working * 100) if ns.t_working > 0 else 0) }}%
+          </td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </section>
+
+  <div style="font-size:11px;color:#94a3b8;margin-top:6px;text-align:right">
+    Generated: {{ today_bs }} BS
+  </div>
+
+</div>{# end #summary-content #}
+
+<script src="/static/html2pdf.bundle.min.js"></script>
+<script>
+function downloadPDF() {
+  var el = document.getElementById('summary-content');
+  if (!el) { alert('No report content found.'); return; }
+  var opt = {
+    margin:      [8, 8, 8, 8],
+    filename:    'Summary_{{ month_name }}_{{ bs_year }}.pdf',
+    image:       { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2, useCORS: true },
+    jsPDF:       { unit: 'mm', format: 'a4', orientation: 'landscape' }
+  };
+  html2pdf().set(opt).from(el).save();
+}
+</script>
+
+{% endblock %}
