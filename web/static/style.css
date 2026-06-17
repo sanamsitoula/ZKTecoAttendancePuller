@@ -706,3 +706,82 @@ td input[type="checkbox"] {
 .remark-absent  { color: #b91c1c; }
 .remark-weekend { color: #64748b; }
 .remark-holiday { color: #a16207; }
+.shift-badge { font-size:9px; color:var(--blue); background:var(--surface-2);
+               padding:0 4px; border-radius:3px; margin-left:3px; }
+
+/* ── Searchable Employee Picker ──────────────────────────────────────────── */
+.emp-picker { position:relative; width:100%; max-width:380px; }
+.emp-picker-trigger {
+  display:flex; align-items:center; justify-content:space-between;
+  border:1px solid var(--line); border-radius:6px; background:var(--surface);
+  padding:6px 10px; cursor:pointer; min-height:36px; font-size:13px;
+}
+.emp-picker-trigger:hover { border-color:var(--blue); }
+.emp-arrow { color:var(--muted); font-size:11px; margin-left:6px; flex-shrink:0; }
+.emp-panel {
+  position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:200;
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:6px; box-shadow:0 6px 20px rgba(0,0,0,.12);
+  overflow:hidden;
+}
+.emp-search-input {
+  width:100%; border:none; border-bottom:1px solid var(--line);
+  padding:8px 10px; font-size:13px; outline:none; background:#fafcff;
+}
+.emp-list { max-height:260px; overflow-y:auto; }
+.emp-group-hdr {
+  padding:5px 10px 3px; font-size:11px; font-weight:700; color:var(--muted);
+  text-transform:uppercase; letter-spacing:.05em; background:var(--bg);
+  border-bottom:1px solid var(--line);
+}
+.emp-item {
+  padding:7px 10px; cursor:pointer; border-bottom:1px solid #f0f4f8;
+}
+.emp-item:hover, .emp-item.active { background:var(--surface-2); }
+.emp-item-name { font-weight:600; font-size:13px; }
+.emp-item-id   { font-weight:400; color:var(--muted); margin-left:6px; font-size:12px; }
+.emp-item-meta { font-size:11px; color:var(--muted); margin-top:1px; }
+.emp-item-dept-tag {
+  background:var(--surface-2); border-radius:3px; padding:1px 5px;
+  font-size:10px; color:var(--blue); margin-right:4px;
+}
+
+/* ── A4 Landscape Print ──────────────────────────────────────────────────── */
+@media print {
+  @page { size: A4 landscape; margin: 8mm 10mm; }
+
+  body { background: #fff !important; font-size: 7.5pt !important; }
+
+  .topbar, .org-bar, .no-print,
+  .page-head, section.panel.no-print { display: none !important; }
+  .print-only { display: block !important; }
+
+  section.panel {
+    box-shadow: none !important; border: none !important;
+    padding: 0 !important; margin: 0 2mm !important;
+    overflow: visible !important;
+  }
+
+  .monthly-report-table { font-size: 7pt !important; width: 100% !important;
+                           page-break-inside: auto; }
+  .monthly-report-table th,
+  .monthly-report-table td {
+    padding: 1.5px 2.5px !important;
+    font-size: 7pt !important;
+    white-space: nowrap;
+    border: 0.5px solid #aaa !important;
+  }
+  .monthly-report-table thead tr th { background: #e8f0fe !important;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .monthly-report-table .workdate { min-width: 72px !important; }
+  .monthly-report-table .summary-row td,
+  .monthly-report-table .total-row td { background: #f0f4ff !important;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .monthly-report-table tr:nth-child(even) td { background: #f9fbfe !important;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  .emp-block { page-break-after: always; padding: 0 !important; }
+  .emp-block:last-child { page-break-after: auto; }
+
+  .print-header { max-width: 100% !important; }
+}

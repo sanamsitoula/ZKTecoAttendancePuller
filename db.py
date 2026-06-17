@@ -126,6 +126,44 @@ ALTER TABLE global_users     ADD COLUMN IF NOT EXISTS created_bs  VARCHAR(10) DE
 ALTER TABLE global_users     ADD COLUMN IF NOT EXISTS updated_bs  VARCHAR(10) DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_attendance_bs_date ON attendance_logs (bs_date);
+
+-- ── Departments ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS departments (
+    id   SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE
+);
+
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS department_id INTEGER;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'global_users_department_id_fkey'
+    ) THEN
+        ALTER TABLE global_users
+            ADD CONSTRAINT global_users_department_id_fkey
+            FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL;
+    END IF;
+END$$;
+
+-- ── Shifts ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS shifts (
+    id         SERIAL PRIMARY KEY,
+    name       VARCHAR(100) NOT NULL,
+    start_time TIME NOT NULL,
+    end_time   TIME NOT NULL
+);
+
+-- ── Shift Rules ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS shift_rules (
+    id             SERIAL PRIMARY KEY,
+    shift_id       INTEGER NOT NULL REFERENCES shifts(id)       ON DELETE CASCADE,
+    global_user_id INTEGER          REFERENCES global_users(id) ON DELETE CASCADE,
+    department_id  INTEGER          REFERENCES departments(id)  ON DELETE CASCADE,
+    from_date      DATE NOT NULL DEFAULT CURRENT_DATE,
+    to_date        DATE
+);
+CREATE INDEX IF NOT EXISTS idx_shift_rules_user ON shift_rules (global_user_id, from_date);
+CREATE INDEX IF NOT EXISTS idx_shift_rules_dept ON shift_rules (department_id,  from_date);
 """
 
 
@@ -580,13 +618,16 @@ def get_employees_for_report(conn) -> list:
             COALESCE(gu.name, e.name, e.user_id) AS display_name,
             gu.id                                  AS global_id,
             gu.global_user_id                      AS company_id,
+            dept.id                                AS department_id,
+            dept.name                              AS department_name,
             e.device_id,
             e.user_id,
             d.name                                 AS device_name
         FROM employees e
         JOIN devices d ON e.device_id = d.id
-        LEFT JOIN global_users gu ON e.global_user_id = gu.id
-        ORDER BY LOWER(COALESCE(gu.name, e.name, e.user_id)), d.name
+        LEFT JOIN global_users gu  ON e.global_user_id = gu.id
+        LEFT JOIN departments dept ON gu.department_id  = dept.id
+        ORDER BY dept.name NULLS LAST, LOWER(COALESCE(gu.name, e.name, e.user_id)), d.name
     """
     from collections import OrderedDict
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -599,11 +640,13 @@ def get_employees_for_report(conn) -> list:
         key = f"g{gid}" if gid else f"n:{(r['display_name'] or '').lower().strip()}"
         if key not in groups:
             groups[key] = {
-                'key': key,
-                'display_name': r['display_name'] or '(Unknown)',
-                'company_id':   r.get('company_id') or '',
-                'global_id':    gid,
-                'devices':      [],
+                'key':             key,
+                'display_name':    r['display_name'] or '(Unknown)',
+                'company_id':      r.get('company_id') or '',
+                'global_id':       gid,
+                'department_id':   r.get('department_id'),
+                'department_name': r.get('department_name') or '',
+                'devices':         [],
             }
         groups[key]['devices'].append({
             'device_id':   r['device_id'],
@@ -727,3 +770,199 @@ def get_pull_sessions(conn, limit: int = 100):
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(sql, (limit,))
         return [dict(row) for row in cur.fetchall()]
+
+
+# ─── Departments ─────────────────────────────────────────────────────────────
+
+def get_all_departments(conn) -> list:
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("SELECT id, name FROM departments ORDER BY name")
+        return [dict(r) for r in cur.fetchall()]
+
+def create_department(conn, name: str) -> int:
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO departments (name) VALUES (%s) RETURNING id", (name.strip(),))
+        row = cur.fetchone()
+    conn.commit()
+    return row[0]
+
+def update_department(conn, dept_id: int, name: str):
+    with conn.cursor() as cur:
+        cur.execute("UPDATE departments SET name=%s WHERE id=%s", (name.strip(), dept_id))
+    conn.commit()
+
+def delete_department(conn, dept_id: int):
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM departments WHERE id=%s", (dept_id,))
+    conn.commit()
+
+
+# ─── Shifts ──────────────────────────────────────────────────────────────────
+
+def get_all_shifts(conn) -> list:
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("""
+            SELECT id, name,
+                   to_char(start_time, 'HH24:MI') AS start_time,
+                   to_char(end_time,   'HH24:MI') AS end_time
+            FROM shifts ORDER BY start_time, name
+        """)
+        return [dict(r) for r in cur.fetchall()]
+
+def create_shift(conn, name: str, start_time: str, end_time: str) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO shifts (name, start_time, end_time) VALUES (%s, %s, %s) RETURNING id",
+            (name.strip(), start_time, end_time),
+        )
+        row = cur.fetchone()
+    conn.commit()
+    return row[0]
+
+def update_shift(conn, shift_id: int, name: str, start_time: str, end_time: str):
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE shifts SET name=%s, start_time=%s, end_time=%s WHERE id=%s",
+            (name.strip(), start_time, end_time, shift_id),
+        )
+    conn.commit()
+
+def delete_shift(conn, shift_id: int):
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM shifts WHERE id=%s", (shift_id,))
+    conn.commit()
+
+
+# ─── Shift Rules ─────────────────────────────────────────────────────────────
+
+def get_all_shift_rules(conn) -> list:
+    sql = """
+        SELECT
+            sr.id,
+            sh.id   AS shift_id,
+            sh.name AS shift_name,
+            to_char(sh.start_time, 'HH24:MI') AS start_time,
+            to_char(sh.end_time,   'HH24:MI') AS end_time,
+            sr.from_date::text  AS from_date,
+            sr.to_date::text    AS to_date,
+            gu.name AS employee_name,
+            gu.id   AS global_user_id,
+            d.name  AS department_name,
+            d.id    AS department_id
+        FROM shift_rules sr
+        JOIN shifts sh ON sh.id = sr.shift_id
+        LEFT JOIN global_users gu ON gu.id = sr.global_user_id
+        LEFT JOIN departments   d ON d.id  = sr.department_id
+        ORDER BY sr.from_date DESC, sr.id DESC
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql)
+        return [dict(r) for r in cur.fetchall()]
+
+def create_shift_rule(conn, shift_id: int, from_date: str, to_date=None,
+                      global_user_id=None, department_id=None) -> int:
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO shift_rules (shift_id, from_date, to_date, global_user_id, department_id)
+            VALUES (%s, %s, %s, %s, %s) RETURNING id
+        """, (int(shift_id), from_date, to_date or None, global_user_id, department_id))
+        row = cur.fetchone()
+    conn.commit()
+    return row[0]
+
+def delete_shift_rule(conn, rule_id: int):
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM shift_rules WHERE id=%s", (rule_id,))
+    conn.commit()
+
+def set_employee_department(conn, global_user_id: int, department_id):
+    with conn.cursor() as cur:
+        cur.execute("UPDATE global_users SET department_id=%s WHERE id=%s",
+                    (department_id or None, global_user_id))
+    conn.commit()
+
+def get_all_global_users_with_dept(conn) -> list:
+    sql = """
+        SELECT gu.id, gu.global_user_id AS company_id, gu.name,
+               gu.department_id, dept.name AS department_name
+        FROM global_users gu
+        LEFT JOIN departments dept ON dept.id = gu.department_id
+        ORDER BY LOWER(COALESCE(gu.name, gu.global_user_id, ''))
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_shift_calendar(conn, global_user_id: int, from_ad: str, to_ad: str) -> dict:
+    """
+    Returns {date_obj: {name, start_min, end_min}} for the date range.
+    Employee-level rules take priority over department-level rules.
+    """
+    if not global_user_id:
+        return {}
+
+    sql = """
+        WITH emp_dept AS (
+            SELECT department_id FROM global_users WHERE id = %(uid)s
+        ),
+        emp_rules AS (
+            SELECT sh.start_time, sh.end_time, sh.name,
+                   sr.from_date, sr.to_date, 1 AS priority
+            FROM shift_rules sr
+            JOIN shifts sh ON sh.id = sr.shift_id
+            WHERE sr.global_user_id = %(uid)s
+              AND sr.from_date <= %(to_ad)s
+              AND (sr.to_date IS NULL OR sr.to_date >= %(from_ad)s)
+        ),
+        dept_rules AS (
+            SELECT sh.start_time, sh.end_time, sh.name,
+                   sr.from_date, sr.to_date, 0 AS priority
+            FROM shift_rules sr
+            JOIN shifts sh ON sh.id = sr.shift_id
+            JOIN emp_dept ed ON ed.department_id = sr.department_id
+            WHERE sr.from_date <= %(to_ad)s
+              AND (sr.to_date IS NULL OR sr.to_date >= %(from_ad)s)
+        )
+        SELECT * FROM emp_rules
+        UNION ALL
+        SELECT * FROM dept_rules
+        ORDER BY priority DESC, from_date DESC
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, {'uid': global_user_id, 'from_ad': from_ad, 'to_ad': to_ad})
+        rules = [dict(r) for r in cur.fetchall()]
+
+    if not rules:
+        return {}
+
+    from datetime import date, timedelta
+
+    def _to_min(t):
+        if hasattr(t, 'hour'):
+            return t.hour * 60 + t.minute
+        h, m = str(t)[:5].split(':')
+        return int(h) * 60 + int(m)
+
+    def _to_date(x):
+        if x is None or isinstance(x, date):
+            return x
+        return date.fromisoformat(str(x))
+
+    from_d = date.fromisoformat(from_ad)
+    to_d   = date.fromisoformat(to_ad)
+    result = {}
+    d = from_d
+    while d <= to_d:
+        for r in rules:
+            fd = _to_date(r['from_date'])
+            td = _to_date(r['to_date'])
+            if fd <= d and (td is None or td >= d):
+                result[d] = {
+                    'name':      r['name'],
+                    'start_min': _to_min(r['start_time']),
+                    'end_min':   _to_min(r['end_time']),
+                }
+                break
+        d += timedelta(days=1)
+    return result

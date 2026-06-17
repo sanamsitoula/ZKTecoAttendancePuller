@@ -1514,7 +1514,8 @@ def _time_to_min(t) -> int | None:
 
 
 def _compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
-                              shift_in_min: int, shift_out_min: int) -> list:
+                              default_si_min: int = 600, default_so_min: int = 1020,
+                              shift_calendar: dict = None) -> list:
     """Build per-day dicts matching the 16-column ZKBioTime periodic attendance format.
 
     Columns: Work Date | Planned In | Planned Out | Work Time |
@@ -1529,10 +1530,8 @@ def _compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
     punch_map = {r['work_date']: r for r in daily_rows}
     start = date.fromisoformat(from_ad)
     end   = date.fromisoformat(to_ad)
-    planned_work = shift_out_min - shift_in_min
 
     def _pstr(pd) -> str:
-        """Format {time, device_name} → 'HH:MM (Device)' or 'HH:MM'."""
         if not pd:
             return ''
         t = pd.get('time')
@@ -1549,9 +1548,15 @@ def _compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
         day_name  = NEPAL_DAYS[nepal_dow]
         is_weekend = (nepal_dow == 6)
 
+        # Per-day shift lookup (employee-specific or department-level via shift_calendar)
+        shift_info   = (shift_calendar or {}).get(d)
+        si_min       = shift_info['start_min'] if shift_info else default_si_min
+        so_min       = shift_info['end_min']   if shift_info else default_so_min
+        shift_name   = shift_info['name']      if shift_info else ''
+        planned_work = so_min - si_min
+
         row = punch_map.get(d)
 
-        # Normalise to [{time, device_name}] — handles both single and multi-device rows
         pts = []
         if row:
             if row.get('all_punches_with_device'):
@@ -1582,18 +1587,17 @@ def _compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
         else:
             time_col = ''
 
-        # Shift deviation metrics (workdays only)
         late_in = early_out = early_in = late_out = ot = ''
         if not is_weekend and ci_min is not None:
-            if ci_min > shift_in_min:
-                late_in  = _fmt_min(ci_min - shift_in_min)
-            elif ci_min < shift_in_min:
-                early_in = _fmt_min(shift_in_min - ci_min)
+            if ci_min > si_min:
+                late_in  = _fmt_min(ci_min - si_min)
+            elif ci_min < si_min:
+                early_in = _fmt_min(si_min - ci_min)
         if not is_weekend and co_min is not None:
-            if co_min < shift_out_min:
-                early_out = _fmt_min(shift_out_min - co_min)
-            elif co_min > shift_out_min:
-                late_out  = _fmt_min(co_min - shift_out_min)
+            if co_min < so_min:
+                early_out = _fmt_min(so_min - co_min)
+            elif co_min > so_min:
+                late_out  = _fmt_min(co_min - so_min)
         if not is_weekend and work_min and work_min > planned_work:
             ot = _fmt_min(work_min - planned_work)
 
@@ -1608,15 +1612,17 @@ def _compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
             'bs_date':      bs_str,
             'ad_date':      d.isoformat(),
             'day_name':     day_name,
-            'planned_in':   _fmt_min(shift_in_min)  if not is_weekend else '00:00',
-            'planned_out':  _fmt_min(shift_out_min) if not is_weekend else '00:00',
-            'planned_work': _fmt_min(planned_work)  if not is_weekend else '',
+            'shift_name':   shift_name,
+            'planned_in':   _fmt_min(si_min)      if not is_weekend else '00:00',
+            'planned_out':  _fmt_min(so_min)      if not is_weekend else '00:00',
+            'planned_work': _fmt_min(planned_work) if not is_weekend else '',
+            'planned_min':  planned_work           if not is_weekend else 0,
             'time_in':      time_in,
             'time_out':     time_out,
             'break_in':     break_in,
             'break_out':    break_out,
             'time_col':     time_col,
-            'actual':       time_col,   # same value — shown in "Actual" column
+            'actual':       time_col,
             'ot':           ot,
             'late_in':      late_in,
             'early_out':    early_out,
@@ -1630,20 +1636,23 @@ def _compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
     return days
 
 
-def _monthly_totals(days: list, planned_work: int) -> dict:
+def _monthly_totals(days: list, planned_work: int = 0) -> dict:
     tot_actual = tot_ot = tot_late_in = tot_early_out = tot_early_in = tot_late_out = 0
-
-    def _parse(s):
-        if not s: return 0
-        try:
-            p = str(s).split(':')
-            return int(p[0]) * 60 + int(p[1])
-        except Exception:
-            return 0
+    tot_planned = 0
 
     counts = {'Present': 0, 'Absent': 0, 'Weekend': 0, 'Holiday': 0, 'Leave': 0, 'Misc': 0}
     for d in days:
         tot_actual    += d.get('work_min', 0)
+        # Sum per-day planned for all workdays (present + absent, not weekend/holiday)
+        if d['remark'] not in ('Weekend', 'Holiday'):
+            tot_planned += d.get('planned_min', 0)
+        def _parse(s):
+            if not s: return 0
+            try:
+                p = str(s).split(':')
+                return int(p[0]) * 60 + int(p[1])
+            except Exception:
+                return 0
         tot_ot        += _parse(d['ot'])
         tot_late_in   += _parse(d['late_in'])
         tot_early_out += _parse(d['early_out'])
@@ -1653,16 +1662,15 @@ def _monthly_totals(days: list, planned_work: int) -> dict:
         if r in counts:
             counts[r] += 1
 
-    total_planned = planned_work * counts['Present']
     return {
-        'planned': _fmt_min(total_planned),
-        'actual': _fmt_min(tot_actual),
-        'ot': _fmt_min(tot_ot),
-        'late_in': _fmt_min(tot_late_in),
+        'planned':   _fmt_min(tot_planned),
+        'actual':    _fmt_min(tot_actual),
+        'ot':        _fmt_min(tot_ot),
+        'late_in':   _fmt_min(tot_late_in),
         'early_out': _fmt_min(tot_early_out),
-        'early_in': _fmt_min(tot_early_in),
-        'late_out': _fmt_min(tot_late_out),
-        'counts': counts,
+        'early_in':  _fmt_min(tot_early_in),
+        'late_out':  _fmt_min(tot_late_out),
+        'counts':    counts,
     }
 
 
@@ -1731,31 +1739,38 @@ def reports_monthly_list(
 @app.get("/reports/monthly/view")
 def reports_monthly_view(
     request: Request,
-    global_id: str | None = None,
+    emp_key:   str | None = None,
+    global_id: str | None = None,   # backward-compat
     bs_year:   str | None = None,
     bs_month:  str | None = None,
 ):
-    g_id  = _int_param(global_id)
     def_year, def_month = _bs_defaults()
-    bs_y  = _int_param(bs_year)  or def_year
-    bs_m  = _int_param(bs_month) or def_month
-    SI_MIN, SO_MIN = 600, 1020   # 10:00–17:00 fixed shift
+    bs_y = _int_param(bs_year)  or def_year
+    bs_m = _int_param(bs_month) or def_month
+    SI_MIN, SO_MIN = 600, 1020   # default 10:00–17:00 if no shift rule found
 
     conn = get_connection()
     try:
         from db import get_employees_for_report as _gef
         all_emps = _gef(conn)
 
+        # Resolve emp_key: prefer explicit emp_key, fall back to global_id compat
+        resolved_key = emp_key
+        if not resolved_key and global_id:
+            gid_int = _int_param(global_id)
+            resolved_key = f"g{gid_int}" if gid_int else None
+
         emp_entry = None
-        if g_id:
+        if resolved_key:
             for e in all_emps:
-                if e['global_id'] == g_id:
+                if e['key'] == resolved_key:
                     emp_entry = e
                     break
-        # If no global_id given, use the first employee
         if emp_entry is None and all_emps:
-            emp_entry = all_emps[0]
-            g_id = emp_entry['global_id']
+            emp_entry    = all_emps[0]
+            resolved_key = emp_entry['key']
+
+        g_id = emp_entry['global_id'] if emp_entry else None
 
         report = None
         error  = None
@@ -1770,9 +1785,11 @@ def reports_monthly_view(
                 pairs   = [(dv['device_id'], dv['user_id']) for dv in emp_entry['devices']]
 
                 from db import get_employee_daily_attendance_multi as _multi
-                daily  = _multi(conn, pairs, from_ad, to_ad)
-                days   = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN)
-                totals = _monthly_totals(days, SO_MIN - SI_MIN)
+                from db import get_shift_calendar as _gsc
+                daily     = _multi(conn, pairs, from_ad, to_ad)
+                shift_cal = _gsc(conn, g_id, from_ad, to_ad)
+                days      = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN, shift_cal)
+                totals    = _monthly_totals(days)
 
                 report = {
                     'days':         days,
@@ -1781,6 +1798,7 @@ def reports_monthly_view(
                     'emp_user_id':  emp_entry['company_id'] or (
                                     emp_entry['devices'][0]['user_id'] if emp_entry['devices'] else ''),
                     'device_name':  ', '.join(dv['device_name'] for dv in emp_entry['devices']),
+                    'department':   emp_entry.get('department_name', ''),
                     'bs_year':      bs_y,
                     'bs_month':     bs_m,
                     'month_name':   mi['month_name'],
@@ -1797,21 +1815,23 @@ def reports_monthly_view(
         error    = str(exc)
         report   = None
         all_emps = []
+        resolved_key = None
     finally:
         conn.close()
 
     return render(templates, request, 'reports_monthly.html', {
-        'view':         'report',
-        'all_emps':     all_emps,
-        'sel_bs_year':  bs_y,
-        'sel_bs_month': bs_m,
-        'def_year':     def_year,
-        'def_month':    def_month,
-        'sel_global_id': g_id,
-        'report':       report,
-        'error':        error,
-        'now_str':      _npt_now_str(),
-        'COMPANY_NAME': COMPANY_NAME,
+        'view':             'report',
+        'all_emps':         all_emps,
+        'sel_bs_year':      bs_y,
+        'sel_bs_month':     bs_m,
+        'def_year':         def_year,
+        'def_month':        def_month,
+        'sel_emp_key':      resolved_key,
+        'sel_emp_display':  emp_entry['display_name'] if emp_entry else None,
+        'report':           report,
+        'error':            error,
+        'now_str':          _npt_now_str(),
+        'COMPANY_NAME':     COMPANY_NAME,
     })
 
 
@@ -1836,11 +1856,13 @@ def reports_monthly_print_all(
         reports = []
         if mi:
             from_ad, to_ad = mi['first_ad'], mi['last_ad']
+            from db import get_shift_calendar as _gsc
             for emp in all_emps:
-                pairs = [(dv['device_id'], dv['user_id']) for dv in emp['devices']]
-                daily = _multi(conn, pairs, from_ad, to_ad)
-                days  = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN)
-                totals = _monthly_totals(days, SO_MIN - SI_MIN)
+                pairs     = [(dv['device_id'], dv['user_id']) for dv in emp['devices']]
+                daily     = _multi(conn, pairs, from_ad, to_ad)
+                shift_cal = _gsc(conn, emp.get('global_id'), from_ad, to_ad)
+                days      = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN, shift_cal)
+                totals    = _monthly_totals(days)
                 reports.append({
                     'emp_name':    emp['display_name'],
                     'emp_user_id': emp['company_id'] or (emp['devices'][0]['user_id'] if emp['devices'] else ''),
@@ -1863,6 +1885,155 @@ def reports_monthly_print_all(
         'now_str':      _npt_now_str(),
         'COMPANY_NAME': COMPANY_NAME,
     })
+
+
+# ---- Settings (Departments / Shifts / Shift Rules) ----------------------
+
+
+@app.get("/settings")
+def settings_page(request: Request):
+    conn = get_connection()
+    try:
+        from db import (get_all_departments, get_all_shifts,
+                        get_all_shift_rules, get_all_global_users_with_dept,
+                        get_employees_for_report as _gef)
+        departments  = get_all_departments(conn)
+        shifts       = get_all_shifts(conn)
+        shift_rules  = get_all_shift_rules(conn)
+        employees    = get_all_global_users_with_dept(conn)
+        all_emps     = _gef(conn)
+    finally:
+        conn.close()
+    return render(templates, request, 'settings.html', {
+        'departments': departments,
+        'shifts':      shifts,
+        'shift_rules': shift_rules,
+        'employees':   employees,
+        'all_emps':    all_emps,
+    })
+
+
+@app.post("/settings/departments/add")
+async def add_department(request: Request):
+    form = await request.form()
+    name = (form.get('name') or '').strip()
+    if name:
+        conn = get_connection()
+        try:
+            from db import create_department
+            create_department(conn, name)
+        except Exception as exc:
+            flash(request, str(exc), 'error')
+            return RedirectResponse('/settings', status_code=303)
+        finally:
+            conn.close()
+        flash(request, f"Department '{name}' added.", 'success')
+    return RedirectResponse('/settings', status_code=303)
+
+
+@app.post("/settings/departments/{dept_id}/delete")
+async def delete_department_route(request: Request, dept_id: int):
+    conn = get_connection()
+    try:
+        from db import delete_department
+        delete_department(conn, dept_id)
+    except Exception as exc:
+        flash(request, str(exc), 'error')
+    finally:
+        conn.close()
+    flash(request, "Department deleted.", 'success')
+    return RedirectResponse('/settings', status_code=303)
+
+
+@app.post("/settings/shifts/add")
+async def add_shift(request: Request):
+    form = await request.form()
+    name  = (form.get('name') or '').strip()
+    start = (form.get('start_time') or '').strip()
+    end   = (form.get('end_time') or '').strip()
+    if name and start and end:
+        conn = get_connection()
+        try:
+            from db import create_shift
+            create_shift(conn, name, start, end)
+        except Exception as exc:
+            flash(request, str(exc), 'error')
+            return RedirectResponse('/settings', status_code=303)
+        finally:
+            conn.close()
+        flash(request, f"Shift '{name}' added.", 'success')
+    else:
+        flash(request, "Name, start time and end time are required.", 'error')
+    return RedirectResponse('/settings', status_code=303)
+
+
+@app.post("/settings/shifts/{shift_id}/delete")
+async def delete_shift_route(request: Request, shift_id: int):
+    conn = get_connection()
+    try:
+        from db import delete_shift
+        delete_shift(conn, shift_id)
+    except Exception as exc:
+        flash(request, str(exc), 'error')
+    finally:
+        conn.close()
+    flash(request, "Shift deleted.", 'success')
+    return RedirectResponse('/settings', status_code=303)
+
+
+@app.post("/settings/shift-rules/add")
+async def add_shift_rule(request: Request):
+    form = await request.form()
+    shift_id    = _int_param(form.get('shift_id'))
+    from_date   = (form.get('from_date') or '').strip()
+    to_date     = (form.get('to_date') or '').strip() or None
+    target_type = form.get('target_type', 'employee')
+    g_user_id   = _int_param(form.get('global_user_id')) if target_type == 'employee' else None
+    dept_id     = _int_param(form.get('department_id'))  if target_type == 'department' else None
+
+    if shift_id and from_date and (g_user_id or dept_id):
+        conn = get_connection()
+        try:
+            from db import create_shift_rule
+            create_shift_rule(conn, shift_id, from_date, to_date, g_user_id, dept_id)
+        except Exception as exc:
+            flash(request, str(exc), 'error')
+            return RedirectResponse('/settings', status_code=303)
+        finally:
+            conn.close()
+        flash(request, "Shift rule added.", 'success')
+    else:
+        flash(request, "Shift, from date, and a target (employee or department) are required.", 'error')
+    return RedirectResponse('/settings', status_code=303)
+
+
+@app.post("/settings/shift-rules/{rule_id}/delete")
+async def delete_shift_rule_route(request: Request, rule_id: int):
+    conn = get_connection()
+    try:
+        from db import delete_shift_rule
+        delete_shift_rule(conn, rule_id)
+    except Exception as exc:
+        flash(request, str(exc), 'error')
+    finally:
+        conn.close()
+    flash(request, "Shift rule deleted.", 'success')
+    return RedirectResponse('/settings', status_code=303)
+
+
+@app.post("/settings/employees/{global_id}/department")
+async def set_emp_department(request: Request, global_id: int):
+    form = await request.form()
+    dept_id = _int_param(form.get('department_id'))
+    conn = get_connection()
+    try:
+        from db import set_employee_department
+        set_employee_department(conn, global_id, dept_id)
+    except Exception as exc:
+        flash(request, str(exc), 'error')
+    finally:
+        conn.close()
+    return RedirectResponse('/settings', status_code=303)
 
 
 # ---- Schedule editor ----------------------------------------------------

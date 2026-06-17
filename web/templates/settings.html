@@ -1,0 +1,322 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Settings</p>
+    <h1>Departments, Shifts &amp; Shift Rules</h1>
+  </div>
+</section>
+
+{# ── Departments ──────────────────────────────────────────────────────────── #}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Departments</h2>
+    <span class="muted">{{ departments | length }} total</span>
+  </div>
+
+  <div class="table-wrap" style="margin-bottom:14px">
+    <table class="table">
+      <thead><tr><th>#</th><th>Name</th><th style="width:80px">Action</th></tr></thead>
+      <tbody>
+        {% for d in departments %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ d.name }}</td>
+          <td>
+            <form method="post" action="/settings/departments/{{ d.id }}/delete"
+                  onsubmit="return confirm('Delete department {{ d.name }}?')">
+              <button class="btn small danger" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="empty">No departments yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <form method="post" action="/settings/departments/add" class="form">
+    <div class="filter-bar-flex" style="gap:10px;align-items:flex-end">
+      <label style="flex:1;max-width:280px">New Department Name
+        <input type="text" name="name" placeholder="e.g. Administration" required>
+      </label>
+      <div class="filter-actions" style="padding-top:4px">
+        <button class="btn primary" type="submit">Add Department</button>
+      </div>
+    </div>
+  </form>
+</section>
+
+{# ── Shifts ───────────────────────────────────────────────────────────────── #}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Shifts</h2>
+    <span class="muted">{{ shifts | length }} defined</span>
+  </div>
+
+  <div class="table-wrap" style="margin-bottom:14px">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th><th>Name</th><th>Start</th><th>End</th>
+          <th>Work Hours</th><th style="width:80px">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in shifts %}
+        {% set sh = s.start_time[:5] %}
+        {% set eh = s.end_time[:5] %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td><strong>{{ s.name }}</strong></td>
+          <td>{{ sh }}</td>
+          <td>{{ eh }}</td>
+          <td>
+            {% set sm = s.start_time[:2]|int * 60 + s.start_time[3:5]|int %}
+            {% set em = s.end_time[:2]|int  * 60 + s.end_time[3:5]|int  %}
+            {{ ((em - sm) // 60) }}h {{ ((em - sm) % 60) }}m
+          </td>
+          <td>
+            <form method="post" action="/settings/shifts/{{ s.id }}/delete"
+                  onsubmit="return confirm('Delete shift {{ s.name }}?')">
+              <button class="btn small danger" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">No shifts defined yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <form method="post" action="/settings/shifts/add" class="form">
+    <div class="filter-bar-flex" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <label style="flex:1;max-width:220px">Shift Name
+        <input type="text" name="name" placeholder="e.g. General Shift" required>
+      </label>
+      <label style="width:120px">Start Time
+        <input type="time" name="start_time" value="10:00" required>
+      </label>
+      <label style="width:120px">End Time
+        <input type="time" name="end_time" value="17:00" required>
+      </label>
+      <div class="filter-actions" style="padding-top:4px">
+        <button class="btn primary" type="submit">Add Shift</button>
+      </div>
+    </div>
+  </form>
+</section>
+
+{# ── Shift Rules ──────────────────────────────────────────────────────────── #}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Shift Rules</h2>
+    <span class="muted">Employee or department &rarr; shift mapping with date range</span>
+  </div>
+  <p class="muted" style="font-size:12px;margin:0 0 10px">
+    Employee-level rules take priority over department-level rules.
+    Leave &laquo;To Date&raquo; blank for open-ended rules.
+  </p>
+
+  <div class="table-wrap" style="margin-bottom:14px">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th><th>Target</th><th>Shift</th>
+          <th>From</th><th>To</th><th style="width:80px">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in shift_rules %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>
+            {% if r.employee_name %}
+            <span class="status success" style="font-size:11px">Employee</span>
+            {{ r.employee_name }}
+            {% elif r.department_name %}
+            <span class="status info" style="font-size:11px">Dept</span>
+            {{ r.department_name }}
+            {% endif %}
+          </td>
+          <td>
+            <strong>{{ r.shift_name }}</strong>
+            <span class="muted" style="font-size:11px">{{ r.start_time[:5] }}&ndash;{{ r.end_time[:5] }}</span>
+          </td>
+          <td>{{ r.from_date }}</td>
+          <td>{{ r.to_date or '&mdash;' }}</td>
+          <td>
+            <form method="post" action="/settings/shift-rules/{{ r.id }}/delete"
+                  onsubmit="return confirm('Delete this shift rule?')">
+              <button class="btn small danger" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">No shift rules yet. Add one below.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Add rule form #}
+  <form method="post" action="/settings/shift-rules/add" class="form" id="rule-form">
+    <div class="filter-bar-flex" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <label style="width:160px">Shift
+        <select name="shift_id" required>
+          <option value="">-- select shift --</option>
+          {% for s in shifts %}
+          <option value="{{ s.id }}">{{ s.name }} ({{ s.start_time[:5] }}&ndash;{{ s.end_time[:5] }})</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label style="width:120px">Target Type
+        <select name="target_type" id="rule-target-type" onchange="ruleTargetChange(this.value)">
+          <option value="employee">Employee</option>
+          <option value="department">Department</option>
+        </select>
+      </label>
+
+      <div id="rule-emp-wrap">
+        <label>Employee
+          <div class="emp-picker" id="rule-emp-picker" style="max-width:280px">
+            <div class="emp-picker-trigger" id="rule-trigger" onclick="ruleEmpToggle(event)">
+              <span id="rule-emp-display">-- select employee --</span>
+              <span class="emp-arrow">&#9660;</span>
+            </div>
+            <div class="emp-panel" id="rule-emp-panel" style="display:none">
+              <input type="text" class="emp-search-input" id="rule-emp-search"
+                     oninput="ruleEmpFilter(this.value)"
+                     placeholder="Search..." autocomplete="off">
+              <div class="emp-list" id="rule-emp-list">
+                {% for emp in employees %}
+                <div class="emp-item"
+                     data-gid="{{ emp.id }}"
+                     data-search="{{ (emp.name or '')|lower }} {{ emp.company_id or '' }}"
+                     onclick="ruleEmpPick(this)">
+                  <div class="emp-item-name">{{ emp.name or '(no name)' }}
+                    {% if emp.company_id %}<span class="emp-item-id">{{ emp.company_id }}</span>{% endif %}
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+            <input type="hidden" name="global_user_id" id="rule-emp-hidden" value="">
+          </div>
+        </label>
+      </div>
+
+      <div id="rule-dept-wrap" style="display:none">
+        <label>Department
+          <select name="department_id" id="rule-dept-select">
+            <option value="">-- select department --</option>
+            {% for d in departments %}
+            <option value="{{ d.id }}">{{ d.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+
+      <label style="width:120px">From Date
+        <input type="date" name="from_date" required>
+      </label>
+      <label style="width:120px">To Date (optional)
+        <input type="date" name="to_date">
+      </label>
+      <div class="filter-actions" style="padding-top:4px">
+        <button class="btn primary" type="submit">Add Rule</button>
+      </div>
+    </div>
+  </form>
+</section>
+
+{# ── Employee Department Assignments ─────────────────────────────────────── #}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Employee Department Assignments</h2>
+    <span class="muted">Set each employee&rsquo;s department</span>
+  </div>
+
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr><th>#</th><th>Employee</th><th>Company ID</th><th>Department</th></tr>
+      </thead>
+      <tbody>
+        {% for emp in employees %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ emp.name or '(no name)' }}</td>
+          <td>{{ emp.company_id or '&mdash;' }}</td>
+          <td>
+            <form method="post" action="/settings/employees/{{ emp.id }}/department"
+                  style="display:flex;gap:6px;align-items:center">
+              <select name="department_id" style="min-width:160px">
+                <option value="">-- no department --</option>
+                {% for d in departments %}
+                <option value="{{ d.id }}" {% if emp.department_id == d.id %}selected{% endif %}>{{ d.name }}</option>
+                {% endfor %}
+              </select>
+              <button class="btn small" type="submit">Save</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty">No employees found in global_users.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<script>
+function ruleTargetChange(v) {
+  document.getElementById('rule-emp-wrap').style.display  = v === 'employee'   ? '' : 'none';
+  document.getElementById('rule-dept-wrap').style.display = v === 'department' ? '' : 'none';
+}
+
+/* Rule form — employee picker */
+window.ruleEmpToggle = function (e) {
+  e.stopPropagation();
+  var p = document.getElementById('rule-emp-panel');
+  if (p.style.display === 'none' || !p.style.display) {
+    p.style.display = 'block';
+    var inp = document.getElementById('rule-emp-search');
+    inp.value = '';
+    ruleEmpFilter('');
+    setTimeout(function () { inp.focus(); }, 50);
+  } else {
+    p.style.display = 'none';
+  }
+};
+
+window.ruleEmpFilter = function (q) {
+  q = (q || '').toLowerCase();
+  document.querySelectorAll('#rule-emp-list .emp-item').forEach(function (item) {
+    var txt = (item.getAttribute('data-search') || '').toLowerCase();
+    item.style.display = txt.indexOf(q) !== -1 ? '' : 'none';
+  });
+};
+
+window.ruleEmpPick = function (item) {
+  var gid  = item.getAttribute('data-gid');
+  var name = item.querySelector('.emp-item-name').childNodes[0].textContent.trim();
+  document.getElementById('rule-emp-hidden').value  = gid;
+  document.getElementById('rule-emp-display').textContent = name;
+  document.getElementById('rule-emp-panel').style.display = 'none';
+};
+
+document.addEventListener('click', function (e) {
+  ['rule-emp-picker'].forEach(function (id) {
+    var picker = document.getElementById(id);
+    var panel  = document.getElementById(id.replace('picker', 'panel'));
+    if (picker && panel && !picker.contains(e.target)) panel.style.display = 'none';
+  });
+});
+</script>
+
+{% endblock %}

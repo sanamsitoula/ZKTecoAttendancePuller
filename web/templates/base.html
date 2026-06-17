@@ -28,6 +28,7 @@
         <a href="/schedule" class="{{ 'active' if request.url.path.startswith('/schedule') else '' }}">Schedule</a>
         <a href="/migrate" class="{{ 'active' if request.url.path.startswith('/migrate') else '' }}">Migrate</a>
         <a href="/reports/monthly" class="{{ 'active' if request.url.path.startswith('/reports') else '' }}">Reports</a>
+        <a href="/settings" class="{{ 'active' if request.url.path.startswith('/settings') else '' }}">Settings</a>
       </div>
     </nav>
     {% if flashes %}
