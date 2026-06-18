@@ -111,22 +111,32 @@ The Hajiri Report is a cross-tab attendance register in traditional Nepali `haji
 
 **Print**: A3 landscape via browser print. Signature row (Prepared by / Checked by / Approved by) appears at the bottom.
 
-#### Attendance Settlement (Option A architecture)
+#### Data Architecture
 
-The Hajiri Report reads from `attendance_daily` — a pre-computed daily summary table. Raw punches stay in `attendance_logs` (source of truth) and are never modified.
+All four reports read **directly from `attendance_logs`** — no pre-computation or settlement step is needed.
 
-After every device pull (scheduled or manual), the system automatically **settles** the last 7 days:
+```
+ZKTeco Devices  →  attendance_logs  (single source of truth)
+                         │
+                         ├── Daily Report          (single day, live)
+                         ├── Monthly Report        (per-employee 16-col)
+                         ├── Monthly Summary       (aggregate totals)
+                         └── Hajiri Report         (cross-tab register, any past month)
+```
 
-1. Reads `attendance_logs` grouped by NPT date per employee
-2. Determines the status for each day using this priority:
-   - **Saturday** → `SAT`
-   - **Public/Festival/National/Optional Holiday** → `PH`/`FH`/`NH`/`OH`
-   - **Has punches** → `P` (present), computes OT, late-in, early-out from shift
-   - **Approved leave** → leave type code (`HOME`, `SICK`, etc.)
-   - **No punch** → `A` (absent)
-3. Upserts into `attendance_daily` with `ON CONFLICT DO UPDATE WHERE source != 'manual'`
+Status codes are computed on-the-fly for each page load using this day-level priority:
 
-Rows with `source = 'manual'` (created by HR via a future override UI) are **never overwritten** by the settlement.
+| Priority | Condition | Code | Display |
+|---|---|---|---|
+| 1 | Saturday | `SAT` | शनि |
+| 2 | Public Holiday | `PH` | सा |
+| 2 | Festival Holiday | `FH` | उत् |
+| 2 | National / Optional Holiday | `NH` / `OH` | रा / वै |
+| 3 | Has punch records | `P` | √ |
+| 4 | Approved leave | leave code | घ / बि / अ … |
+| 5 | No punch, working day | `A` | X |
+
+The `attendance_daily` table still exists as an **optional cache** (populated by `settle_month.py`) but no reports depend on it.
 
 ---
 
@@ -770,6 +780,59 @@ Add `"role": "admin"` or `"role": "user"` to each entry in `users.json`. All cur
 
 ---
 
+## CLI Utility Scripts
+
+Three scripts in the project root handle historical data operations. Run them from inside the virtual environment.
+
+### `pull_month.py` — Pull device data for a past BS month
+
+Connects to all active devices (loaded from the database), pulls all stored records, filters to the requested BS month range in Nepal time, and inserts them into `attendance_logs`.
+
+```bash
+# All devices
+python pull_month.py 2083 2
+
+# One specific device
+python pull_month.py 2083 2 --device GateMiddle
+python pull_month.py 2083 2 --device Gmoffice
+```
+
+Use this when you need to load attendance data for a past month that was never pulled, or when a device was offline and missed the scheduled pulls.
+
+### `report_month.py` — Verify data in attendance_logs
+
+Queries `attendance_logs` day-by-day for a BS month and prints employee counts and punch totals. Useful to confirm data is present before viewing reports.
+
+```bash
+python report_month.py 2083 2
+```
+
+Output shows a table of dates → employees present → total punches, plus the browser URLs for both Monthly and Hajiri reports.
+
+### `settle_month.py` — Pre-compute attendance_daily cache (optional)
+
+Runs the settlement engine for a BS month and writes results to `attendance_daily`. This table is no longer required by any report, but pre-computing it can speed up Hajiri Report rendering for large organisations.
+
+```bash
+python settle_month.py 2083 2
+```
+
+### Typical workflow for a missing past month
+
+```bash
+# Step 1: pull raw punches from devices into attendance_logs
+python pull_month.py 2083 2
+
+# Step 2: verify data is there
+python report_month.py 2083 2
+
+# Step 3: open in browser — no further steps needed
+# /reports/hajiri?bs_year=2083&bs_month=2
+# /reports/monthly?bs_year=2083&bs_month=2
+```
+
+---
+
 ## Day-to-Day Operations
 
 ### Add / edit a device
@@ -909,9 +972,12 @@ ZKTecePuller/
 │       ├── schedule.html                   ← Schedule viewer/editor
 │       └── ...                             ← Other templates
 │
+├── pull_month.py           ← CLI: pull device data for a past BS month into attendance_logs
+├── report_month.py         ← CLI: verify attendance_logs data for a BS month; show day-by-day summary
+├── settle_month.py         ← CLI: pre-compute attendance_daily cache for a BS month (optional)
 ├── db_config.json.example  ← Copy to db_config.json and set credentials
 ├── devices.json.example    ← Reference only; devices are managed via web UI
-├── fresh_seed.sh           ← Ubuntu: reset + re-seed data for testing (Mode 1: partial reset + pull; Mode 2: full wipe + sample data)
+├── fresh_seed.sh           ← Ubuntu: reset + re-seed data for testing
 ├── requirements.txt
 ├── README.md
 │
@@ -939,9 +1005,10 @@ ZKTecePuller/
 | Device shows Offline on Dashboard | Port 4370 must be reachable from the server — check firewall / network |
 | `Connection timed out` on pull | Verify `Test-NetConnection -ComputerName <ip> -Port 4370` succeeds |
 | Monthly report shows no employees | Pull data from at least one device first, AND link employees to Global Users via the Users page |
-| Hajiri Report shows no data | Trigger a device pull first — settlement runs automatically and populates `attendance_daily` |
+| Hajiri Report shows no data for current month | Trigger a device pull first — the report reads `attendance_logs` directly |
+| Hajiri Report shows no data for a past month | Run `python pull_month.py <bs_year> <bs_month>` to pull historical records from devices |
 | Hajiri Report shows wrong status (e.g., absent instead of holiday) | Check that the holiday is added in the Holiday Calendar for the correct BS year/month |
-| `attendance_daily` not updating after pull | Check `logs/zkteco_puller.log` for `attendance_daily settled:` lines; errors appear as WARNING entries |
+| `pull_month.py` shows 0 records in range | Device memory may have been cleared; the device no longer holds records for that month |
 | Monthly report shows Holiday = 0 / Leave = 0 even after adding them | Restart the server to pick up the latest code fix; also verify the holiday/leave BS year matches the report month |
 | Holiday or leave appears in wrong BS year | The `bs_to_ad` conversion is used at entry time — check that the year you typed in the form is 2083, not 2082 |
 | `pg_dump` / `psql` not found (Windows) | Use full path: `C:\Program Files\PostgreSQL\16\bin\pg_dump.exe` |
