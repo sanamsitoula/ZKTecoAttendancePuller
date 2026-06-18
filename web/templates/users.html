@@ -214,9 +214,9 @@
       </label>
       <label style="min-width:120px">Sort by
         <select name="sort_by">
+          <option value="uid"        {{ 'selected' if sort_by == 'uid'        else '' }}>Att. ID / UID (default)</option>
           <option value="name"       {{ 'selected' if sort_by == 'name'       else '' }}>Name</option>
-          <option value="user_id"    {{ 'selected' if sort_by == 'user_id'    else '' }}>User ID</option>
-          <option value="uid"        {{ 'selected' if sort_by == 'uid'        else '' }}>UID</option>
+          <option value="user_id"    {{ 'selected' if sort_by == 'user_id'    else '' }}>User ID (text)</option>
           <option value="created_at" {{ 'selected' if sort_by == 'created_at' else '' }}>Date added</option>
           <option value="device"     {{ 'selected' if sort_by == 'device'     else '' }}>Device</option>
         </select>

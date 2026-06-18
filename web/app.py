@@ -559,7 +559,7 @@ def users_index(
     device_id:        str | None = None,
     search:           str | None = None,
     date_str:         str | None = None,
-    sort_by:          str = 'name',
+    sort_by:          str = 'uid',
     sort_dir:         str = 'asc',
     emp_page:         str | None = None,
 ):

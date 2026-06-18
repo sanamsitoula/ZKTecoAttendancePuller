@@ -31,7 +31,7 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 | **Hajiri Report** | Cross-tab attendance register (Nepali hajiri vivaran) — one row per employee, one column per day; shows present/absent/Saturday/holiday/leave codes; summary columns for OT, late-in, early-out; print-ready A3 landscape |
 | **Leave Management** | Employee leave applications; approve/reject; annual leave allocation; BS datepicker |
 | **Holiday Calendar** | Monthly BS calendar grid with public/festival/other holidays; working-day count |
-| **Users** | Two tabs — **Global Users** (sortable columns: Att. ID, Emp ID, Name, Dept, Section, Shift; server-side pagination, search/filter by org, CSV export, print) and **Device Employees** (independent server-side pagination via `emp_page` param, migrate to global user, bulk delete) |
+| **Users** | Two tabs — **Global Users** (sortable columns: Att. ID, Emp ID, Name, Dept, Section, Shift; server-side pagination, search/filter by org, CSV export, print) and **Device Employees** (default sort by Att. ID/UID numeric order; independent server-side pagination via `emp_page` param, migrate to global user, bulk delete) |
 | **Devices** | Add / edit / delete ZKTeco devices; per-device Force UDP toggle and Connection Timeout; test TCP connectivity |
 | **Device Backup** | Download full user + fingerprint backup as JSON |
 | **Migrate** | Copy users and fingerprints between two devices |
@@ -87,6 +87,7 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 - On-leave summary cross-referenced with approved leave applications
 - Print / Download PDF (html2pdf, client-side) / Export Excel (4-sheet: Present, Absent, On Leave, Dept Summary)
 - All attendance timestamps use `Asia/Kathmandu` timezone — punches before 05:45 are correctly assigned to the same calendar day
+- **Unlinked employees** (registered on a device but not yet linked to a Global User) appear in the Present list using their device name as a fallback; absent list remains Global User-based
 
 ### Day-wise Absent Report (`/reports/absent`)
 
