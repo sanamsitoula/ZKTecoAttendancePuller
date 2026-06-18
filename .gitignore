@@ -26,3 +26,7 @@ reports/
 
 # Claude Code session data
 .claude/
+
+# Database backups — contain employee PII; store outside the repo
+db_backup/
+*.sql.backup
