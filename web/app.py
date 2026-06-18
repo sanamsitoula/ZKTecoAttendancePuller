@@ -1379,7 +1379,7 @@ def attendance_view(
         summary       = summary_all[(page_num - 1) * per_page : page_num * per_page]
 
         # ── Raw punch log (server-side paginated) ──
-        where:  list = ["DATE(al.timestamp) BETWEEN %s AND %s"]
+        where:  list = ["DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') BETWEEN %s AND %s"]
         params: list = [from_date, to_date]
         if device_id_int:
             where.append("al.device_id = %s")
@@ -1583,6 +1583,15 @@ def attendance_export_pdf(
     finally:
         conn.close()
 
+    def _pdf_safe(v):
+        """Sanitize a value to Latin-1 safe string for fpdf Helvetica font."""
+        if v is None:
+            return '-'
+        s = str(v)
+        s = s.replace('—', '-').replace('–', '-').replace('…', '...') \
+             .replace('’', "'").replace('‘', "'").replace('“', '"').replace('”', '"')
+        return s.encode('latin-1', errors='replace').decode('latin-1')
+
     # Column widths (mm) for landscape A4 (277mm usable)
     COL_W = [10, 52, 18, 32, 40, 32, 40, 11, 42]  # total = 277
     HEADERS = ['SN', 'Name', 'User ID', 'First In (NPT)', 'First In (BS)',
@@ -1592,10 +1601,10 @@ def attendance_export_pdf(
     class AttPDF(FPDF):
         def header(self):
             self.set_font('Helvetica', 'B', 13)
-            self.cell(0, 7, COMPANY_NAME, align='C', new_x='LMARGIN', new_y='NEXT')
+            self.cell(0, 7, _pdf_safe(COMPANY_NAME), align='C', new_x='LMARGIN', new_y='NEXT')
             self.set_font('Helvetica', '', 9)
-            self.cell(0, 5, COMPANY_ADDRESS, align='C', new_x='LMARGIN', new_y='NEXT')
-            self.cell(0, 5, f"Email: {COMPANY_EMAIL}  |  Website: {COMPANY_WEBSITE}",
+            self.cell(0, 5, _pdf_safe(COMPANY_ADDRESS), align='C', new_x='LMARGIN', new_y='NEXT')
+            self.cell(0, 5, _pdf_safe(f"Email: {COMPANY_EMAIL}  |  Website: {COMPANY_WEBSITE}"),
                       align='C', new_x='LMARGIN', new_y='NEXT')
             self.set_draw_color(23, 105, 224)
             self.set_line_width(0.5)
@@ -1606,8 +1615,8 @@ def attendance_export_pdf(
             bs_from = _nu.bs_date_str(from_date)
             bs_to   = _nu.bs_date_str(to_date)
             self.cell(0, 5,
-                f"Attendance Report  |  {from_date}  to  {to_date}"
-                f"   ({bs_from} BS  to  {bs_to} BS)",
+                _pdf_safe(f"Attendance Report  |  {from_date}  to  {to_date}"
+                f"   ({bs_from}  to  {bs_to})"),
                 align='C', new_x='LMARGIN', new_y='NEXT')
             self.ln(2)
             # Table header
@@ -1641,14 +1650,14 @@ def attendance_export_pdf(
             return txt[:40] + '…' if len(txt) > 40 else txt
         row_vals = [
             str(i),
-            _t(s['name']),
-            str(s['user_id']),
-            _nu.jinja_fmt_dt(s['first_in']),
-            _nu.jinja_bs_datetime(s['first_in']),
-            _nu.jinja_fmt_dt(s['last_out']),
-            _nu.jinja_bs_datetime(s['last_out']),
+            _pdf_safe(_t(s['name'])),
+            _pdf_safe(s['user_id']),
+            _pdf_safe(_nu.jinja_fmt_dt(s['first_in'])),
+            _pdf_safe(_nu.jinja_bs_datetime(s['first_in'])),
+            _pdf_safe(_nu.jinja_fmt_dt(s['last_out'])),
+            _pdf_safe(_nu.jinja_bs_datetime(s['last_out'])),
             str(s['total_punches']),
-            _t(s['devices'] or ''),
+            _pdf_safe(_t(s['devices'] or '')),
         ]
         for val, w in zip(row_vals, COL_W):
             pdf.cell(w, ROW_H, val, border=1, fill=fill)
@@ -3326,7 +3335,9 @@ async def edit_holiday_route(request: Request, h_id: int):
 @app.get("/reports/daily")
 def daily_report(request: Request,
                  date_bs: str | None = None,
-                 date_ad: str | None = None):
+                 date_ad: str | None = None,
+                 name_q:  str | None = None,
+                 dept_q:  str | None = None):
     from db import get_daily_attendance_summary
     from nepali_utils import bs_to_ad, ad_to_bs
     import datetime
@@ -3334,8 +3345,12 @@ def daily_report(request: Request,
     if date_bs and not date_ad:
         date_ad = bs_to_ad(date_bs)
     if not date_ad:
-        # Default to yesterday — today's punches are usually incomplete
-        date_ad = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+        try:
+            import zoneinfo as _zi
+            _npt = _zi.ZoneInfo('Asia/Kathmandu')
+            date_ad = datetime.datetime.now(_npt).date().isoformat()
+        except Exception:
+            date_ad = datetime.date.today().isoformat()
     if not date_bs:
         date_bs = ad_to_bs(date_ad) or ''
 
@@ -3347,12 +3362,451 @@ def daily_report(request: Request,
     finally:
         conn.close()
 
+    # Apply optional name / department filter
+    name_q = (name_q or '').strip().lower()
+    dept_q = (dept_q or '').strip().lower()
+    if name_q or dept_q:
+        def _match(emp):
+            nm = (emp.get('emp_name') or emp.get('employee_name') or '').lower()
+            dn = (emp.get('department_name') or '').lower()
+            return (not name_q or name_q in nm) and (not dept_q or dept_q in dn)
+        for key in ('present', 'on_leave', 'absent'):
+            if key in summary:
+                summary[key] = [e for e in summary[key] if _match(e)]
+
     summary['sel_date_bs'] = date_bs
     summary['sel_date_ad'] = date_ad
-    summary['date_bs']     = date_bs   # used in print header and PDF filename
+    summary['date_bs']     = date_bs
     summary['date_ad']     = date_ad
+    summary['name_q']      = name_q
+    summary['dept_q']      = dept_q
     summary['COMPANY_NAME'] = COMPANY_NAME
+    summary['COMPANY_ADDRESS'] = COMPANY_ADDRESS
     return render(templates, request, 'reports_daily.html', summary)
+
+
+@app.get("/reports/daily/excel")
+def daily_report_excel(
+    date_bs: str | None = None,
+    date_ad: str | None = None,
+    name_q:  str | None = None,
+    dept_q:  str | None = None,
+):
+    from db import get_daily_attendance_summary
+    from nepali_utils import bs_to_ad, ad_to_bs
+    import datetime, openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+
+    if date_bs and not date_ad:
+        date_ad = bs_to_ad(date_bs)
+    if not date_ad:
+        try:
+            import zoneinfo as _zi
+            date_ad = datetime.datetime.now(_zi.ZoneInfo('Asia/Kathmandu')).date().isoformat()
+        except Exception:
+            date_ad = datetime.date.today().isoformat()
+    if not date_bs:
+        date_bs = ad_to_bs(date_ad) or ''
+
+    conn = get_connection()
+    try:
+        summary = get_daily_attendance_summary(conn, date_ad)
+    except Exception as exc:
+        summary = {}
+    finally:
+        conn.close()
+
+    name_q = (name_q or '').strip().lower()
+    dept_q = (dept_q or '').strip().lower()
+    if name_q or dept_q:
+        def _match(emp):
+            nm = (emp.get('emp_name') or '').lower()
+            dn = (emp.get('department_name') or '').lower()
+            return (not name_q or name_q in nm) and (not dept_q or dept_q in dn)
+        for key in ('present', 'on_leave', 'absent'):
+            if key in summary:
+                summary[key] = [e for e in summary[key] if _match(e)]
+
+    wb = openpyxl.Workbook()
+    thin = Side(style='thin')
+    bdr  = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    def _ws_header(ws, title):
+        ws.merge_cells('A1:H1'); ws['A1'] = COMPANY_NAME
+        ws['A1'].font = Font(bold=True, size=13); ws['A1'].alignment = Alignment(horizontal='center')
+        ws.merge_cells('A2:H2'); ws['A2'] = COMPANY_ADDRESS
+        ws['A2'].font = Font(size=10); ws['A2'].alignment = Alignment(horizontal='center')
+        ws.merge_cells('A3:H3'); ws['A3'] = f"{title}  |  {date_ad}  ({date_bs} BS)"
+        ws['A3'].font = Font(italic=True, size=10); ws['A3'].alignment = Alignment(horizontal='center')
+        ws.append([])
+
+    hdr_fill = PatternFill("solid", fgColor="1769E0")
+    hdr_font = Font(bold=True, color="FFFFFF")
+
+    def _style_header(ws, row_idx):
+        for cell in ws[row_idx]:
+            cell.fill = hdr_fill; cell.font = hdr_font
+            cell.alignment = Alignment(horizontal='center', wrap_text=True)
+            cell.border = bdr
+
+    def _style_row(ws, row_idx, alternate=False):
+        for cell in ws[row_idx]:
+            cell.border = bdr
+            cell.alignment = Alignment(vertical='top')
+        if alternate:
+            for cell in ws[row_idx]:
+                cell.fill = PatternFill("solid", fgColor="EEF6FF")
+
+    # Sheet 1: Present
+    ws1 = wb.active; ws1.title = "Present"
+    _ws_header(ws1, "Present Employees")
+    ws1.append(['#', 'Name', 'Att. ID', 'Department', 'Section', 'Check-In', 'Check-Out', 'Hours', 'Punches'])
+    _style_header(ws1, 5)
+    for i, emp in enumerate(summary.get('present', []), 1):
+        fp = emp.get('first_punch'); lp = emp.get('last_punch')
+        ci = fp.strftime('%H:%M') if fp else ''
+        co = lp.strftime('%H:%M') if lp and lp != fp else ''
+        hrs = ''
+        if fp and lp and fp != lp:
+            secs = (lp - fp).total_seconds()
+            hrs = f"{int(secs//3600)}:{int((secs%3600)//60):02d}"
+        ws1.append([i, emp.get('emp_name',''), emp.get('company_id',''),
+                    emp.get('department_name',''), emp.get('section_name',''),
+                    ci, co, hrs, emp.get('punch_count', 0)])
+        _style_row(ws1, ws1.max_row, i % 2 == 0)
+
+    # Sheet 2: Absent
+    ws2 = wb.create_sheet("Absent")
+    _ws_header(ws2, "Absent Employees")
+    ws2.append(['#', 'Name', 'Att. ID', 'Department', 'Section'])
+    _style_header(ws2, 5)
+    for i, emp in enumerate(summary.get('absent', []), 1):
+        ws2.append([i, emp.get('emp_name',''), emp.get('company_id',''),
+                    emp.get('department_name',''), emp.get('section_name','')])
+        _style_row(ws2, ws2.max_row, i % 2 == 0)
+
+    # Sheet 3: On Leave
+    ws3 = wb.create_sheet("On Leave")
+    _ws_header(ws3, "On Leave")
+    ws3.append(['#', 'Name', 'Att. ID', 'Department', 'Leave Type'])
+    _style_header(ws3, 5)
+    for i, emp in enumerate(summary.get('on_leave', []), 1):
+        ws3.append([i, emp.get('employee_name',''), emp.get('company_id',''),
+                    emp.get('department_name',''), emp.get('leave_type_name','')])
+        _style_row(ws3, ws3.max_row, i % 2 == 0)
+
+    # Sheet 4: Dept Summary
+    ws4 = wb.create_sheet("Dept Summary")
+    _ws_header(ws4, "Department-wise Summary")
+    ws4.append(['Department', 'Present', 'On Leave', 'Absent', 'Total'])
+    _style_header(ws4, 5)
+    for dept, counts in (summary.get('dept_summary') or {}).items():
+        ws4.append([dept, counts.get('present',0), counts.get('on_leave',0),
+                    counts.get('absent',0),
+                    counts.get('present',0)+counts.get('on_leave',0)+counts.get('absent',0)])
+        _style_row(ws4, ws4.max_row)
+
+    for ws in [ws1, ws2, ws3, ws4]:
+        for col in ws.columns:
+            ws.column_dimensions[col[0].column_letter].width = max(
+                (len(str(c.value or '')) for c in col), default=8) + 4
+
+    buf = io.BytesIO()
+    wb.save(buf); buf.seek(0)
+    fname = f"daily_attendance_{date_ad}.xlsx"
+    return StreamingResponse(buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+# ─── Day-wise Absent Report ───────────────────────────────────────────────────
+
+
+@app.get("/reports/absent")
+def absent_report(request: Request,
+                  date_bs: str | None = None,
+                  date_ad: str | None = None,
+                  name_q:  str | None = None,
+                  dept_q:  str | None = None):
+    from db import get_daily_attendance_summary
+    from nepali_utils import bs_to_ad, ad_to_bs
+    import datetime
+
+    if date_bs and not date_ad:
+        date_ad = bs_to_ad(date_bs)
+    if not date_ad:
+        try:
+            import zoneinfo as _zi
+            _npt = _zi.ZoneInfo('Asia/Kathmandu')
+            date_ad = datetime.datetime.now(_npt).date().isoformat()
+        except Exception:
+            date_ad = datetime.date.today().isoformat()
+    if not date_bs:
+        date_bs = ad_to_bs(date_ad) or ''
+
+    conn = get_connection()
+    try:
+        summary = get_daily_attendance_summary(conn, date_ad)
+    except Exception as exc:
+        summary = {'error': str(exc), 'absent': [], 'is_saturday': False,
+                   'is_holiday': False, 'holiday': None, 'total_employees': 0,
+                   'totals': {'present': 0, 'on_leave': 0, 'absent': 0}}
+    finally:
+        conn.close()
+
+    name_q = (name_q or '').strip().lower()
+    dept_q = (dept_q or '').strip().lower()
+    absent = summary.get('absent', [])
+    if name_q or dept_q:
+        absent = [e for e in absent
+                  if (not name_q or name_q in (e.get('emp_name') or '').lower())
+                  and (not dept_q or dept_q in (e.get('department_name') or '').lower())]
+
+    return render(templates, request, 'reports_absent.html', {
+        **summary,
+        'absent':        absent,
+        'sel_date_bs':   date_bs,
+        'sel_date_ad':   date_ad,
+        'name_q':        name_q,
+        'dept_q':        dept_q,
+        'COMPANY_NAME':  COMPANY_NAME,
+        'COMPANY_ADDRESS': COMPANY_ADDRESS,
+    })
+
+
+@app.get("/reports/absent/excel")
+def absent_report_excel(
+    date_bs: str | None = None,
+    date_ad: str | None = None,
+    name_q:  str | None = None,
+    dept_q:  str | None = None,
+):
+    from db import get_daily_attendance_summary
+    from nepali_utils import bs_to_ad, ad_to_bs
+    import datetime, io, openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill
+
+    if date_bs and not date_ad:
+        date_ad = bs_to_ad(date_bs)
+    if not date_ad:
+        try:
+            import zoneinfo as _zi
+            _npt = _zi.ZoneInfo('Asia/Kathmandu')
+            date_ad = datetime.datetime.now(_npt).date().isoformat()
+        except Exception:
+            date_ad = datetime.date.today().isoformat()
+    if not date_bs:
+        date_bs = ad_to_bs(date_ad) or ''
+
+    conn = get_connection()
+    try:
+        summary = get_daily_attendance_summary(conn, date_ad)
+    except Exception:
+        summary = {'absent': []}
+    finally:
+        conn.close()
+
+    name_q = (name_q or '').strip().lower()
+    dept_q = (dept_q or '').strip().lower()
+    absent = summary.get('absent', [])
+    if name_q or dept_q:
+        absent = [e for e in absent
+                  if (not name_q or name_q in (e.get('emp_name') or '').lower())
+                  and (not dept_q or dept_q in (e.get('department_name') or '').lower())]
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Absent"
+
+    hdr_fill  = PatternFill("solid", fgColor="1769E0")
+    hdr_font  = Font(bold=True, color="FFFFFF")
+    alt_fill  = PatternFill("solid", fgColor="F0F4FF")
+    bold_font = Font(bold=True)
+
+    def _ws_header(wsh, title):
+        wsh.merge_cells(f'A1:{chr(ord("A")+4)}1')
+        wsh['A1'] = f"{COMPANY_NAME} — {title}"
+        wsh['A1'].font = Font(bold=True, size=13)
+        wsh['A1'].alignment = Alignment(horizontal='center')
+        wsh.merge_cells(f'A2:{chr(ord("A")+4)}2')
+        wsh['A2'] = f"Date: {date_bs} BS  |  {date_ad}"
+        wsh['A2'].alignment = Alignment(horizontal='center')
+        wsh.append([])
+
+    _ws_header(ws, "Day-wise Absent Report")
+    ws.append(['#', 'Name', 'Att. ID', 'Department', 'Section'])
+    for c in ws[ws.max_row]:
+        c.fill = hdr_fill; c.font = hdr_font
+
+    for i, emp in enumerate(absent, 1):
+        ws.append([i, emp.get('emp_name',''), emp.get('company_id',''),
+                   emp.get('department_name',''), emp.get('section_name','')])
+        if i % 2 == 0:
+            for c in ws[ws.max_row]: c.fill = alt_fill
+
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = max(
+            (len(str(c.value or '')) for c in col), default=8) + 4
+
+    buf = io.BytesIO()
+    wb.save(buf); buf.seek(0)
+    fname = f"absent_report_{date_ad}.xlsx"
+    return StreamingResponse(buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+# ─── Department Attendance Report ─────────────────────────────────────────────
+
+
+@app.get("/reports/dept-attendance")
+def dept_attendance_report(request: Request,
+                            date_bs: str | None = None,
+                            date_ad: str | None = None):
+    from db import get_daily_attendance_summary
+    from nepali_utils import bs_to_ad, ad_to_bs
+    import datetime
+
+    if date_bs and not date_ad:
+        date_ad = bs_to_ad(date_bs)
+    if not date_ad:
+        try:
+            import zoneinfo as _zi
+            _npt = _zi.ZoneInfo('Asia/Kathmandu')
+            date_ad = datetime.datetime.now(_npt).date().isoformat()
+        except Exception:
+            date_ad = datetime.date.today().isoformat()
+    if not date_bs:
+        date_bs = ad_to_bs(date_ad) or ''
+
+    conn = get_connection()
+    try:
+        summary = get_daily_attendance_summary(conn, date_ad)
+    except Exception as exc:
+        summary = {'error': str(exc), 'dept_summary': {}, 'is_saturday': False,
+                   'is_holiday': False, 'holiday': None, 'total_employees': 0,
+                   'present': [], 'absent': [], 'on_leave': [],
+                   'totals': {'present': 0, 'on_leave': 0, 'absent': 0}}
+    finally:
+        conn.close()
+
+    # Build per-dept employee lists for drilldown
+    dept_detail: dict = {}
+    for emp in summary.get('present', []):
+        dn = emp.get('department_name') or 'No Department'
+        dept_detail.setdefault(dn, {'present': [], 'absent': [], 'on_leave': []})
+        dept_detail[dn]['present'].append(emp)
+    for emp in summary.get('on_leave', []):
+        dn = emp.get('department_name') or 'No Department'
+        dept_detail.setdefault(dn, {'present': [], 'absent': [], 'on_leave': []})
+        dept_detail[dn]['on_leave'].append(emp)
+    for emp in summary.get('absent', []):
+        dn = emp.get('department_name') or 'No Department'
+        dept_detail.setdefault(dn, {'present': [], 'absent': [], 'on_leave': []})
+        dept_detail[dn]['absent'].append(emp)
+
+    return render(templates, request, 'reports_dept_attendance.html', {
+        **summary,
+        'dept_detail':   dict(sorted(dept_detail.items())),
+        'sel_date_bs':   date_bs,
+        'sel_date_ad':   date_ad,
+        'COMPANY_NAME':  COMPANY_NAME,
+        'COMPANY_ADDRESS': COMPANY_ADDRESS,
+    })
+
+
+@app.get("/reports/dept-attendance/excel")
+def dept_attendance_excel(
+    date_bs: str | None = None,
+    date_ad: str | None = None,
+):
+    from db import get_daily_attendance_summary
+    from nepali_utils import bs_to_ad, ad_to_bs
+    import datetime, io, openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill
+
+    if date_bs and not date_ad:
+        date_ad = bs_to_ad(date_bs)
+    if not date_ad:
+        try:
+            import zoneinfo as _zi
+            _npt = _zi.ZoneInfo('Asia/Kathmandu')
+            date_ad = datetime.datetime.now(_npt).date().isoformat()
+        except Exception:
+            date_ad = datetime.date.today().isoformat()
+    if not date_bs:
+        date_bs = ad_to_bs(date_ad) or ''
+
+    conn = get_connection()
+    try:
+        summary = get_daily_attendance_summary(conn, date_ad)
+    except Exception:
+        summary = {'dept_summary': {}}
+    finally:
+        conn.close()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Dept Summary"
+
+    hdr_fill = PatternFill("solid", fgColor="1769E0")
+    hdr_font = Font(bold=True, color="FFFFFF")
+    alt_fill = PatternFill("solid", fgColor="F0F4FF")
+
+    ws.merge_cells('A1:E1')
+    ws['A1'] = f"{COMPANY_NAME} — Department Attendance Report"
+    ws['A1'].font = Font(bold=True, size=13)
+    ws['A1'].alignment = Alignment(horizontal='center')
+    ws.merge_cells('A2:E2')
+    ws['A2'] = f"Date: {date_bs} BS  |  {date_ad}"
+    ws['A2'].alignment = Alignment(horizontal='center')
+    ws.append([])
+
+    ws.append(['Department', 'Present', 'On Leave', 'Absent', 'Total'])
+    for c in ws[ws.max_row]:
+        c.fill = hdr_fill; c.font = hdr_font
+
+    for i, (dept, counts) in enumerate(sorted((summary.get('dept_summary') or {}).items()), 1):
+        total = counts.get('present',0) + counts.get('on_leave',0) + counts.get('absent',0)
+        ws.append([dept, counts.get('present',0), counts.get('on_leave',0),
+                   counts.get('absent',0), total])
+        if i % 2 == 0:
+            for c in ws[ws.max_row]: c.fill = alt_fill
+
+    # Sheet 2: Present employees by dept
+    ws2 = wb.create_sheet("Present by Dept")
+    ws2.append(['Department', 'Name', 'Att. ID', 'Check-In', 'Check-Out'])
+    for c in ws2[1]:
+        c.fill = hdr_fill; c.font = hdr_font
+    for emp in sorted(summary.get('present', []), key=lambda x: (x.get('department_name') or '', x.get('emp_name') or '')):
+        import nepali_utils as _nu
+        fp = emp.get('first_punch')
+        lp = emp.get('last_punch')
+        ci = _nu.jinja_fmt_dt(fp) if fp else ''
+        co = _nu.jinja_fmt_dt(lp) if (lp and lp != fp) else ''
+        ws2.append([emp.get('department_name',''), emp.get('emp_name',''),
+                    emp.get('company_id',''), ci, co])
+
+    # Sheet 3: Absent employees by dept
+    ws3 = wb.create_sheet("Absent by Dept")
+    ws3.append(['Department', 'Name', 'Att. ID', 'Section'])
+    for c in ws3[1]:
+        c.fill = hdr_fill; c.font = hdr_font
+    for emp in sorted(summary.get('absent', []), key=lambda x: (x.get('department_name') or '', x.get('emp_name') or '')):
+        ws3.append([emp.get('department_name',''), emp.get('emp_name',''),
+                    emp.get('company_id',''), emp.get('section_name','')])
+
+    for ws_i in [ws, ws2, ws3]:
+        for col in ws_i.columns:
+            ws_i.column_dimensions[col[0].column_letter].width = max(
+                (len(str(c.value or '')) for c in col), default=8) + 4
+
+    buf = io.BytesIO()
+    wb.save(buf); buf.seek(0)
+    fname = f"dept_attendance_{date_ad}.xlsx"
+    return StreamingResponse(buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 # ─── Monthly Summary Report ───────────────────────────────────────────────────

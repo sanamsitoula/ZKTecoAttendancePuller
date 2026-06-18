@@ -8,32 +8,63 @@
   @page { size: A4 portrait; margin: 15mm; }
   .print-report-header { display: block !important; }
   .panel { box-shadow: none !important; border: 1px solid #ccc; }
+  .punch-badge { background: #e5e7eb !important; color: #000 !important; }
 }
 .print-report-header { display: none; }
+.punch-badge {
+  display: inline-block; background: var(--primary,#1769e0); color: #fff;
+  border-radius: 9999px; padding: 1px 8px; font-size: .78em; cursor: pointer;
+  font-weight: 600; text-decoration: none;
+}
+.punch-badge:hover { background: #0f4fa8; }
+/* Punch detail modal */
+#punch-modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45);
+  z-index: 999; align-items: center; justify-content: center;
+}
+#punch-modal-overlay.open { display: flex; }
+#punch-modal {
+  background: #fff; border-radius: 8px; padding: 24px 28px; min-width: 320px;
+  max-width: 480px; width: 92vw; box-shadow: 0 4px 32px rgba(0,0,0,.25);
+}
+#punch-modal h3 { margin: 0 0 12px; font-size: 1.05rem; }
+#punch-modal table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+#punch-modal td, #punch-modal th { padding: 5px 10px; border-bottom: 1px solid #e5e7eb; }
+#punch-modal th { background: #f3f4f6; font-size: .78rem; text-transform: uppercase; letter-spacing:.04em; }
+#punch-modal-close { margin-top: 14px; }
 </style>
 
-{# ── Screen-only controls ──────────────────────────────────────────────────── #}
+{# ── Controls ─────────────────────────────────────────────────────────────── #}
 <section class="page-head no-print">
   <div>
     <p class="eyebrow">Reports</p>
     <h1>Daily Attendance Report</h1>
   </div>
-  <div class="head-actions">
+  <div class="head-actions" style="gap:8px;display:flex;flex-wrap:wrap">
     <button class="btn" type="button" onclick="window.print()">Print</button>
-    <button class="btn primary" type="button" onclick="downloadPDF()">Download PDF</button>
+    <button class="btn" type="button" onclick="downloadPDF()">Download PDF</button>
+    <a class="btn primary" href="/reports/daily/excel?date_ad={{ sel_date_ad }}&date_bs={{ sel_date_bs }}&name_q={{ name_q }}&dept_q={{ dept_q }}">Export Excel</a>
   </div>
 </section>
 
 <section class="panel no-print">
   <form method="get" action="/reports/daily" class="form" style="max-width:none">
-    <div class="filter-bar-flex" style="gap:14px;align-items:flex-end;flex-wrap:wrap">
-      <label style="min-width:180px">Date (BS)
+    <div class="filter-bar" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
+      <label style="min-width:160px">Date (BS)
         <input class="bsdp" name="date_bs" value="{{ sel_date_bs }}" data-ad-target="date_ad_h"
                autocomplete="off" placeholder="YYYY-MM-DD">
         <input type="hidden" name="date_ad" id="date_ad_h" value="{{ sel_date_ad }}">
+        {% if sel_date_ad %}<small class="muted">AD: {{ sel_date_ad }}</small>{% endif %}
       </label>
-      <div class="filter-actions" style="padding-top:4px">
-        <button class="btn primary" type="submit">View Report</button>
+      <label style="min-width:150px">Search Name
+        <input name="name_q" value="{{ name_q or '' }}" placeholder="Employee name...">
+      </label>
+      <label style="min-width:150px">Department
+        <input name="dept_q" value="{{ dept_q or '' }}" placeholder="Department...">
+      </label>
+      <div style="padding-top:18px;display:flex;gap:8px">
+        <button class="btn primary" type="submit">View</button>
+        <a class="btn ghost" href="/reports/daily">Reset</a>
       </div>
     </div>
   </form>
@@ -43,17 +74,17 @@
 <section class="panel no-print"><p class="bad-text">{{ error }}</p></section>
 {% endif %}
 
-{# ── Printable report body ─────────────────────────────────────────────────── #}
+{# ── Printable body ─────────────────────────────────────────────────────────── #}
 <div id="daily-report-content">
 
-  {# Print-only header #}
   <div class="print-report-header" style="position:relative;margin-bottom:10px">
     <div style="position:absolute;top:0;right:0;font-size:7pt" id="print-time"></div>
     <div style="text-align:center">
       <div style="font-size:14pt;font-weight:bold">{{ COMPANY_NAME }}</div>
-      <div style="font-size:11pt;font-weight:bold;margin-top:2px">Daily Attendance Report</div>
+      {% if COMPANY_ADDRESS %}<div style="font-size:9pt">{{ COMPANY_ADDRESS }}</div>{% endif %}
+      <div style="font-size:11pt;font-weight:bold;margin-top:4px">Daily Attendance Report</div>
       <div style="font-size:9pt;margin-top:2px">
-        {{ date_bs }} BS &nbsp;({{ date_ad }})
+        {{ sel_date_bs }} BS &nbsp;|&nbsp; {{ sel_date_ad }}
       </div>
     </div>
   </div>
@@ -75,28 +106,23 @@
   {% endif %}
 
   {# Stat boxes #}
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px" class="stat-grid">
-
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
     <div class="panel" style="text-align:center;padding:14px 8px">
       <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Total Employees</div>
       <div style="font-size:28px;font-weight:700;margin-top:4px">{{ total_employees }}</div>
     </div>
-
     <div class="panel" style="text-align:center;padding:14px 8px;border-top:3px solid #22c55e">
       <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Present</div>
       <div style="font-size:28px;font-weight:700;color:#15803d;margin-top:4px">{{ totals.present }}</div>
     </div>
-
     <div class="panel" style="text-align:center;padding:14px 8px;border-top:3px solid #f59e0b">
       <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">On Leave</div>
       <div style="font-size:28px;font-weight:700;color:#b45309;margin-top:4px">{{ totals.on_leave }}</div>
     </div>
-
     <div class="panel" style="text-align:center;padding:14px 8px;border-top:3px solid #ef4444">
       <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Absent</div>
       <div style="font-size:28px;font-weight:700;color:#b91c1c;margin-top:4px">{{ totals.absent }}</div>
     </div>
-
   </div>
 
   {# ── Present Employees ───────────────────────────────────────────────────── #}
@@ -110,65 +136,59 @@
           <tr>
             <th style="width:36px">#</th>
             <th>Name</th>
-            <th>ID</th>
+            <th style="width:70px">Att. ID</th>
             <th>Department</th>
             <th>Section</th>
-            <th style="width:80px">Check In</th>
-            <th style="width:80px">Check Out</th>
-            <th style="width:70px">Hours</th>
+            <th style="width:72px">Check-In</th>
+            <th style="width:72px">Check-Out</th>
+            <th style="width:60px">Hours</th>
+            <th style="width:70px" class="no-print">Punches</th>
           </tr>
         </thead>
         <tbody>
           {% for emp in present %}
+          {% set fp = emp.first_punch %}
+          {% set lp = emp.last_punch %}
+          {% set has_checkout = lp and fp and lp != fp %}
           <tr>
             <td>{{ loop.index }}</td>
             <td><strong>{{ emp.emp_name }}</strong></td>
             <td>{{ emp.company_id or '&mdash;' }}</td>
             <td>{{ emp.department_name or '&mdash;' }}</td>
             <td>{{ emp.section_name or '&mdash;' }}</td>
-            <td>{{ (emp.first_punch | fmt_dt)[-5:] if emp.first_punch else '&mdash;' }}</td>
+            <td>{{ (fp | fmt_dt)[-5:] if fp else '&mdash;' }}</td>
+            <td>{{ (lp | fmt_dt)[-5:] if has_checkout else '&mdash;' }}</td>
             <td>
-              {% if emp.last_punch and emp.first_punch and emp.last_punch != emp.first_punch %}
-                {{ (emp.last_punch | fmt_dt)[-5:] }}
-              {% else %}
-                &mdash;
-              {% endif %}
+              {% if has_checkout %}
+                {% set secs = (lp - fp).total_seconds() %}
+                {{ (secs // 3600) | int }}:{{ '%02d' % ((secs % 3600) // 60 | int) }}
+              {% else %}&mdash;{% endif %}
             </td>
-            <td>
-              {% if emp.first_punch and emp.last_punch and emp.first_punch != emp.last_punch %}
-                {% set total_secs = (emp.last_punch - emp.first_punch).total_seconds() %}
-                {% set h = (total_secs // 3600) | int %}
-                {% set m = ((total_secs % 3600) // 60) | int %}
-                {{ h }}:{{ '%02d' % m }}
-              {% else %}
-                &mdash;
-              {% endif %}
+            <td class="no-print">
+              {% set pc = emp.punch_count or (emp.punches | length) %}
+              {% if pc %}
+              <span class="punch-badge" onclick='showPunches({{ loop.index0 }})'>{{ pc }} punch{% if pc != 1 %}es{% endif %}</span>
+              {% else %}&mdash;{% endif %}
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="8" class="empty">No employees present.</td></tr>
+          <tr><td colspan="9" class="empty">No employees present.</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
   </section>
 
-  {# ── On Leave ────────────────────────────────────────────────────────────── #}
+  {# ── On Leave ─────────────────────────────────────────────────────────────── #}
   {% if on_leave %}
   <section class="panel" style="margin-bottom:16px">
-    <div class="panel-head">
-      <h2>On Leave ({{ on_leave | length }})</h2>
-    </div>
+    <div class="panel-head"><h2>On Leave ({{ on_leave | length }})</h2></div>
     <div class="table-wrap">
       <table class="table">
         <thead>
           <tr>
-            <th style="width:36px">#</th>
-            <th>Name</th>
-            <th>ID</th>
-            <th>Department</th>
-            <th>Leave Type</th>
-            <th>Reason</th>
+            <th style="width:36px">#</th><th>Name</th><th>Att. ID</th>
+            <th>Department</th><th>Leave Type</th><th>Reason</th>
           </tr>
         </thead>
         <tbody>
@@ -188,21 +208,16 @@
   </section>
   {% endif %}
 
-  {# ── Absent Employees (not shown on Saturday / holiday) ─────────────────── #}
+  {# ── Absent ───────────────────────────────────────────────────────────────── #}
   {% if absent and not is_saturday and not is_holiday %}
   <section class="panel" style="margin-bottom:16px">
-    <div class="panel-head">
-      <h2>Absent ({{ totals.absent }})</h2>
-    </div>
+    <div class="panel-head"><h2>Absent ({{ totals.absent }})</h2></div>
     <div class="table-wrap">
       <table class="table">
         <thead>
           <tr>
-            <th style="width:36px">#</th>
-            <th>Name</th>
-            <th>ID</th>
-            <th>Department</th>
-            <th>Section</th>
+            <th style="width:36px">#</th><th>Name</th><th>Att. ID</th>
+            <th>Department</th><th>Section</th>
           </tr>
         </thead>
         <tbody>
@@ -214,6 +229,8 @@
             <td>{{ emp.department_name or '&mdash;' }}</td>
             <td>{{ emp.section_name or '&mdash;' }}</td>
           </tr>
+          {% else %}
+          <tr><td colspan="5" class="empty">No absent employees.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -221,12 +238,10 @@
   </section>
   {% endif %}
 
-  {# ── Department Summary ──────────────────────────────────────────────────── #}
+  {# ── Department Summary ─────────────────────────────────────────────────── #}
   {% if dept_summary %}
   <section class="panel" style="margin-bottom:16px">
-    <div class="panel-head">
-      <h2>Department-wise Summary</h2>
-    </div>
+    <div class="panel-head"><h2>Department-wise Summary</h2></div>
     <div class="table-wrap">
       <table class="table">
         <thead>
@@ -265,31 +280,69 @@
 
 </div>{# end #daily-report-content #}
 
+{# Punch detail modal #}
+<div id="punch-modal-overlay">
+  <div id="punch-modal">
+    <h3 id="punch-modal-title">Punch Detail</h3>
+    <table>
+      <thead><tr><th>#</th><th>Time (NPT)</th><th>BS Time</th><th>Type</th></tr></thead>
+      <tbody id="punch-modal-body"></tbody>
+    </table>
+    <button class="btn ghost" id="punch-modal-close" onclick="closePunchModal()">Close</button>
+  </div>
+</div>
+
 <script src="/static/html2pdf.bundle.min.js"></script>
 <script>
-/* Set print timestamp */
 (function () {
   var el = document.getElementById('print-time');
-  if (el) {
-    var now = new Date();
-    el.textContent = 'Print Time: ' + now.toLocaleString('en-NP');
-  }
+  if (el) el.textContent = 'Print Time: ' + new Date().toLocaleString('en-NP');
 })();
 
-/* PDF download */
 function downloadPDF() {
   var el = document.getElementById('daily-report-content');
   if (!el) { alert('No report to download.'); return; }
-  var fn = 'DailyReport_{{ date_bs }}.pdf';
-  var opt = {
-    margin:      [10, 8, 10, 8],
-    filename:    fn,
-    image:       { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true },
-    jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' }
-  };
-  html2pdf().set(opt).from(el).save();
+  html2pdf().set({
+    margin: [10,8,10,8],
+    filename: 'DailyReport_{{ sel_date_bs }}.pdf',
+    image: { type:'jpeg', quality:0.98 },
+    html2canvas: { scale:2, useCORS:true },
+    jsPDF: { unit:'mm', format:'a4', orientation:'portrait' }
+  }).from(el).save();
 }
-</script>
 
+// Punch data embedded from server
+var PUNCH_DATA = [
+  {% for emp in present %}
+  {
+    name: {{ emp.emp_name | tojson }},
+    punches: [
+      {% for p in (emp.punches or []) %}
+      { ts: {{ (p.ts | fmt_dt) | tojson }}, bs: {{ (p.ts | bs_datetime) | tojson }}, label: {{ (p.label or '') | tojson }} }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ]
+  }{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
+
+function showPunches(idx) {
+  var d = PUNCH_DATA[idx];
+  if (!d) return;
+  document.getElementById('punch-modal-title').textContent = d.name + ' — Punch Detail';
+  var html = '';
+  (d.punches || []).forEach(function(p, i) {
+    html += '<tr><td>' + (i+1) + '</td><td>' + p.ts + '</td><td>' + p.bs + '</td><td>' + (p.label || '—') + '</td></tr>';
+  });
+  document.getElementById('punch-modal-body').innerHTML = html || '<tr><td colspan="4">No punches</td></tr>';
+  document.getElementById('punch-modal-overlay').classList.add('open');
+}
+
+function closePunchModal() {
+  document.getElementById('punch-modal-overlay').classList.remove('open');
+}
+
+document.getElementById('punch-modal-overlay').addEventListener('click', function(e) {
+  if (e.target === this) closePunchModal();
+});
+</script>
 {% endblock %}

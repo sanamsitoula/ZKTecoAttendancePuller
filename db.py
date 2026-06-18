@@ -758,7 +758,7 @@ def get_attendance_summary_filtered(conn, from_date: str, to_date: str,
                                      device_id=None, name: str | None = None) -> list:
     """Per-employee summary over a date range with optional device/name filter.
     Returns each row with extra 'punches' key: list of {ts, label}."""
-    where = ["DATE(al.timestamp) BETWEEN %s AND %s"]
+    where = ["DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') BETWEEN %s AND %s"]
     params: list = [from_date, to_date]
     if device_id:
         where.append("al.device_id = %s")
@@ -1999,7 +1999,11 @@ def get_daily_attendance_summary(conn, date_ad: str) -> dict:
             dept.name             AS department_name,
             sect.name             AS section_name,
             MIN(al.timestamp AT TIME ZONE 'Asia/Kathmandu') AS first_punch,
-            MAX(al.timestamp AT TIME ZONE 'Asia/Kathmandu') AS last_punch
+            MAX(al.timestamp AT TIME ZONE 'Asia/Kathmandu') AS last_punch,
+            COUNT(*)              AS punch_count,
+            ARRAY_AGG((al.timestamp AT TIME ZONE 'Asia/Kathmandu')
+                      ORDER BY al.timestamp) AS punch_times,
+            ARRAY_AGG(al.punch_label ORDER BY al.timestamp) AS punch_labels
         FROM attendance_logs al
         JOIN employees e   ON e.device_id = al.device_id AND e.user_id = al.user_id
         JOIN global_users gu ON gu.id = e.global_user_id
@@ -2017,14 +2021,24 @@ def get_daily_attendance_summary(conn, date_ad: str) -> dict:
     present_map: dict = {}
     for row in pres_rows:
         uid = row['global_user_id']
+        times  = row.get('punch_times')  or []
+        labels = row.get('punch_labels') or []
+        punches = [
+            {'ts': t, 'label': l or ''}
+            for t, l in zip(times, labels + [None] * len(times))
+        ]
         if uid not in present_map:
-            present_map[uid] = dict(row)
+            e = dict(row)
+            e['punches'] = punches
+            present_map[uid] = e
         else:
             e = present_map[uid]
             if row['first_punch'] and (not e['first_punch'] or row['first_punch'] < e['first_punch']):
                 e['first_punch'] = row['first_punch']
             if row['last_punch'] and (not e['last_punch'] or row['last_punch'] > e['last_punch']):
                 e['last_punch'] = row['last_punch']
+            e['punch_count'] = e.get('punch_count', 0) + row.get('punch_count', 0)
+            e['punches'] = sorted(e.get('punches', []) + punches, key=lambda x: x['ts'])
 
     present_ids = set(present_map.keys())
     leave_rows  = get_leaves_for_date(conn, date_ad)
