@@ -2,22 +2,46 @@
 {% block content %}
 
 <style>
+/* ── Print optimisation ───────────────────────────────────────────────────── */
 @media print {
   .no-print { display: none !important; }
-  body { font-size: 9pt; }
-  @page { size: A4 portrait; margin: 15mm; }
-  .print-report-header { display: block !important; }
-  .panel { box-shadow: none !important; border: 1px solid #ccc; }
-  .punch-badge { background: #e5e7eb !important; color: #000 !important; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  body { font-size: 8pt; margin: 0; padding: 0; background: #fff; }
+  @page { size: A4 portrait; margin: 6mm 5mm 8mm 5mm; }
+
+  .rpt-wrap { padding: 0 !important; margin: 0 !important; }
+  .print-hdr { display: block !important; margin-bottom: 6px; }
+  .day-banner { padding: 3px 6px !important; margin-bottom: 5px !important; font-size: 7.5pt; }
+  .stat-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 4px; margin-bottom: 6px !important; }
+  .stat-box { padding: 4px 4px !important; border-radius: 2px; text-align: center;
+    border: 1px solid #ddd; }
+  .stat-box .lbl { font-size: 6.5pt; }
+  .stat-box .val { font-size: 16pt; }
+
+  .rpt-section { margin-bottom: 6px !important; border: 1px solid #ccc !important;
+    box-shadow: none !important; page-break-inside: avoid; }
+  .rpt-section .sec-head { padding: 2px 6px !important; background: #f3f4f6 !important;
+    border-bottom: 1px solid #ccc; }
+  .rpt-section .sec-head h2 { font-size: 8pt !important; margin: 0; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 7.5pt; table-layout: auto; }
+  th { background: #1769e0 !important; color: #fff !important; padding: 2px 3px !important;
+       font-size: 7pt; border: 1px solid #0f4fa8; white-space: nowrap; }
+  td { padding: 2px 3px !important; border: 1px solid #ddd; vertical-align: middle; }
+  tr:nth-child(even) td { background: #f0f4ff !important; }
+  .table-wrap { overflow: visible !important; }
+  .punch-badge { display: none !important; }
 }
-.print-report-header { display: none; }
+
+/* ── Screen styles ────────────────────────────────────────────────────────── */
+.print-hdr { display: none; }
 .punch-badge {
   display: inline-block; background: var(--primary,#1769e0); color: #fff;
   border-radius: 9999px; padding: 1px 8px; font-size: .78em; cursor: pointer;
-  font-weight: 600; text-decoration: none;
+  font-weight: 600;
 }
 .punch-badge:hover { background: #0f4fa8; }
-/* Punch detail modal */
+
 #punch-modal-overlay {
   display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45);
   z-index: 999; align-items: center; justify-content: center;
@@ -30,11 +54,10 @@
 #punch-modal h3 { margin: 0 0 12px; font-size: 1.05rem; }
 #punch-modal table { width: 100%; border-collapse: collapse; font-size: .9rem; }
 #punch-modal td, #punch-modal th { padding: 5px 10px; border-bottom: 1px solid #e5e7eb; }
-#punch-modal th { background: #f3f4f6; font-size: .78rem; text-transform: uppercase; letter-spacing:.04em; }
-#punch-modal-close { margin-top: 14px; }
+#punch-modal th { background: #f3f4f6; font-size: .78rem; text-transform: uppercase; }
 </style>
 
-{# ── Controls ─────────────────────────────────────────────────────────────── #}
+{# ── Screen controls ───────────────────────────────────────────────────────── #}
 <section class="page-head no-print">
   <div>
     <p class="eyebrow">Reports</p>
@@ -74,101 +97,98 @@
 <section class="panel no-print"><p class="bad-text">{{ error }}</p></section>
 {% endif %}
 
-{# ── Printable body ─────────────────────────────────────────────────────────── #}
-<div id="daily-report-content">
+{# ── Printable body ──────────────────────────────────────────────────────────── #}
+<div id="daily-report-content" class="rpt-wrap">
 
-  <div class="print-report-header" style="position:relative;margin-bottom:10px">
-    <div style="position:absolute;top:0;right:0;font-size:7pt" id="print-time"></div>
-    <div style="text-align:center">
-      <div style="font-size:14pt;font-weight:bold">{{ COMPANY_NAME }}</div>
-      {% if COMPANY_ADDRESS %}<div style="font-size:9pt">{{ COMPANY_ADDRESS }}</div>{% endif %}
-      <div style="font-size:11pt;font-weight:bold;margin-top:4px">Daily Attendance Report</div>
-      <div style="font-size:9pt;margin-top:2px">
-        {{ sel_date_bs }} BS &nbsp;|&nbsp; {{ sel_date_ad }}
-      </div>
-    </div>
+  {# Print header (hidden on screen, visible on print) #}
+  <div class="print-hdr" style="text-align:center;border-bottom:2px solid #1769e0;padding-bottom:4px;margin-bottom:6px">
+    <div id="print-time" style="float:right;font-size:7pt;color:#666"></div>
+    <div style="font-size:13pt;font-weight:bold;line-height:1.2">{{ COMPANY_NAME }}</div>
+    {% if COMPANY_ADDRESS %}<div style="font-size:8pt;color:#555">{{ COMPANY_ADDRESS }}</div>{% endif %}
+    <div style="font-size:10pt;font-weight:bold;margin-top:3px">Daily Attendance Report</div>
+    <div style="font-size:8pt;margin-top:1px;color:#444">{{ sel_date_bs }} BS &nbsp;/&nbsp; {{ sel_date_ad }} AD</div>
   </div>
 
-  {# Day status banner #}
+  {# Day status #}
   {% if is_saturday %}
-  <div class="panel" style="background:#fffbeb;border-left:4px solid #f59e0b;padding:10px 16px;margin-bottom:12px">
-    <strong style="color:#92400e">&#9888; Saturday &mdash; Weekly Off</strong>
+  <div class="day-banner" style="background:#fffbeb;border-left:3px solid #f59e0b;padding:8px 14px;margin-bottom:10px;font-size:13px">
+    <strong style="color:#92400e">Saturday - Weekly Off</strong>
   </div>
   {% elif is_holiday %}
-  <div class="panel" style="background:#fef2f2;border-left:4px solid #ef4444;padding:10px 16px;margin-bottom:12px">
-    <strong style="color:#991b1b">&#9940; Holiday: {{ holiday.name }} ({{ holiday.holiday_type }})</strong>
-    {% if holiday.description %}<div style="color:#7f1d1d;font-size:12px;margin-top:3px">{{ holiday.description }}</div>{% endif %}
+  <div class="day-banner" style="background:#fef2f2;border-left:3px solid #ef4444;padding:8px 14px;margin-bottom:10px;font-size:13px">
+    <strong style="color:#991b1b">Holiday: {{ holiday.name }} ({{ holiday.holiday_type }})</strong>
+    {% if holiday.description %}<span style="color:#7f1d1d;font-size:11px;margin-left:8px">{{ holiday.description }}</span>{% endif %}
   </div>
   {% else %}
-  <div class="panel" style="background:#f0fdf4;border-left:4px solid #22c55e;padding:10px 16px;margin-bottom:12px">
-    <strong style="color:#14532d">&#10003; Working Day</strong>
+  <div class="day-banner" style="background:#f0fdf4;border-left:3px solid #22c55e;padding:8px 14px;margin-bottom:10px;font-size:13px">
+    <strong style="color:#14532d">Working Day</strong>
   </div>
   {% endif %}
 
   {# Stat boxes #}
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-    <div class="panel" style="text-align:center;padding:14px 8px">
-      <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Total Employees</div>
-      <div style="font-size:28px;font-weight:700;margin-top:4px">{{ total_employees }}</div>
+  <div class="stat-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+    <div class="stat-box panel" style="text-align:center;padding:12px 6px">
+      <div class="lbl" style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Total</div>
+      <div class="val" style="font-size:26px;font-weight:700;margin-top:2px">{{ total_employees }}</div>
     </div>
-    <div class="panel" style="text-align:center;padding:14px 8px;border-top:3px solid #22c55e">
-      <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Present</div>
-      <div style="font-size:28px;font-weight:700;color:#15803d;margin-top:4px">{{ totals.present }}</div>
+    <div class="stat-box panel" style="text-align:center;padding:12px 6px;border-top:3px solid #22c55e">
+      <div class="lbl" style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Present</div>
+      <div class="val" style="font-size:26px;font-weight:700;color:#15803d;margin-top:2px">{{ totals.present }}</div>
     </div>
-    <div class="panel" style="text-align:center;padding:14px 8px;border-top:3px solid #f59e0b">
-      <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">On Leave</div>
-      <div style="font-size:28px;font-weight:700;color:#b45309;margin-top:4px">{{ totals.on_leave }}</div>
+    <div class="stat-box panel" style="text-align:center;padding:12px 6px;border-top:3px solid #f59e0b">
+      <div class="lbl" style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">On Leave</div>
+      <div class="val" style="font-size:26px;font-weight:700;color:#b45309;margin-top:2px">{{ totals.on_leave }}</div>
     </div>
-    <div class="panel" style="text-align:center;padding:14px 8px;border-top:3px solid #ef4444">
-      <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Absent</div>
-      <div style="font-size:28px;font-weight:700;color:#b91c1c;margin-top:4px">{{ totals.absent }}</div>
+    <div class="stat-box panel" style="text-align:center;padding:12px 6px;border-top:3px solid #ef4444">
+      <div class="lbl" style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Absent</div>
+      <div class="val" style="font-size:26px;font-weight:700;color:#b91c1c;margin-top:2px">{{ totals.absent }}</div>
     </div>
   </div>
 
-  {# ── Present Employees ───────────────────────────────────────────────────── #}
-  <section class="panel" style="margin-bottom:16px">
-    <div class="panel-head">
+  {# ── Present ─────────────────────────────────────────────────────────────── #}
+  <section class="rpt-section panel" style="margin-bottom:14px">
+    <div class="sec-head panel-head">
       <h2>Present Employees ({{ totals.present }})</h2>
     </div>
     <div class="table-wrap">
-      <table class="table">
+      <table class="table" style="font-size:13px">
         <thead>
           <tr>
-            <th style="width:36px">#</th>
+            <th style="width:32px">#</th>
             <th>Name</th>
-            <th style="width:70px">Att. ID</th>
+            <th style="width:66px">Att. ID</th>
             <th>Department</th>
             <th>Section</th>
-            <th style="width:72px">Check-In</th>
-            <th style="width:72px">Check-Out</th>
-            <th style="width:60px">Hours</th>
-            <th style="width:70px" class="no-print">Punches</th>
+            <th style="width:66px">Check-In</th>
+            <th style="width:66px">Check-Out</th>
+            <th style="width:56px">Hours</th>
+            <th style="width:68px" class="no-print">Punches</th>
           </tr>
         </thead>
         <tbody>
           {% for emp in present %}
           {% set fp = emp.first_punch %}
           {% set lp = emp.last_punch %}
-          {% set has_checkout = lp and fp and lp != fp %}
+          {% set has_co = lp and fp and lp != fp %}
           <tr>
             <td>{{ loop.index }}</td>
             <td><strong>{{ emp.emp_name }}</strong></td>
-            <td>{{ emp.company_id or '&mdash;' }}</td>
-            <td>{{ emp.department_name or '&mdash;' }}</td>
-            <td>{{ emp.section_name or '&mdash;' }}</td>
-            <td>{{ (fp | fmt_dt)[-5:] if fp else '&mdash;' }}</td>
-            <td>{{ (lp | fmt_dt)[-5:] if has_checkout else '&mdash;' }}</td>
+            <td>{{ emp.company_id or '-' }}</td>
+            <td>{{ emp.department_name or '-' }}</td>
+            <td>{{ emp.section_name or '-' }}</td>
+            <td>{{ (fp | fmt_dt)[-5:] if fp else '-' }}</td>
+            <td>{{ (lp | fmt_dt)[-5:] if has_co else '-' }}</td>
             <td>
-              {% if has_checkout %}
+              {% if has_co %}
                 {% set secs = (lp - fp).total_seconds() %}
                 {{ (secs // 3600) | int }}:{{ '%02d' % ((secs % 3600) // 60 | int) }}
-              {% else %}&mdash;{% endif %}
+              {% else %}-{% endif %}
             </td>
             <td class="no-print">
               {% set pc = emp.punch_count or (emp.punches | length) %}
               {% if pc %}
               <span class="punch-badge" onclick='showPunches({{ loop.index0 }})'>{{ pc }} punch{% if pc != 1 %}es{% endif %}</span>
-              {% else %}&mdash;{% endif %}
+              {% else %}-{% endif %}
             </td>
           </tr>
           {% else %}
@@ -181,13 +201,13 @@
 
   {# ── On Leave ─────────────────────────────────────────────────────────────── #}
   {% if on_leave %}
-  <section class="panel" style="margin-bottom:16px">
-    <div class="panel-head"><h2>On Leave ({{ on_leave | length }})</h2></div>
+  <section class="rpt-section panel" style="margin-bottom:14px">
+    <div class="sec-head panel-head"><h2>On Leave ({{ on_leave | length }})</h2></div>
     <div class="table-wrap">
-      <table class="table">
+      <table class="table" style="font-size:13px">
         <thead>
           <tr>
-            <th style="width:36px">#</th><th>Name</th><th>Att. ID</th>
+            <th style="width:32px">#</th><th>Name</th><th style="width:66px">Att. ID</th>
             <th>Department</th><th>Leave Type</th><th>Reason</th>
           </tr>
         </thead>
@@ -196,10 +216,10 @@
           <tr>
             <td>{{ loop.index }}</td>
             <td><strong>{{ emp.employee_name }}</strong></td>
-            <td>{{ emp.company_id or '&mdash;' }}</td>
-            <td>{{ emp.department_name or '&mdash;' }}</td>
-            <td>{{ emp.leave_type_name or '&mdash;' }}</td>
-            <td>{{ emp.reason or '&mdash;' }}</td>
+            <td>{{ emp.company_id or '-' }}</td>
+            <td>{{ emp.department_name or '-' }}</td>
+            <td>{{ emp.leave_type_name or '-' }}</td>
+            <td>{{ emp.reason or '-' }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -208,15 +228,15 @@
   </section>
   {% endif %}
 
-  {# ── Absent ───────────────────────────────────────────────────────────────── #}
+  {# ── Absent ────────────────────────────────────────────────────────────────── #}
   {% if absent and not is_saturday and not is_holiday %}
-  <section class="panel" style="margin-bottom:16px">
-    <div class="panel-head"><h2>Absent ({{ totals.absent }})</h2></div>
+  <section class="rpt-section panel" style="margin-bottom:14px">
+    <div class="sec-head panel-head"><h2>Absent ({{ totals.absent }})</h2></div>
     <div class="table-wrap">
-      <table class="table">
+      <table class="table" style="font-size:13px">
         <thead>
           <tr>
-            <th style="width:36px">#</th><th>Name</th><th>Att. ID</th>
+            <th style="width:32px">#</th><th>Name</th><th style="width:66px">Att. ID</th>
             <th>Department</th><th>Section</th>
           </tr>
         </thead>
@@ -225,9 +245,9 @@
           <tr>
             <td>{{ loop.index }}</td>
             <td><strong>{{ emp.emp_name }}</strong></td>
-            <td>{{ emp.company_id or '&mdash;' }}</td>
-            <td>{{ emp.department_name or '&mdash;' }}</td>
-            <td>{{ emp.section_name or '&mdash;' }}</td>
+            <td>{{ emp.company_id or '-' }}</td>
+            <td>{{ emp.department_name or '-' }}</td>
+            <td>{{ emp.section_name or '-' }}</td>
           </tr>
           {% else %}
           <tr><td colspan="5" class="empty">No absent employees.</td></tr>
@@ -238,19 +258,19 @@
   </section>
   {% endif %}
 
-  {# ── Department Summary ─────────────────────────────────────────────────── #}
+  {# ── Dept Summary ─────────────────────────────────────────────────────────── #}
   {% if dept_summary %}
-  <section class="panel" style="margin-bottom:16px">
-    <div class="panel-head"><h2>Department-wise Summary</h2></div>
+  <section class="rpt-section panel" style="margin-bottom:14px">
+    <div class="sec-head panel-head"><h2>Department-wise Summary</h2></div>
     <div class="table-wrap">
-      <table class="table">
+      <table class="table" style="font-size:13px">
         <thead>
           <tr>
             <th>Department</th>
-            <th style="width:90px;text-align:center">Present</th>
-            <th style="width:90px;text-align:center">On Leave</th>
-            <th style="width:90px;text-align:center">Absent</th>
-            <th style="width:90px;text-align:center">Total</th>
+            <th style="width:80px;text-align:center">Present</th>
+            <th style="width:80px;text-align:center">On Leave</th>
+            <th style="width:80px;text-align:center">Absent</th>
+            <th style="width:80px;text-align:center">Total</th>
           </tr>
         </thead>
         <tbody>
@@ -288,7 +308,7 @@
       <thead><tr><th>#</th><th>Time (NPT)</th><th>BS Time</th><th>Type</th></tr></thead>
       <tbody id="punch-modal-body"></tbody>
     </table>
-    <button class="btn ghost" id="punch-modal-close" onclick="closePunchModal()">Close</button>
+    <button class="btn ghost" id="punch-modal-close" onclick="closePunchModal()" style="margin-top:14px">Close</button>
   </div>
 </div>
 
@@ -296,14 +316,14 @@
 <script>
 (function () {
   var el = document.getElementById('print-time');
-  if (el) el.textContent = 'Print Time: ' + new Date().toLocaleString('en-NP');
+  if (el) el.textContent = 'Printed: ' + new Date().toLocaleString('en-NP');
 })();
 
 function downloadPDF() {
   var el = document.getElementById('daily-report-content');
   if (!el) { alert('No report to download.'); return; }
   html2pdf().set({
-    margin: [10,8,10,8],
+    margin: [6,5,8,5],
     filename: 'DailyReport_{{ sel_date_bs }}.pdf',
     image: { type:'jpeg', quality:0.98 },
     html2canvas: { scale:2, useCORS:true },
@@ -311,7 +331,6 @@ function downloadPDF() {
   }).from(el).save();
 }
 
-// Punch data embedded from server
 var PUNCH_DATA = [
   {% for emp in present %}
   {
@@ -328,10 +347,10 @@ var PUNCH_DATA = [
 function showPunches(idx) {
   var d = PUNCH_DATA[idx];
   if (!d) return;
-  document.getElementById('punch-modal-title').textContent = d.name + ' — Punch Detail';
+  document.getElementById('punch-modal-title').textContent = d.name + ' - Punch Detail';
   var html = '';
   (d.punches || []).forEach(function(p, i) {
-    html += '<tr><td>' + (i+1) + '</td><td>' + p.ts + '</td><td>' + p.bs + '</td><td>' + (p.label || '—') + '</td></tr>';
+    html += '<tr><td>' + (i+1) + '</td><td>' + p.ts + '</td><td>' + p.bs + '</td><td>' + (p.label || '-') + '</td></tr>';
   });
   document.getElementById('punch-modal-body').innerHTML = html || '<tr><td colspan="4">No punches</td></tr>';
   document.getElementById('punch-modal-overlay').classList.add('open');

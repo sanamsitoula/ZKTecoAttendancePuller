@@ -126,7 +126,7 @@ PUNCH_LABELS = {
 }
 
 # ── Company / Report header ───────────────────────────────────────────────────
-COMPANY_NAME    = "JANAK EDUCATION MATERIALS CENTER"
-COMPANY_ADDRESS = "SANOTHIMI, BHAKTAPUR"
-COMPANY_EMAIL   = "info@janakedu.org.np"
-COMPANY_WEBSITE = "www.janakedu.org.np"
+COMPANY_NAME    = os.getenv("COMPANY_NAME",    "JANAK EDUCATION MATERIALS CENTER")
+COMPANY_ADDRESS = os.getenv("COMPANY_ADDRESS", "SANOTHIMI, BHAKTAPUR")
+COMPANY_EMAIL   = os.getenv("COMPANY_EMAIL",   "info@janakedu.org.np")
+COMPANY_WEBSITE = os.getenv("COMPANY_WEBSITE", "www.janakedu.org.np")

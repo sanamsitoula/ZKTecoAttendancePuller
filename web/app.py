@@ -3396,6 +3396,7 @@ def daily_report_excel(
     from nepali_utils import bs_to_ad, ad_to_bs
     import datetime, openpyxl
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
 
     if date_bs and not date_ad:
         date_ad = bs_to_ad(date_bs)
@@ -3411,7 +3412,7 @@ def daily_report_excel(
     conn = get_connection()
     try:
         summary = get_daily_attendance_summary(conn, date_ad)
-    except Exception as exc:
+    except Exception:
         summary = {}
     finally:
         conn.close()
@@ -3428,88 +3429,124 @@ def daily_report_excel(
                 summary[key] = [e for e in summary[key] if _match(e)]
 
     wb = openpyxl.Workbook()
-    thin = Side(style='thin')
-    bdr  = Border(left=thin, right=thin, top=thin, bottom=thin)
-
-    def _ws_header(ws, title):
-        ws.merge_cells('A1:H1'); ws['A1'] = COMPANY_NAME
-        ws['A1'].font = Font(bold=True, size=13); ws['A1'].alignment = Alignment(horizontal='center')
-        ws.merge_cells('A2:H2'); ws['A2'] = COMPANY_ADDRESS
-        ws['A2'].font = Font(size=10); ws['A2'].alignment = Alignment(horizontal='center')
-        ws.merge_cells('A3:H3'); ws['A3'] = f"{title}  |  {date_ad}  ({date_bs} BS)"
-        ws['A3'].font = Font(italic=True, size=10); ws['A3'].alignment = Alignment(horizontal='center')
-        ws.append([])
-
+    thin     = Side(style='thin')
+    bdr      = Border(left=thin, right=thin, top=thin, bottom=thin)
     hdr_fill = PatternFill("solid", fgColor="1769E0")
     hdr_font = Font(bold=True, color="FFFFFF")
+    alt_fill = PatternFill("solid", fgColor="EEF6FF")
+    co_name  = COMPANY_NAME or ''
+    co_addr  = COMPANY_ADDRESS or ''
 
-    def _style_header(ws, row_idx):
-        for cell in ws[row_idx]:
-            cell.fill = hdr_fill; cell.font = hdr_font
+    def _ws_header(ws, title, ncols):
+        last = get_column_letter(ncols)
+        ws.merge_cells(f'A1:{last}1')
+        ws.cell(1, 1).value = co_name
+        ws.cell(1, 1).font      = Font(bold=True, size=13)
+        ws.cell(1, 1).alignment = Alignment(horizontal='center')
+        ws.merge_cells(f'A2:{last}2')
+        ws.cell(2, 1).value = co_addr
+        ws.cell(2, 1).font      = Font(size=10)
+        ws.cell(2, 1).alignment = Alignment(horizontal='center')
+        ws.merge_cells(f'A3:{last}3')
+        ws.cell(3, 1).value = f"{title}  |  {date_ad}  ({date_bs} BS)"
+        ws.cell(3, 1).font      = Font(italic=True, size=10)
+        ws.cell(3, 1).alignment = Alignment(horizontal='center')
+        ws.append([])  # row 4 blank
+
+    def _style_header(ws):
+        for cell in ws[ws.max_row]:
+            cell.fill      = hdr_fill
+            cell.font      = hdr_font
             cell.alignment = Alignment(horizontal='center', wrap_text=True)
-            cell.border = bdr
+            cell.border    = bdr
 
-    def _style_row(ws, row_idx, alternate=False):
-        for cell in ws[row_idx]:
-            cell.border = bdr
+    def _style_row(ws, alternate=False):
+        for cell in ws[ws.max_row]:
+            cell.border    = bdr
             cell.alignment = Alignment(vertical='top')
-        if alternate:
-            for cell in ws[row_idx]:
-                cell.fill = PatternFill("solid", fgColor="EEF6FF")
+            if alternate:
+                cell.fill = alt_fill
 
-    # Sheet 1: Present
+    def _auto_width(ws):
+        for i in range(1, ws.max_column + 1):
+            col_letter = get_column_letter(i)
+            max_len = 0
+            for row in ws.iter_rows(min_col=i, max_col=i):
+                for cell in row:
+                    v = getattr(cell, 'value', None)
+                    if v is not None:
+                        max_len = max(max_len, len(str(v)))
+            ws.column_dimensions[col_letter].width = min(max_len + 4, 42)
+
+    # ── Sheet 1: Present ───────────────────────────────────────────────────────
+    PRES_COLS = ['#', 'Name', 'Att. ID', 'Department', 'Section',
+                 'Check-In', 'Check-Out', 'Hours', 'Total Punches']
     ws1 = wb.active; ws1.title = "Present"
-    _ws_header(ws1, "Present Employees")
-    ws1.append(['#', 'Name', 'Att. ID', 'Department', 'Section', 'Check-In', 'Check-Out', 'Hours', 'Punches'])
-    _style_header(ws1, 5)
+    _ws_header(ws1, "Present Employees", len(PRES_COLS))
+    ws1.append(PRES_COLS)
+    _style_header(ws1)
     for i, emp in enumerate(summary.get('present', []), 1):
-        fp = emp.get('first_punch'); lp = emp.get('last_punch')
-        ci = fp.strftime('%H:%M') if fp else ''
-        co = lp.strftime('%H:%M') if lp and lp != fp else ''
-        hrs = ''
-        if fp and lp and fp != lp:
+        fp  = emp.get('first_punch')
+        lp  = emp.get('last_punch')
+        ci  = fp.strftime('%H:%M') if fp else '-'
+        has_co = lp and fp and lp != fp
+        co  = lp.strftime('%H:%M') if has_co else '-'
+        hrs = '-'
+        if has_co:
             secs = (lp - fp).total_seconds()
-            hrs = f"{int(secs//3600)}:{int((secs%3600)//60):02d}"
-        ws1.append([i, emp.get('emp_name',''), emp.get('company_id',''),
-                    emp.get('department_name',''), emp.get('section_name',''),
-                    ci, co, hrs, emp.get('punch_count', 0)])
-        _style_row(ws1, ws1.max_row, i % 2 == 0)
+            hrs  = f"{int(secs // 3600)}:{int((secs % 3600) // 60):02d}"
+        ws1.append([i,
+                    emp.get('emp_name') or '-',
+                    emp.get('company_id') or '-',
+                    emp.get('department_name') or '-',
+                    emp.get('section_name') or '-',
+                    ci, co, hrs,
+                    emp.get('punch_count') or 0])
+        _style_row(ws1, i % 2 == 0)
 
-    # Sheet 2: Absent
+    # ── Sheet 2: Absent ────────────────────────────────────────────────────────
+    ABS_COLS = ['#', 'Name', 'Att. ID', 'Department', 'Section']
     ws2 = wb.create_sheet("Absent")
-    _ws_header(ws2, "Absent Employees")
-    ws2.append(['#', 'Name', 'Att. ID', 'Department', 'Section'])
-    _style_header(ws2, 5)
+    _ws_header(ws2, "Absent Employees", len(ABS_COLS))
+    ws2.append(ABS_COLS)
+    _style_header(ws2)
     for i, emp in enumerate(summary.get('absent', []), 1):
-        ws2.append([i, emp.get('emp_name',''), emp.get('company_id',''),
-                    emp.get('department_name',''), emp.get('section_name','')])
-        _style_row(ws2, ws2.max_row, i % 2 == 0)
+        ws2.append([i,
+                    emp.get('emp_name') or '-',
+                    emp.get('company_id') or '-',
+                    emp.get('department_name') or '-',
+                    emp.get('section_name') or '-'])
+        _style_row(ws2, i % 2 == 0)
 
-    # Sheet 3: On Leave
+    # ── Sheet 3: On Leave ──────────────────────────────────────────────────────
+    OL_COLS = ['#', 'Name', 'Att. ID', 'Department', 'Leave Type']
     ws3 = wb.create_sheet("On Leave")
-    _ws_header(ws3, "On Leave")
-    ws3.append(['#', 'Name', 'Att. ID', 'Department', 'Leave Type'])
-    _style_header(ws3, 5)
+    _ws_header(ws3, "On Leave", len(OL_COLS))
+    ws3.append(OL_COLS)
+    _style_header(ws3)
     for i, emp in enumerate(summary.get('on_leave', []), 1):
-        ws3.append([i, emp.get('employee_name',''), emp.get('company_id',''),
-                    emp.get('department_name',''), emp.get('leave_type_name','')])
-        _style_row(ws3, ws3.max_row, i % 2 == 0)
+        ws3.append([i,
+                    emp.get('employee_name') or '-',
+                    emp.get('company_id') or '-',
+                    emp.get('department_name') or '-',
+                    emp.get('leave_type_name') or '-'])
+        _style_row(ws3, i % 2 == 0)
 
-    # Sheet 4: Dept Summary
+    # ── Sheet 4: Dept Summary ─────────────────────────────────────────────────
+    DS_COLS = ['Department', 'Present', 'On Leave', 'Absent', 'Total']
     ws4 = wb.create_sheet("Dept Summary")
-    _ws_header(ws4, "Department-wise Summary")
-    ws4.append(['Department', 'Present', 'On Leave', 'Absent', 'Total'])
-    _style_header(ws4, 5)
-    for dept, counts in (summary.get('dept_summary') or {}).items():
-        ws4.append([dept, counts.get('present',0), counts.get('on_leave',0),
-                    counts.get('absent',0),
-                    counts.get('present',0)+counts.get('on_leave',0)+counts.get('absent',0)])
-        _style_row(ws4, ws4.max_row)
+    _ws_header(ws4, "Department-wise Summary", len(DS_COLS))
+    ws4.append(DS_COLS)
+    _style_header(ws4)
+    for i, (dept, counts) in enumerate(sorted((summary.get('dept_summary') or {}).items()), 1):
+        p  = counts.get('present', 0)
+        ol = counts.get('on_leave', 0)
+        ab = counts.get('absent', 0)
+        ws4.append([dept, p, ol, ab, p + ol + ab])
+        _style_row(ws4, i % 2 == 0)
 
     for ws in [ws1, ws2, ws3, ws4]:
-        for col in ws.columns:
-            ws.column_dimensions[col[0].column_letter].width = max(
-                (len(str(c.value or '')) for c in col), default=8) + 4
+        _auto_width(ws)
 
     buf = io.BytesIO()
     wb.save(buf); buf.seek(0)
@@ -3583,8 +3620,9 @@ def absent_report_excel(
 ):
     from db import get_daily_attendance_summary
     from nepali_utils import bs_to_ad, ad_to_bs
-    import datetime, io, openpyxl
-    from openpyxl.styles import Font, Alignment, PatternFill
+    import datetime, openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
 
     if date_bs and not date_ad:
         date_ad = bs_to_ad(date_bs)
@@ -3614,39 +3652,49 @@ def absent_report_excel(
                   if (not name_q or name_q in (e.get('emp_name') or '').lower())
                   and (not dept_q or dept_q in (e.get('department_name') or '').lower())]
 
+    COLS = ['#', 'Name', 'Att. ID', 'Department', 'Section']
+    ncols = len(COLS)
+    last  = get_column_letter(ncols)
+
     wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Absent"
+    ws = wb.active; ws.title = "Absent"
 
-    hdr_fill  = PatternFill("solid", fgColor="1769E0")
-    hdr_font  = Font(bold=True, color="FFFFFF")
-    alt_fill  = PatternFill("solid", fgColor="F0F4FF")
-    bold_font = Font(bold=True)
+    thin = Side(style='thin')
+    bdr  = Border(left=thin, right=thin, top=thin, bottom=thin)
+    hdr_fill = PatternFill("solid", fgColor="1769E0")
+    hdr_font = Font(bold=True, color="FFFFFF")
+    alt_fill = PatternFill("solid", fgColor="EEF6FF")
 
-    def _ws_header(wsh, title):
-        wsh.merge_cells(f'A1:{chr(ord("A")+4)}1')
-        wsh['A1'] = f"{COMPANY_NAME} — {title}"
-        wsh['A1'].font = Font(bold=True, size=13)
-        wsh['A1'].alignment = Alignment(horizontal='center')
-        wsh.merge_cells(f'A2:{chr(ord("A")+4)}2')
-        wsh['A2'] = f"Date: {date_bs} BS  |  {date_ad}"
-        wsh['A2'].alignment = Alignment(horizontal='center')
-        wsh.append([])
+    ws.merge_cells(f'A1:{last}1')
+    ws.cell(1, 1).value = f"{COMPANY_NAME or ''} — Day-wise Absent Report"
+    ws.cell(1, 1).font      = Font(bold=True, size=13)
+    ws.cell(1, 1).alignment = Alignment(horizontal='center')
+    ws.merge_cells(f'A2:{last}2')
+    ws.cell(2, 1).value = f"{COMPANY_ADDRESS or ''}     Date: {date_bs} BS  |  {date_ad}"
+    ws.cell(2, 1).alignment = Alignment(horizontal='center')
+    ws.append([])
 
-    _ws_header(ws, "Day-wise Absent Report")
-    ws.append(['#', 'Name', 'Att. ID', 'Department', 'Section'])
+    ws.append(COLS)
     for c in ws[ws.max_row]:
-        c.fill = hdr_fill; c.font = hdr_font
+        c.fill = hdr_fill; c.font = hdr_font; c.border = bdr
+        c.alignment = Alignment(horizontal='center')
 
     for i, emp in enumerate(absent, 1):
-        ws.append([i, emp.get('emp_name',''), emp.get('company_id',''),
-                   emp.get('department_name',''), emp.get('section_name','')])
-        if i % 2 == 0:
-            for c in ws[ws.max_row]: c.fill = alt_fill
+        ws.append([i,
+                   emp.get('emp_name') or '-',
+                   emp.get('company_id') or '-',
+                   emp.get('department_name') or '-',
+                   emp.get('section_name') or '-'])
+        for c in ws[ws.max_row]:
+            c.border = bdr
+            if i % 2 == 0: c.fill = alt_fill
 
-    for col in ws.columns:
-        ws.column_dimensions[col[0].column_letter].width = max(
-            (len(str(c.value or '')) for c in col), default=8) + 4
+    for ci in range(1, ncols + 1):
+        col_letter = get_column_letter(ci)
+        max_len = max((len(str(cell.value or ''))
+                       for row in ws.iter_rows(min_col=ci, max_col=ci)
+                       for cell in row if getattr(cell, 'value', None) is not None), default=8)
+        ws.column_dimensions[col_letter].width = min(max_len + 4, 42)
 
     buf = io.BytesIO()
     wb.save(buf); buf.seek(0)
@@ -3722,8 +3770,10 @@ def dept_attendance_excel(
 ):
     from db import get_daily_attendance_summary
     from nepali_utils import bs_to_ad, ad_to_bs
-    import datetime, io, openpyxl
-    from openpyxl.styles import Font, Alignment, PatternFill
+    import datetime, openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    import nepali_utils as _nu
 
     if date_bs and not date_ad:
         date_ad = bs_to_ad(date_bs)
@@ -3745,61 +3795,83 @@ def dept_attendance_excel(
     finally:
         conn.close()
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Dept Summary"
-
+    thin     = Side(style='thin')
+    bdr      = Border(left=thin, right=thin, top=thin, bottom=thin)
     hdr_fill = PatternFill("solid", fgColor="1769E0")
     hdr_font = Font(bold=True, color="FFFFFF")
-    alt_fill = PatternFill("solid", fgColor="F0F4FF")
+    alt_fill = PatternFill("solid", fgColor="EEF6FF")
+    co_name  = COMPANY_NAME or ''
+    co_addr  = COMPANY_ADDRESS or ''
 
-    ws.merge_cells('A1:E1')
-    ws['A1'] = f"{COMPANY_NAME} — Department Attendance Report"
-    ws['A1'].font = Font(bold=True, size=13)
-    ws['A1'].alignment = Alignment(horizontal='center')
-    ws.merge_cells('A2:E2')
-    ws['A2'] = f"Date: {date_bs} BS  |  {date_ad}"
-    ws['A2'].alignment = Alignment(horizontal='center')
+    def _auto_width(wsh):
+        for ci in range(1, wsh.max_column + 1):
+            cl = get_column_letter(ci)
+            mx = max((len(str(cell.value or ''))
+                      for row in wsh.iter_rows(min_col=ci, max_col=ci)
+                      for cell in row if getattr(cell, 'value', None) is not None), default=8)
+            wsh.column_dimensions[cl].width = min(mx + 4, 42)
+
+    def _hdr_row(wsh):
+        for c in wsh[wsh.max_row]:
+            c.fill = hdr_fill; c.font = hdr_font; c.border = bdr
+            c.alignment = Alignment(horizontal='center')
+
+    wb = openpyxl.Workbook()
+
+    # Sheet 1: Dept Summary
+    DS_COLS = ['Department', 'Present', 'On Leave', 'Absent', 'Total']
+    ws = wb.active; ws.title = "Dept Summary"
+    last = get_column_letter(len(DS_COLS))
+    ws.merge_cells(f'A1:{last}1')
+    ws.cell(1,1).value = f"{co_name} — Department Attendance Report"
+    ws.cell(1,1).font = Font(bold=True, size=13); ws.cell(1,1).alignment = Alignment(horizontal='center')
+    ws.merge_cells(f'A2:{last}2')
+    ws.cell(2,1).value = f"{co_addr}     Date: {date_bs} BS  |  {date_ad}"
+    ws.cell(2,1).alignment = Alignment(horizontal='center')
     ws.append([])
-
-    ws.append(['Department', 'Present', 'On Leave', 'Absent', 'Total'])
-    for c in ws[ws.max_row]:
-        c.fill = hdr_fill; c.font = hdr_font
-
+    ws.append(DS_COLS); _hdr_row(ws)
     for i, (dept, counts) in enumerate(sorted((summary.get('dept_summary') or {}).items()), 1):
-        total = counts.get('present',0) + counts.get('on_leave',0) + counts.get('absent',0)
-        ws.append([dept, counts.get('present',0), counts.get('on_leave',0),
-                   counts.get('absent',0), total])
+        p = counts.get('present',0); ol = counts.get('on_leave',0); ab = counts.get('absent',0)
+        ws.append([dept, p, ol, ab, p+ol+ab])
         if i % 2 == 0:
-            for c in ws[ws.max_row]: c.fill = alt_fill
+            for c in ws[ws.max_row]: c.fill = alt_fill; c.border = bdr
+        else:
+            for c in ws[ws.max_row]: c.border = bdr
+    _auto_width(ws)
 
-    # Sheet 2: Present employees by dept
+    # Sheet 2: Present employees
+    PR_COLS = ['Department', 'Name', 'Att. ID', 'Check-In', 'Check-Out', 'Hours']
     ws2 = wb.create_sheet("Present by Dept")
-    ws2.append(['Department', 'Name', 'Att. ID', 'Check-In', 'Check-Out'])
-    for c in ws2[1]:
-        c.fill = hdr_fill; c.font = hdr_font
-    for emp in sorted(summary.get('present', []), key=lambda x: (x.get('department_name') or '', x.get('emp_name') or '')):
-        import nepali_utils as _nu
-        fp = emp.get('first_punch')
-        lp = emp.get('last_punch')
-        ci = _nu.jinja_fmt_dt(fp) if fp else ''
-        co = _nu.jinja_fmt_dt(lp) if (lp and lp != fp) else ''
-        ws2.append([emp.get('department_name',''), emp.get('emp_name',''),
-                    emp.get('company_id',''), ci, co])
+    ws2.append(PR_COLS); _hdr_row(ws2)
+    for i, emp in enumerate(sorted(summary.get('present', []),
+                                   key=lambda x: (x.get('department_name') or '', x.get('emp_name') or '')), 1):
+        fp = emp.get('first_punch'); lp = emp.get('last_punch')
+        ci = fp.strftime('%H:%M') if fp else '-'
+        has_co = lp and fp and lp != fp
+        co = lp.strftime('%H:%M') if has_co else '-'
+        hrs = '-'
+        if has_co:
+            secs = (lp - fp).total_seconds()
+            hrs = f"{int(secs//3600)}:{int((secs%3600)//60):02d}"
+        ws2.append([emp.get('department_name') or '-', emp.get('emp_name') or '-',
+                    emp.get('company_id') or '-', ci, co, hrs])
+        for c in ws2[ws2.max_row]: c.border = bdr
+        if i % 2 == 0:
+            for c in ws2[ws2.max_row]: c.fill = alt_fill
+    _auto_width(ws2)
 
-    # Sheet 3: Absent employees by dept
+    # Sheet 3: Absent employees
+    AB_COLS = ['Department', 'Name', 'Att. ID', 'Section']
     ws3 = wb.create_sheet("Absent by Dept")
-    ws3.append(['Department', 'Name', 'Att. ID', 'Section'])
-    for c in ws3[1]:
-        c.fill = hdr_fill; c.font = hdr_font
-    for emp in sorted(summary.get('absent', []), key=lambda x: (x.get('department_name') or '', x.get('emp_name') or '')):
-        ws3.append([emp.get('department_name',''), emp.get('emp_name',''),
-                    emp.get('company_id',''), emp.get('section_name','')])
-
-    for ws_i in [ws, ws2, ws3]:
-        for col in ws_i.columns:
-            ws_i.column_dimensions[col[0].column_letter].width = max(
-                (len(str(c.value or '')) for c in col), default=8) + 4
+    ws3.append(AB_COLS); _hdr_row(ws3)
+    for i, emp in enumerate(sorted(summary.get('absent', []),
+                                   key=lambda x: (x.get('department_name') or '', x.get('emp_name') or '')), 1):
+        ws3.append([emp.get('department_name') or '-', emp.get('emp_name') or '-',
+                    emp.get('company_id') or '-', emp.get('section_name') or '-'])
+        for c in ws3[ws3.max_row]: c.border = bdr
+        if i % 2 == 0:
+            for c in ws3[ws3.max_row]: c.fill = alt_fill
+    _auto_width(ws3)
 
     buf = io.BytesIO()
     wb.save(buf); buf.seek(0)
