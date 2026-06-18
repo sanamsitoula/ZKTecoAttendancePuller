@@ -30,11 +30,11 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 | **Leave Management** | Employee leave applications; approve/reject; annual leave allocation; BS datepicker |
 | **Holiday Calendar** | Monthly BS calendar grid with public/festival/other holidays; working-day count |
 | **Users** | Two tabs — **Global Users** (sortable columns: Att. ID, Emp ID, Name, Dept, Section, Shift; pagination, search/filter by org, CSV export, print) and **Device Employees** (pagination, migrate to global user, bulk delete) |
-| **Devices** | Add / edit / delete ZKTeco devices; test TCP connectivity |
+| **Devices** | Add / edit / delete ZKTeco devices; per-device Force UDP toggle and Connection Timeout; test TCP connectivity |
 | **Device Backup** | Download full user + fingerprint backup as JSON |
 | **Migrate** | Copy users and fingerprints between two devices |
 | **Sync** | Compare device users vs DB; import unknown or push missing |
-| **Pull Sessions** | History of every pull run (start, end, rows, status) |
+| **Pull Sessions** | History of every pull run (start, end, rows, status, full error traceback); diagnostic table explaining common timeout causes |
 | **Schedule** | View and edit the pull schedule — applies immediately, no restart |
 | **Settings** | Three tabs: Org Hierarchy (Directorates → Departments → Sections → Units), Shifts & Shift Rules, Employee Org Assignment |
 
@@ -457,7 +457,7 @@ sudo systemctl enable zkteco-web
 sudo systemctl start zkteco-web
 sudo systemctl status zkteco-web   # should show "active (running)"
 ```
-# check
+##
 View logs:
 ```bash
 sudo journalctl -u zkteco-web -f
@@ -838,6 +838,12 @@ python report_month.py 2083 2
 ### Add / edit a device
 Go to **Dashboard → Add Device** in the web UI. Changes are saved to the database immediately.
 
+| Field | Default | Notes |
+|---|---|---|
+| Force UDP protocol | Off | Enable for iFace302 and older models that timeout on TCP |
+| Connection timeout | 10s | Increase to 30–60 if device is slow or on a high-latency link |
+| Password | blank | Must match the device's **Comm Key** (Menu → Comm → Comm Key); default is 0 (leave blank) |
+
 ### Trigger an immediate pull
 Click the **Pull** button on any device card on the Dashboard.
 
@@ -886,11 +892,11 @@ pg_dump -U postgres -d zkteco -f ~/backups/zkteco_$(date +%F).sql
 
 | Table | Key Columns |
 |---|---|
-| `devices` | id, name, ip_address, port, model, is_active, created_at/bs, created_by, updated_by |
+| `devices` | id, name, ip_address, port, password, model, is_active, **force_udp**, **connection_timeout**, created_at/bs, created_by, updated_by |
 | `employees` | id, device_id, uid, user_id, name, privilege, card, global_user_id (FK), created_at/bs |
 | `global_users` | id, **global_user_id** (att. device ID), **employee_id** (HR ID), name, privilege, card, **bank_number**, **email**, **phone**, department_id, section_id, unit_id, **shift_id**, **fingerprint_data**, created_by, updated_by |
 | `attendance_logs` | id, device_id, employee_id, uid, user_id, name, timestamp (UTC), bs_date, status, punch, punch_label — UNIQUE (device_id, uid, timestamp) |
-| `pull_sessions` | id, device_id, started_at, completed_at, records_pulled, new_inserts, status, error_message, started_bs |
+| `pull_sessions` | id, device_id, started_at, completed_at, records_pulled, new_inserts, status, error_message, **error_detail** (full traceback), started_bs, completed_bs |
 | `directorates` | id, name |
 | `departments` | id, name, directorate_id |
 | `sections` | id, name, department_id |
@@ -906,7 +912,7 @@ pg_dump -U postgres -d zkteco -f ~/backups/zkteco_$(date +%F).sql
 
 **Bold** columns were added in extended migrations (auto-applied on startup). All tables store a BS date column (`bs_date`, `created_bs`, etc.) alongside AD timestamps.
 
-#### New columns added to existing tables (Phase 5 / Phase 6)
+#### New columns added to existing tables (Phase 5 / Phase 6 / Phase 7 / Phase 8)
 
 | Table | New Columns |
 |---|---|
@@ -915,10 +921,12 @@ pg_dump -U postgres -d zkteco -f ~/backups/zkteco_$(date +%F).sql
 | `leave_balances` | `carried_forward`, `annual_allocated` |
 | `global_users` | `emp_type` (PERMANENT/CONTRACT/…), `emp_status` (ACTIVE/INACTIVE/…), `join_date`, `level_grade`, `designation` |
 | `shifts` | `grace_late_in` (minutes), `grace_early_out` (minutes), `break_minutes` |
+| `pull_sessions` | `error_detail` TEXT (full Python traceback on failure), `completed_bs` |
+| `devices` | `force_udp` BOOLEAN DEFAULT FALSE (use UDP protocol for iFace302 etc.), `connection_timeout` INTEGER DEFAULT 10 |
 
 ### Migration Notes (Upgrading from an Earlier Version)
 
-All schema changes are additive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` — safe to run against an existing database. The web server applies them automatically on startup via `init_schema` (Phases 1–6). No manual SQL needed.
+All schema changes are additive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` — safe to run against an existing database. The web server applies them automatically on startup via `init_schema` (Phases 1–8). No manual SQL needed.
 
 To verify the new columns exist:
 ```sql
@@ -1003,7 +1011,11 @@ ZKTecePuller/
 | `/login` returns 500 Internal Server Error | Starlette 1.2.1 changed the `TemplateResponse` API — upgrade to latest code (`git pull`) and restart |
 | Daily report shows no data | Reports default to yesterday; pull data via Dashboard first |
 | Device shows Offline on Dashboard | Port 4370 must be reachable from the server — check firewall / network |
-| `Connection timed out` on pull | Verify `Test-NetConnection -ComputerName <ip> -Port 4370` succeeds |
+| `Connection timed out` on pull (TCP) | Run in PowerShell: `Test-NetConnection -ComputerName <ip> -Port 4370` — if `TcpTestSucceeded: False`, port is blocked by firewall |
+| `Connection timed out` on pull (TCP succeeds but pull still times out) | Device accepts TCP socket but ignores ZKTeco protocol — enable **Force UDP** on the device in Edit Device |
+| iFace302 always times out | iFace302 defaults to UDP; pyzk defaults to TCP — go to Edit Device → tick **Force UDP protocol** |
+| Pull times out even with Force UDP | Another ZKTeco client (ZKTime, ZKAccess) is already connected — close it, then **power-cycle the device** (unplug 10s) and try again |
+| Pull times out on large device (many records) | Increase **Connection Timeout** in Edit Device to 30–60 seconds |
 | Monthly report shows no employees | Pull data from at least one device first, AND link employees to Global Users via the Users page |
 | Hajiri Report shows no data for current month | Trigger a device pull first — the report reads `attendance_logs` directly |
 | Hajiri Report shows no data for a past month | Run `python pull_month.py <bs_year> <bs_month>` to pull historical records from devices |
