@@ -25,6 +25,11 @@
       <label>Model
         <input name="model" value="{{ device.model if device else '' }}">
       </label>
+      <label>Connection timeout (seconds)
+        <input name="connection_timeout" type="number" min="5" max="120"
+               value="{{ device.connection_timeout if device else 10 }}">
+        <small class="muted">Increase to 30–60 if the device is slow or on a high-latency network (default: 10).</small>
+      </label>
       <label class="check-row">
         <input type="checkbox" name="is_active" {% if not device or device.is_active %}checked{% endif %}>
         Active

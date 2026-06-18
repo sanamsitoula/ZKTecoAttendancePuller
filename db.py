@@ -454,6 +454,11 @@ ALTER TABLE pull_sessions ADD COLUMN IF NOT EXISTS error_detail TEXT;
 ALTER TABLE devices       ADD COLUMN IF NOT EXISTS force_udp BOOLEAN NOT NULL DEFAULT FALSE;
 """
 
+_PHASE8_SQL = """
+-- Phase 8: per-device connection timeout
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS connection_timeout INTEGER NOT NULL DEFAULT 10;
+"""
+
 
 def get_connection():
     return psycopg2.connect(**load_db_config())
@@ -519,6 +524,14 @@ def init_schema(conn) -> None:
     except Exception as e:
         conn.rollback()
         logger.warning("Phase 7 migration skipped: %s", e)
+    # Phase 8: per-device connection timeout
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE8_SQL)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 8 migration skipped: %s", e)
     logger.info("Database schema initialized.")
 
 
@@ -796,14 +809,14 @@ def get_attendance_summary_filtered(conn, from_date: str, to_date: str,
 
 
 def get_devices(conn):
-    sql = "SELECT id, name, ip_address, port, password, model, is_active, force_udp, created_at FROM devices ORDER BY name"
+    sql = "SELECT id, name, ip_address, port, password, model, is_active, force_udp, connection_timeout, created_at FROM devices ORDER BY name"
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(sql)
         return [dict(row) for row in cur.fetchall()]
 
 
 def get_device(conn, device_id: int):
-    sql = "SELECT id, name, ip_address, port, password, model, is_active, force_udp FROM devices WHERE id = %s"
+    sql = "SELECT id, name, ip_address, port, password, model, is_active, force_udp, connection_timeout FROM devices WHERE id = %s"
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(sql, (device_id,))
         row = cur.fetchone()
@@ -812,8 +825,8 @@ def get_device(conn, device_id: int):
 
 def create_device(conn, device: dict, app_user_id: int = 0) -> int:
     sql = """
-        INSERT INTO devices (name, ip_address, port, password, model, is_active, force_udp, created_bs, created_by, updated_by)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO devices (name, ip_address, port, password, model, is_active, force_udp, connection_timeout, created_bs, created_by, updated_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """
     with conn.cursor() as cur:
@@ -821,6 +834,7 @@ def create_device(conn, device: dict, app_user_id: int = 0) -> int:
             device.get("name"), device.get("ip_address"), device.get("port", 4370),
             device.get("password", ""), device.get("model", ""), bool(device.get("is_active", True)),
             bool(device.get("force_udp", False)),
+            int(device.get("connection_timeout", 10)),
             _today_bs(), app_user_id or None, app_user_id or None,
         ))
         return cur.fetchone()[0]
@@ -836,6 +850,7 @@ def update_device(conn, device_id: int, device: dict, app_user_id: int = 0) -> N
             model = %s,
             is_active = %s,
             force_udp = %s,
+            connection_timeout = %s,
             updated_by = %s
         WHERE id = %s
     """
@@ -844,6 +859,7 @@ def update_device(conn, device_id: int, device: dict, app_user_id: int = 0) -> N
             device.get("name"), device.get("ip_address"), device.get("port", 4370),
             device.get("password", ""), device.get("model", ""), bool(device.get("is_active", True)),
             bool(device.get("force_udp", False)),
+            int(device.get("connection_timeout", 10)),
             app_user_id or None, device_id,
         ))
 

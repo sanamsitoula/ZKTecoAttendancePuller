@@ -358,7 +358,8 @@ def device_add(request: Request,
                password: str = Form(""),
                model: str = Form(""),
                is_active: str = Form("off"),
-               force_udp: str = Form("off")):
+               force_udp: str = Form("off"),
+               connection_timeout: int = Form(10)):
     conn = get_connection()
     try:
         device = {
@@ -369,6 +370,7 @@ def device_add(request: Request,
             "model": model,
             "is_active": is_active == "on",
             "force_udp": force_udp == "on",
+            "connection_timeout": max(5, int(connection_timeout)),
         }
         create_device(conn, device, app_user_id=_current_user_id(request))
         conn.commit()
@@ -394,7 +396,8 @@ def device_edit_form(request: Request, device_id: int):
 def device_edit(request: Request, device_id: int,
                 name: str = Form(...), ip: str = Form(...), port: int = Form(4370),
                 password: str = Form(""), model: str = Form(""),
-                is_active: str = Form("off"), force_udp: str = Form("off")):
+                is_active: str = Form("off"), force_udp: str = Form("off"),
+                connection_timeout: int = Form(10)):
     conn = get_connection()
     try:
         device = {
@@ -405,6 +408,7 @@ def device_edit(request: Request, device_id: int,
             "model": model,
             "is_active": is_active == "on",
             "force_udp": force_udp == "on",
+            "connection_timeout": max(5, int(connection_timeout)),
         }
         update_device(conn, device_id, device, app_user_id=_current_user_id(request))
         conn.commit()
