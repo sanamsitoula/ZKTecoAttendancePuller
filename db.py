@@ -1993,9 +1993,10 @@ def get_daily_attendance_summary(conn, date_ad: str) -> dict:
 
     sql_pres = """
         SELECT
-            gu.id                 AS global_user_id,
-            gu.name               AS emp_name,
-            gu.global_user_id     AS company_id,
+            COALESCE(gu.id::text, 'dev_' || e.device_id::text || '_' || e.user_id)
+                                  AS global_user_id,
+            COALESCE(gu.name, e.name, '?')          AS emp_name,
+            COALESCE(gu.global_user_id, e.user_id, '') AS company_id,
             dept.name             AS department_name,
             sect.name             AS section_name,
             MIN(al.timestamp AT TIME ZONE 'Asia/Kathmandu') AS first_punch,
@@ -2006,13 +2007,16 @@ def get_daily_attendance_summary(conn, date_ad: str) -> dict:
             ARRAY_AGG(al.punch_label ORDER BY al.timestamp) AS punch_labels
         FROM attendance_logs al
         JOIN employees e   ON e.device_id = al.device_id AND e.user_id = al.user_id
-        JOIN global_users gu ON gu.id = e.global_user_id
+        LEFT JOIN global_users gu ON gu.id = e.global_user_id
         LEFT JOIN departments dept ON dept.id = gu.department_id
         LEFT JOIN sections    sect ON sect.id = gu.section_id
         WHERE DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') = %s
-          AND gu.id IS NOT NULL
-        GROUP BY gu.id, gu.name, gu.global_user_id, dept.name, sect.name
-        ORDER BY dept.name NULLS LAST, gu.name
+        GROUP BY
+            COALESCE(gu.id::text, 'dev_' || e.device_id::text || '_' || e.user_id),
+            COALESCE(gu.name, e.name, '?'),
+            COALESCE(gu.global_user_id, e.user_id, ''),
+            dept.name, sect.name
+        ORDER BY dept.name NULLS LAST, COALESCE(gu.name, e.name, '?')
     """
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(sql_pres, (date_ad,))

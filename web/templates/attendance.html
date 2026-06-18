@@ -88,7 +88,7 @@
     <div class="panel-head">
       <h2>Daily Shift Summary</h2>
       <span class="muted">
-        <span id="att-summary-count">{{ total_summary }}</span> employees &mdash;
+        <span id="att-summary-count">{{ total_summary }}</span> employees -
         {{ from_date }}{% if to_date != from_date %} to {{ to_date }}{% endif %}
         &nbsp;|&nbsp;
         {{ from_date | bs_date }}{% if to_date != from_date %} to {{ to_date | bs_date }}{% endif %}
@@ -96,8 +96,10 @@
     </div>
 
     <div class="no-print" style="margin-bottom:10px">
-      <input class="inline-search" data-table-filter="att-summary-table"
-             placeholder="Quick filter by name, user ID…" style="max-width:280px">
+      <input class="inline-search" id="ss-name-filter" data-table-filter="att-summary-table"
+             value="{{ name_search }}" autocomplete="off"
+             placeholder="Filter this page — press Enter to search all pages"
+             style="max-width:360px">
     </div>
 
     <div class="table-wrap">
@@ -177,8 +179,10 @@
       </span>
     </div>
     <div class="no-print" style="margin-bottom:10px">
-      <input class="inline-search" data-table-filter="punch-table"
-             placeholder="Quick filter by name, device, time…" style="max-width:320px">
+      <input class="inline-search" id="pl-name-filter" data-table-filter="punch-table"
+             value="{{ name_search }}" autocomplete="off"
+             placeholder="Filter this page — press Enter to search all pages"
+             style="max-width:360px">
     </div>
     <div class="table-wrap">
       <table class="table compact" id="punch-table">
@@ -232,4 +236,21 @@
     {% endif %}
   </section>
 
+<script>
+(function () {
+  ['ss-name-filter', 'pl-name-filter'].forEach(function (id) {
+    var inp = document.getElementById(id);
+    if (!inp) return;
+    inp.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      var url = new URL(window.location.href);
+      url.searchParams.set('name', inp.value.trim());
+      url.searchParams.set('page', '1');
+      url.searchParams.set('log_page', '1');
+      window.location.href = url.toString();
+    });
+  });
+})();
+</script>
 {% endblock %}
