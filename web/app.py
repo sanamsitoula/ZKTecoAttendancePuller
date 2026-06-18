@@ -13,6 +13,7 @@ import json
 import socket
 import threading as _threading
 import importlib
+import traceback as _traceback
 from datetime import date, datetime, timezone
 
 from db import get_connection, create_device, update_device, delete_device, get_devices, get_device
@@ -356,7 +357,8 @@ def device_add(request: Request,
                port: int = Form(4370),
                password: str = Form(""),
                model: str = Form(""),
-               is_active: str = Form("on")):
+               is_active: str = Form("off"),
+               force_udp: str = Form("off")):
     conn = get_connection()
     try:
         device = {
@@ -365,7 +367,8 @@ def device_add(request: Request,
             "port": int(port),
             "password": password,
             "model": model,
-            "is_active": True if is_active == "on" else False,
+            "is_active": is_active == "on",
+            "force_udp": force_udp == "on",
         }
         create_device(conn, device, app_user_id=_current_user_id(request))
         conn.commit()
@@ -390,7 +393,8 @@ def device_edit_form(request: Request, device_id: int):
 @app.post("/devices/{device_id}/edit")
 def device_edit(request: Request, device_id: int,
                 name: str = Form(...), ip: str = Form(...), port: int = Form(4370),
-                password: str = Form(""), model: str = Form(""), is_active: str = Form("on")):
+                password: str = Form(""), model: str = Form(""),
+                is_active: str = Form("off"), force_udp: str = Form("off")):
     conn = get_connection()
     try:
         device = {
@@ -399,7 +403,8 @@ def device_edit(request: Request, device_id: int,
             "port": int(port),
             "password": password,
             "model": model,
-            "is_active": True if is_active == "on" else False,
+            "is_active": is_active == "on",
+            "force_udp": force_udp == "on",
         }
         update_device(conn, device_id, device, app_user_id=_current_user_id(request))
         conn.commit()
@@ -1150,7 +1155,8 @@ def device_pull(request: Request, device_id: int):
 
             if not result.success:
                 error_message = result.error
-                db_mod.complete_pull_session(conn, session_id, 0, 0, 'failed', result.error)
+                db_mod.complete_pull_session(conn, session_id, 0, 0, 'failed',
+                                             result.error, result.error_traceback)
                 conn.commit()
             else:
                 for user in result.users:
@@ -1198,7 +1204,8 @@ def device_pull(request: Request, device_id: int):
             error_message = str(exc)
             if session_id:
                 try:
-                    db_mod.complete_pull_session(conn, session_id, 0, 0, 'failed', str(exc))
+                    db_mod.complete_pull_session(conn, session_id, 0, 0, 'failed',
+                                                 str(exc), _traceback.format_exc())
                     conn.commit()
                 except Exception:
                     conn.rollback()

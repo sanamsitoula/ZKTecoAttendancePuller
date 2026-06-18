@@ -1,4 +1,5 @@
 import logging
+import traceback as _traceback
 from dataclasses import dataclass, field
 
 from zk import ZK
@@ -15,6 +16,7 @@ class PullResult:
     attendance: list = field(default_factory=list)
     success: bool = True
     error: str | None = None
+    error_traceback: str | None = None
 
 
 def pull_device(device: DeviceConfig) -> PullResult:
@@ -23,9 +25,12 @@ def pull_device(device: DeviceConfig) -> PullResult:
     Disables the device during the pull to prevent torn reads.
     Always re-enables and disconnects in the finally block.
     Timeout is read from device.connection_timeout (set per device in devices.json).
+    force_udp: set True for iFace302 and other models that require UDP (ZKTeco port 4370).
     """
-    logger.info("[%s] Connecting to %s:%d (timeout=%ds) ...",
-                device.name, device.ip, device.port, device.connection_timeout)
+    force_udp = getattr(device, 'force_udp', False)
+    protocol = "UDP" if force_udp else "TCP"
+    logger.info("[%s] Connecting to %s:%d via %s (timeout=%ds) ...",
+                device.name, device.ip, device.port, protocol, device.connection_timeout)
 
     password = int(device.password) if device.password and device.password.isdigit() else 0
     zk = ZK(
@@ -34,13 +39,13 @@ def pull_device(device: DeviceConfig) -> PullResult:
         timeout=device.connection_timeout,
         password=password,
         ommit_ping=True,   # skip ICMP — often blocked on device VLANs
-        force_udp=False,
+        force_udp=force_udp,
     )
     conn = None
     try:
         conn = zk.connect()
         conn.disable_device()  # pause swipe recording during pull
-        logger.info("[%s] Connected. Pulling users and attendance.", device.name)
+        logger.info("[%s] Connected via %s. Pulling users and attendance.", device.name, protocol)
 
         users = conn.get_users()
         attendance = conn.get_attendance()
@@ -53,8 +58,10 @@ def pull_device(device: DeviceConfig) -> PullResult:
         return PullResult(device_name=device.name, users=users, attendance=attendance)
 
     except Exception as exc:
-        logger.error("[%s] Pull failed: %s", device.name, exc)
-        return PullResult(device_name=device.name, success=False, error=str(exc))
+        tb = _traceback.format_exc()
+        logger.error("[%s] Pull failed (%s): %s", device.name, protocol, exc)
+        return PullResult(device_name=device.name, success=False,
+                          error=str(exc), error_traceback=tb)
 
     finally:
         if conn is not None:

@@ -46,8 +46,8 @@
         <thead>
           <tr>
             <th>Started (NPT)</th><th>Started (BS)</th>
-            <th>Completed (NPT)</th><th>Completed (BS)</th>
-            <th>Device</th><th>Records</th><th>New</th><th>Status</th><th>Error</th>
+            <th>Completed (NPT)</th>
+            <th>Device</th><th>Records</th><th>New</th><th>Status</th><th>Error / Detail</th>
           </tr>
         </thead>
         <tbody>
@@ -56,16 +56,60 @@
             <td>{{ s.started_at | fmt_dt }}</td>
             <td><small>{{ s.started_at | bs_datetime }}</small></td>
             <td>{{ s.completed_at | fmt_dt if s.completed_at else '-' }}</td>
-            <td><small>{{ s.completed_at | bs_datetime if s.completed_at else '' }}</small></td>
             <td><strong>{{ s.device_name }}</strong></td>
             <td>{{ s.records_pulled }}</td>
             <td>{{ s.new_inserts }}</td>
             <td><span class="status {{ s.status }}">{{ s.status }}</span></td>
-            <td class="{{ 'bad-text' if s.error_message else '' }}">{{ s.error_message or '-' }}</td>
+            <td>
+              {% if s.error_message %}
+                <span class="bad-text">{{ s.error_message }}</span>
+                {% if s.error_detail %}
+                  <details style="margin-top:4px">
+                    <summary style="cursor:pointer;font-size:.85em;color:var(--muted)">Full traceback</summary>
+                    <pre style="font-size:.78em;white-space:pre-wrap;word-break:break-all;background:var(--surface2,#f5f5f5);padding:8px;border-radius:4px;margin-top:4px;max-height:300px;overflow:auto">{{ s.error_detail }}</pre>
+                  </details>
+                {% endif %}
+              {% else %}
+                -
+              {% endif %}
+            </td>
           </tr>
           {% else %}
-          <tr><td colspan="9" class="empty">No pull sessions match this filter.</td></tr>
+          <tr><td colspan="8" class="empty">No pull sessions match this filter.</td></tr>
           {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel no-print">
+    <div class="panel-head"><h2>Diagnosing a timeout?</h2></div>
+    <div style="padding:0 1rem 1rem">
+      <p>Common causes and fixes for <strong>timed out</strong> / <strong>failed</strong> pulls:</p>
+      <table class="table" style="max-width:700px">
+        <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Ping works, pull times out</td>
+            <td>Port 4370 blocked by firewall, or device needs UDP</td>
+            <td>Test TCP: <code>Test-NetConnection -ComputerName &lt;ip&gt; -Port 4370</code><br>
+                If TCP fails → enable <strong>Force UDP</strong> on the device</td>
+          </tr>
+          <tr>
+            <td>iFace302 always times out</td>
+            <td>iFace302 uses UDP by default; pyzk defaults to TCP</td>
+            <td>Edit device → tick <strong>Force UDP protocol</strong></td>
+          </tr>
+          <tr>
+            <td>Auth error / wrong password</td>
+            <td>Comm Key mismatch (device password ≠ config)</td>
+            <td>Set device password in ZKTeco device menu (Comm Key) and match in Edit Device form</td>
+          </tr>
+          <tr>
+            <td>Pull hangs very long then fails</td>
+            <td>Device has thousands of old records; pull reads ALL records every time</td>
+            <td>Clear old attendance on device if no longer needed (device menu → Attendance Records → Delete)</td>
+          </tr>
         </tbody>
       </table>
     </div>

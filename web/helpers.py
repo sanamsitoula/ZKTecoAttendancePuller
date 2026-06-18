@@ -31,6 +31,7 @@ def device_config_from_row(row: dict) -> DeviceConfig:
         model=row.get("model", "") or "",
         is_active=bool(row.get("is_active", True)),
         connection_timeout=int(row.get("connection_timeout", 10)),
+        force_udp=bool(row.get("force_udp", False)),
     )
 
 

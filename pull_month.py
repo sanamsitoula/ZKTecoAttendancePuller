@@ -64,6 +64,7 @@ def _db_row_to_device_config(row: dict) -> DeviceConfig:
         model              = row.get('model') or '',
         is_active          = bool(row.get('is_active', True)),
         connection_timeout = 10,
+        force_udp          = bool(row.get('force_udp', False)),
     )
 
 

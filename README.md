@@ -457,7 +457,7 @@ sudo systemctl enable zkteco-web
 sudo systemctl start zkteco-web
 sudo systemctl status zkteco-web   # should show "active (running)"
 ```
-
+# check
 View logs:
 ```bash
 sudo journalctl -u zkteco-web -f

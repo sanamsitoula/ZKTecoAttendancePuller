@@ -11,6 +11,7 @@ import logging
 import logging.handlers
 import os
 import sys
+import traceback as _traceback
 from datetime import datetime, timezone
 
 import db
@@ -117,7 +118,8 @@ def run_pull_cycle() -> None:
                 result = puller.pull_device(device)
 
                 if not result.success:
-                    db.complete_pull_session(conn, session_id, 0, 0, "failed", result.error)
+                    db.complete_pull_session(conn, session_id, 0, 0, "failed",
+                                             result.error, result.error_traceback)
                     conn.commit()
                     logger.warning("[%s] Pull failed — recorded in pull_sessions.", device.name)
                     fail_count += 1
@@ -165,11 +167,12 @@ def run_pull_cycle() -> None:
                 success_count += 1
 
             except Exception as exc:
+                tb = _traceback.format_exc()
                 conn.rollback()
                 logger.error("[%s] Unexpected error: %s", device.name, exc, exc_info=True)
                 if session_id is not None:
                     try:
-                        db.complete_pull_session(conn, session_id, 0, 0, "failed", str(exc))
+                        db.complete_pull_session(conn, session_id, 0, 0, "failed", str(exc), tb)
                         conn.commit()
                     except Exception:
                         conn.rollback()

@@ -29,6 +29,14 @@
         <input type="checkbox" name="is_active" {% if not device or device.is_active %}checked{% endif %}>
         Active
       </label>
+      <label class="check-row">
+        <input type="checkbox" name="force_udp" {% if device and device.force_udp %}checked{% endif %}>
+        Force UDP protocol
+        <small class="muted" style="display:block;margin-top:2px">
+          Enable for iFace302 and older ZKTeco models that time out on TCP.
+          Most newer devices (ZK400, iClock) work on TCP (default).
+        </small>
+      </label>
       <div class="toolbar">
         <button class="btn primary" type="submit">Save device</button>
         <a class="btn ghost" href="/">Cancel</a>

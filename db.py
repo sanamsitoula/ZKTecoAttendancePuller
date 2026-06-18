@@ -448,6 +448,12 @@ CREATE INDEX IF NOT EXISTS idx_att_daily_date      ON attendance_daily (work_dat
 CREATE INDEX IF NOT EXISTS idx_att_daily_status    ON attendance_daily (status_code, work_date);
 """
 
+_PHASE7_SQL = """
+-- Phase 7: richer pull diagnostics + per-device UDP flag
+ALTER TABLE pull_sessions ADD COLUMN IF NOT EXISTS error_detail TEXT;
+ALTER TABLE devices       ADD COLUMN IF NOT EXISTS force_udp BOOLEAN NOT NULL DEFAULT FALSE;
+"""
+
 
 def get_connection():
     return psycopg2.connect(**load_db_config())
@@ -505,6 +511,14 @@ def init_schema(conn) -> None:
     except Exception as e:
         conn.rollback()
         logger.warning("attendance_daily migration skipped: %s", e)
+    # Phase 7: pull_sessions error_detail + devices force_udp
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE7_SQL)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 7 migration skipped: %s", e)
     logger.info("Database schema initialized.")
 
 
@@ -653,6 +667,7 @@ def complete_pull_session(
     new_inserts: int,
     status: str,
     error_message=None,
+    error_detail=None,
 ) -> None:
     sql = """
         UPDATE pull_sessions
@@ -661,11 +676,12 @@ def complete_pull_session(
             records_pulled = %s,
             new_inserts    = %s,
             status         = %s,
-            error_message  = %s
+            error_message  = %s,
+            error_detail   = %s
         WHERE id = %s
     """
     with conn.cursor() as cur:
-        cur.execute(sql, (_today_bs(), records_pulled, new_inserts, status, error_message, session_id))
+        cur.execute(sql, (_today_bs(), records_pulled, new_inserts, status, error_message, error_detail, session_id))
 
 
 def get_attendance_for_date(conn, date_str: str) -> list:
@@ -780,14 +796,14 @@ def get_attendance_summary_filtered(conn, from_date: str, to_date: str,
 
 
 def get_devices(conn):
-    sql = "SELECT id, name, ip_address, port, password, model, is_active, created_at FROM devices ORDER BY name"
+    sql = "SELECT id, name, ip_address, port, password, model, is_active, force_udp, created_at FROM devices ORDER BY name"
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(sql)
         return [dict(row) for row in cur.fetchall()]
 
 
 def get_device(conn, device_id: int):
-    sql = "SELECT id, name, ip_address, port, password, model, is_active FROM devices WHERE id = %s"
+    sql = "SELECT id, name, ip_address, port, password, model, is_active, force_udp FROM devices WHERE id = %s"
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(sql, (device_id,))
         row = cur.fetchone()
@@ -796,14 +812,15 @@ def get_device(conn, device_id: int):
 
 def create_device(conn, device: dict, app_user_id: int = 0) -> int:
     sql = """
-        INSERT INTO devices (name, ip_address, port, password, model, is_active, created_bs, created_by, updated_by)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO devices (name, ip_address, port, password, model, is_active, force_udp, created_bs, created_by, updated_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """
     with conn.cursor() as cur:
         cur.execute(sql, (
             device.get("name"), device.get("ip_address"), device.get("port", 4370),
             device.get("password", ""), device.get("model", ""), bool(device.get("is_active", True)),
+            bool(device.get("force_udp", False)),
             _today_bs(), app_user_id or None, app_user_id or None,
         ))
         return cur.fetchone()[0]
@@ -818,6 +835,7 @@ def update_device(conn, device_id: int, device: dict, app_user_id: int = 0) -> N
             password = %s,
             model = %s,
             is_active = %s,
+            force_udp = %s,
             updated_by = %s
         WHERE id = %s
     """
@@ -825,6 +843,7 @@ def update_device(conn, device_id: int, device: dict, app_user_id: int = 0) -> N
         cur.execute(sql, (
             device.get("name"), device.get("ip_address"), device.get("port", 4370),
             device.get("password", ""), device.get("model", ""), bool(device.get("is_active", True)),
+            bool(device.get("force_udp", False)),
             app_user_id or None, device_id,
         ))
 
