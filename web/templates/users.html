@@ -309,7 +309,7 @@
     </form>
 
     {# ── Pagination ── #}
-    {{ paginate(emp_page, emp_total_pages, total_employees, '/users?tab=device&search='~search~'&device_id='~selected_device_id~'&sort_by='~sort_by~'&sort_dir='~sort_dir, emp_page_range, per_page=25) }}
+    {{ paginate(emp_page, emp_total_pages, total_employees, '/users?tab=device&search='~search~'&device_id='~selected_device_id~'&sort_by='~sort_by~'&sort_dir='~sort_dir, emp_page_range, per_page=25, page_param='emp_page') }}
   </section>
 </div>{# end tab-device #}
 

@@ -25,11 +25,13 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 | **Attendance** | Date-range filter (BS + AD), device/name search, Export Excel & PDF |
 | **Monthly Report** | Per-employee 16-column ZKBioTime-style report; multi-device; 60-second dedup; filter by directorate/department/section |
 | **Monthly Summary** | Aggregate present/absent/on-leave per employee for a BS month; print/PDF A4 landscape |
-| **Daily Report** | Present employees with check-in times, department-wise absent list, on-leave list |
+| **Daily Attendance** | Present/absent/on-leave for any BS date; name & dept filter; punch-count badge with click-to-expand punch modal; AD date alongside BS; print/PDF/Excel |
+| **Absent Report** | Day-wise absent employee list; name/dept filter; print/PDF/Excel |
+| **Dept Attendance** | Department-wise present/absent/on-leave summary with per-dept expandable drilldown (employee lists with check-in/out times); % present; print/PDF/Excel |
 | **Hajiri Report** | Cross-tab attendance register (Nepali hajiri vivaran) — one row per employee, one column per day; shows present/absent/Saturday/holiday/leave codes; summary columns for OT, late-in, early-out; print-ready A3 landscape |
 | **Leave Management** | Employee leave applications; approve/reject; annual leave allocation; BS datepicker |
 | **Holiday Calendar** | Monthly BS calendar grid with public/festival/other holidays; working-day count |
-| **Users** | Two tabs — **Global Users** (sortable columns: Att. ID, Emp ID, Name, Dept, Section, Shift; pagination, search/filter by org, CSV export, print) and **Device Employees** (pagination, migrate to global user, bulk delete) |
+| **Users** | Two tabs — **Global Users** (sortable columns: Att. ID, Emp ID, Name, Dept, Section, Shift; server-side pagination, search/filter by org, CSV export, print) and **Device Employees** (independent server-side pagination via `emp_page` param, migrate to global user, bulk delete) |
 | **Devices** | Add / edit / delete ZKTeco devices; per-device Force UDP toggle and Connection Timeout; test TCP connectivity |
 | **Device Backup** | Download full user + fingerprint backup as JSON |
 | **Migrate** | Copy users and fingerprints between two devices |
@@ -75,12 +77,35 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 - Shows working-day count and total holidays for the month
 - **Fully linked to reports**: holidays automatically appear in the Monthly Report Remark column ("Holiday" or "Festival"), are excluded from working-day counts, and are counted in the summary totals row
 
-### Daily Attendance Report
+### Daily Attendance Report (`/reports/daily`)
 
-- Defaults to yesterday (previous working day)
-- Shows present employees with first check-in time and department
-- Department-wise absent list (excludes weekends and holidays)
+- Defaults to **NPT today** (Asia/Kathmandu) — no more UTC offset issues
+- BS date picker with AD date shown alongside; name and department search filter
+- **Present employees** table: Att. ID, Department, Section, Check-In, Check-Out, Hours worked
+- **Punch count badge** — click to open a modal showing every individual punch with AD time, BS time, and label (Check-In / Check-Out / etc.)
+- Department-wise absent list (excludes Saturdays and holidays automatically)
 - On-leave summary cross-referenced with approved leave applications
+- Print / Download PDF (html2pdf, client-side) / Export Excel (4-sheet: Present, Absent, On Leave, Dept Summary)
+- All attendance timestamps use `Asia/Kathmandu` timezone — punches before 05:45 are correctly assigned to the same calendar day
+
+### Day-wise Absent Report (`/reports/absent`)
+
+- Select any BS date (defaults to NPT today)
+- Search by employee name or department
+- Shows: Name, Att. ID, Department, Section
+- Absent employees are determined from Global Users minus present and on-leave
+- Not generated for Saturdays or holidays (banner shown instead)
+- Print / Download PDF / Export Excel
+
+### Department Attendance Report (`/reports/dept-attendance`)
+
+- Select any BS date (defaults to NPT today)
+- **Summary table**: Department → Present / On Leave / Absent / Total / % Present
+- **Per-department drilldown**: expandable section for each department showing
+  - Present employees (Name, Att. ID, Section, Check-In, Check-Out)
+  - On-leave employees (Name, Att. ID, Leave Type)
+  - Absent employees (Name, Att. ID, Section)
+- Print / Download PDF / Export Excel (3 sheets: Dept Summary, Present by Dept, Absent by Dept)
 
 ### Hajiri Report (Attendance Register)
 
@@ -118,7 +143,9 @@ All four reports read **directly from `attendance_logs`** — no pre-computation
 ```
 ZKTeco Devices  →  attendance_logs  (single source of truth)
                          │
-                         ├── Daily Report          (single day, live)
+                         ├── Daily Attendance      (single day — present/absent/on-leave)
+                         ├── Absent Report         (day-wise absent list)
+                         ├── Dept Attendance       (dept summary + drilldown)
                          ├── Monthly Report        (per-employee 16-col)
                          ├── Monthly Summary       (aggregate totals)
                          └── Hajiri Report         (cross-tab register, any past month)
