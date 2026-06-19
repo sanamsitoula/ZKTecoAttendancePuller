@@ -249,7 +249,12 @@ def _dashboard_data(conn) -> dict:
         active_device_count = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM employees")
         employee_count = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM attendance_logs WHERE DATE(timestamp) = CURRENT_DATE")
+        cur.execute("""
+            SELECT COUNT(DISTINCT user_id)
+            FROM attendance_logs
+            WHERE "timestamp" >= CURRENT_DATE
+              AND "timestamp" < CURRENT_DATE + INTERVAL '1 day'
+        """)
         punches_today = cur.fetchone()[0]
         cur.execute("""
             SELECT ps.*, d.name AS device_name

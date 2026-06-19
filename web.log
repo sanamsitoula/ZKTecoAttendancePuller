@@ -1,0 +1,110 @@
+INFO:     Started server process [377506]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8097 (Press CTRL+C to quit)
+INFO:     10.10.10.4:44870 - "GET / HTTP/1.1" 302 Found
+INFO:     10.10.10.4:44870 - "GET /login?next=/ HTTP/1.1" 200 OK
+INFO:     10.10.10.4:44870 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     10.10.10.4:44870 - "GET /favicon.ico HTTP/1.1" 302 Found
+INFO:     10.10.10.4:44870 - "GET /login?next=/favicon.ico HTTP/1.1" 200 OK
+INFO:     10.10.10.4:44876 - "POST /login HTTP/1.1" 302 Found
+INFO:     10.10.10.4:44876 - "GET / HTTP/1.1" 200 OK
+INFO:     10.10.10.4:44876 - "GET /static/bs-datepicker.js HTTP/1.1" 200 OK
+INFO:     10.10.10.4:44876 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     10.10.10.4:44876 - "GET /users HTTP/1.1" 200 OK
+INFO:     10.10.10.4:47408 - "GET /attendance HTTP/1.1" 200 OK
+INFO:     10.10.10.4:47408 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     10.10.10.4:37484 - "GET /users HTTP/1.1" 200 OK
+INFO:     10.10.10.4:37484 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     10.10.10.4:37494 - "POST /devices/5/import-users HTTP/1.1" 200 OK
+INFO:     10.10.10.4:37494 - "GET /users HTTP/1.1" 200 OK
+INFO:     10.10.10.4:37502 - "POST /devices/2/import-users HTTP/1.1" 200 OK
+INFO:     10.10.10.4:37502 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     10.10.10.4:37502 - "GET /devices/2/users HTTP/1.1" 200 OK
+INFO:     10.10.10.4:51164 - "GET /devices/2/sync HTTP/1.1" 200 OK
+INFO:     10.10.10.4:47440 - "GET / HTTP/1.1" 200 OK
+INFO:     10.10.10.4:47440 - "GET /users HTTP/1.1" 200 OK
+INFO:     10.10.10.4:47440 - "GET /devices/1/users HTTP/1.1" 200 OK
+INFO:     10.10.10.4:47440 - "GET /devices/1/backup HTTP/1.1" 200 OK
+INFO:     10.10.10.4:47440 - "GET / HTTP/1.1" 200 OK
+INFO:     10.10.10.4:47440 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     10.10.10.4:47440 - "GET /users HTTP/1.1" 200 OK
+INFO:     10.10.10.4:47440 - "GET /migrate HTTP/1.1" 200 OK
+INFO:     10.10.10.4:36546 - "GET /migrate?source_id=1 HTTP/1.1" 200 OK
+INFO:     10.10.10.4:36546 - "GET / HTTP/1.1" 200 OK
+INFO:     10.10.10.4:36546 - "GET /users HTTP/1.1" 200 OK
+INFO:     10.10.10.4:36546 - "GET /users/add HTTP/1.1" 200 OK
+INFO:     10.10.10.4:36538 - "GET /users HTTP/1.1" 200 OK
+INFO:     10.10.10.4:36538 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     10.10.10.4:39356 - "GET /devices/2/backup HTTP/1.1" 200 OK
+INFO:     10.10.10.4:39356 - "POST /devices/2/import-users HTTP/1.1" 200 OK
+INFO:     10.10.10.4:39356 - "GET /devices/2/users HTTP/1.1" 200 OK
+INFO:     10.10.10.4:43990 - "GET /users HTTP/1.1" 200 OK
+INFO:     10.10.10.4:41114 - "POST /employees/bulk-delete HTTP/1.1" 303 See Other
+INFO:     10.10.10.4:41114 - "GET /users HTTP/1.1" 200 OK
+INFO:     10.10.10.4:41114 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     10.10.10.4:44638 - "GET /devices/1/backup HTTP/1.1" 200 OK
+INFO:     10.10.10.4:44638 - "GET /devices/2/backup HTTP/1.1" 200 OK
+INFO:     10.10.10.4:44638 - "GET /devices/3/backup HTTP/1.1" 200 OK
+INFO:     10.10.10.4:44638 - "GET /devices/4/backup HTTP/1.1" 200 OK
+INFO:     10.10.10.4:44638 - "GET /devices/5/backup HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38506 - "GET /attendance HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38506 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     10.10.10.4:38506 - "GET /pull-sessions HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /schedule HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /migrate HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /leaves HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /static/html2pdf.bundle.min.js HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /calendar HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /reports/monthly HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /reports/monthly HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /reports/monthly HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /reports/monthly HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /reports/monthly HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /reports/monthly-summary HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /settings HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET / HTTP/1.1" 200 OK
+INFO:     10.10.10.4:33904 - "GET /users HTTP/1.1" 200 OK
+INFO:     10.10.10.4:33904 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     10.10.10.4:33904 - "GET /attendance HTTP/1.1" 200 OK
+INFO:     10.10.10.4:32944 - "GET /users HTTP/1.1" 200 OK
+INFO:     10.10.10.3:64596 - "GET /devices/11/pull HTTP/1.1" 302 Found
+INFO:     10.10.10.3:64596 - "GET /login?next=/devices/11/pull HTTP/1.1" 200 OK
+INFO:     10.10.10.3:64596 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     10.10.10.3:64596 - "GET /favicon.ico HTTP/1.1" 302 Found
+INFO:     10.10.10.3:64596 - "GET /login?next=/favicon.ico HTTP/1.1" 200 OK
+INFO:     10.10.10.3:50719 - "POST /login HTTP/1.1" 302 Found
+INFO:     10.10.10.3:50719 - "GET / HTTP/1.1" 200 OK
+INFO:     10.10.10.3:50719 - "GET /static/bs-datepicker.js HTTP/1.1" 200 OK
+INFO:     10.10.10.3:50719 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     10.10.10.3:50449 - "GET /users HTTP/1.1" 200 OK
+INFO:     10.10.10.3:52032 - "GET /attendance HTTP/1.1" 200 OK
+INFO:     10.10.10.3:53776 - "GET /pull-sessions HTTP/1.1" 200 OK
+INFO:     10.10.10.3:53776 - "GET /schedule HTTP/1.1" 200 OK
+INFO:     10.10.10.3:53776 - "GET /pull-sessions HTTP/1.1" 200 OK
+INFO:     10.10.10.3:57248 - "GET /schedule HTTP/1.1" 200 OK
+INFO:     10.10.10.3:57248 - "GET /migrate HTTP/1.1" 200 OK
+INFO:     10.10.10.3:57248 - "GET /leaves HTTP/1.1" 200 OK
+INFO:     10.10.10.3:57248 - "GET /static/html2pdf.bundle.min.js HTTP/1.1" 200 OK
+INFO:     10.10.10.3:51191 - "GET /calendar HTTP/1.1" 200 OK
+INFO:     10.10.10.3:52629 - "GET /reports/monthly HTTP/1.1" 200 OK
+INFO:     10.10.10.3:54780 - "GET /reports/monthly/view?emp_key=g1&bs_year=2083&bs_month=3 HTTP/1.1" 200 OK
+INFO:     10.10.10.3:55437 - "GET /reports/monthly/view?emp_key=g1&bs_year=2083&bs_month=3 HTTP/1.1" 200 OK
+INFO:     10.10.10.3:56490 - "GET /reports/monthly-summary HTTP/1.1" 200 OK
+INFO:     10.10.10.3:58786 - "GET /leaves HTTP/1.1" 200 OK
+INFO:     10.10.10.3:58786 - "GET /calendar HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /login?next=/ HTTP/1.1" 302 Found
+INFO:     10.10.10.4:38514 - "GET / HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /static/bs-datepicker.js HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     10.10.10.4:38514 - "GET / HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38526 - "GET /static/bs-datepicker.js HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     10.10.10.4:38514 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     10.10.10.4:38556 - "GET /reports/hajiri HTTP/1.1" 404 Not Found
+INFO:     10.10.10.4:38556 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [377506]
