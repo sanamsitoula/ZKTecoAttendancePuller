@@ -1,81 +1,115 @@
 {% extends 'base.html' %}
 {% block content %}
-
 <style>
-/* ── Print optimisation ───────────────────────────────────────────────────── */
+/* ── Print ──────────────────────────────────────────────────────────────────── */
 @media print {
   .no-print { display: none !important; }
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  body { font-size: 8pt; margin: 0; padding: 0; background: #fff; }
+  body { font-size: 8pt; margin: 0; background: #fff; }
   @page { size: A4 portrait; margin: 6mm 5mm 8mm 5mm; }
-
-  .rpt-wrap { padding: 0 !important; margin: 0 !important; }
-  .print-hdr { display: block !important; margin-bottom: 6px; }
-  .day-banner { padding: 3px 6px !important; margin-bottom: 5px !important; font-size: 7.5pt; }
+  .rpt-wrap { padding: 0 !important; }
+  .print-hdr { display: block !important; }
   .stat-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 4px; margin-bottom: 6px !important; }
-  .stat-box { padding: 4px 4px !important; border-radius: 2px; text-align: center;
-    border: 1px solid #ddd; }
-  .stat-box .lbl { font-size: 6.5pt; }
-  .stat-box .val { font-size: 16pt; }
-
+  .stat-card { padding: 4px !important; border-radius: 2px; text-align: center; border: 1px solid #ddd; }
+  .stat-card .sc-lbl { font-size: 6.5pt; }
+  .stat-card .sc-val { font-size: 16pt; }
   .rpt-section { margin-bottom: 6px !important; border: 1px solid #ccc !important;
     box-shadow: none !important; page-break-inside: avoid; }
-  .rpt-section .sec-head { padding: 2px 6px !important; background: #f3f4f6 !important;
-    border-bottom: 1px solid #ccc; }
+  .rpt-section .sec-head { padding: 2px 6px !important; background: #f3f4f6 !important; }
   .rpt-section .sec-head h2 { font-size: 8pt !important; margin: 0; }
-
-  table { width: 100%; border-collapse: collapse; font-size: 7.5pt; table-layout: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 7.5pt; }
   th { background: #1769e0 !important; color: #fff !important; padding: 2px 3px !important;
        font-size: 7pt; border: 1px solid #0f4fa8; white-space: nowrap; }
-  td { padding: 2px 3px !important; border: 1px solid #ddd; vertical-align: middle; }
+  td { padding: 2px 3px !important; border: 1px solid #ddd; }
   tr:nth-child(even) td { background: #f0f4ff !important; }
   .table-wrap { overflow: visible !important; }
-  .punch-badge { display: none !important; }
 }
 
-/* ── Screen styles ────────────────────────────────────────────────────────── */
+/* ── Screen ─────────────────────────────────────────────────────────────────── */
 .print-hdr { display: none; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+@media (max-width: 640px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+.stat-card {
+  background: #fff; border-radius: 8px; border: 1px solid #e5e7eb;
+  padding: 14px 10px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.stat-card .sc-lbl { font-size: 10px; color: #6b7280; text-transform: uppercase;
+  letter-spacing: .06em; margin-bottom: 4px; }
+.stat-card .sc-val { font-size: 28px; font-weight: 700; line-height: 1; }
+
+.day-banner { border-radius: 6px; padding: 8px 14px; margin-bottom: 12px; font-size: 13px; }
+.day-working  { background: #f0fdf4; border-left: 3px solid #22c55e; color: #14532d; }
+.day-saturday { background: #fffbeb; border-left: 3px solid #f59e0b; color: #92400e; }
+.day-holiday  { background: #fef2f2; border-left: 3px solid #ef4444; color: #991b1b; }
+
+.rpt-section { background: #fff; border-radius: 8px; border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 14px; overflow: hidden; }
+.sec-head { padding: 10px 16px; background: #f8fafc; border-bottom: 1px solid #e5e7eb;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.sec-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
+
+.page-search { padding: 8px 14px; background: #fff; border-bottom: 1px solid #f1f5f9; }
+.page-search input { width: 100%; max-width: 320px; padding: 5px 10px;
+  border: 1px solid #d1d5db; border-radius: 5px; font-size: 13px; }
+
+.pagination { display: flex; align-items: center; gap: 4px; padding: 10px 14px;
+  background: #f8fafc; border-top: 1px solid #e5e7eb; flex-wrap: wrap; }
+.pagination a, .pagination span {
+  display: inline-block; padding: 4px 10px; border-radius: 5px; font-size: 13px;
+  border: 1px solid #d1d5db; background: #fff; color: #374151; text-decoration: none;
+}
+.pagination a:hover { background: #eff6ff; border-color: #1769e0; }
+.pagination .cur { background: #1769e0; color: #fff; border-color: #1769e0; font-weight: 700; }
+.pagination .dots { border: none; background: none; color: #9ca3af; }
+.pg-info { margin-left: auto; font-size: 12px; color: #6b7280; }
+
 .punch-badge {
-  display: inline-block; background: var(--primary,#1769e0); color: #fff;
-  border-radius: 9999px; padding: 1px 8px; font-size: .78em; cursor: pointer;
-  font-weight: 600;
+  display: inline-block; background: #1769e0; color: #fff;
+  border-radius: 9999px; padding: 1px 9px; font-size: .78em;
+  font-weight: 600; cursor: pointer; white-space: nowrap;
 }
 .punch-badge:hover { background: #0f4fa8; }
 
-#punch-modal-overlay {
+#pm-overlay {
   display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45);
   z-index: 999; align-items: center; justify-content: center;
 }
-#punch-modal-overlay.open { display: flex; }
-#punch-modal {
-  background: #fff; border-radius: 8px; padding: 24px 28px; min-width: 320px;
-  max-width: 480px; width: 92vw; box-shadow: 0 4px 32px rgba(0,0,0,.25);
+#pm-overlay.open { display: flex; }
+#pm-box {
+  background: #fff; border-radius: 8px; padding: 22px 26px;
+  min-width: 300px; max-width: 460px; width: 92vw;
+  box-shadow: 0 6px 32px rgba(0,0,0,.22);
 }
-#punch-modal h3 { margin: 0 0 12px; font-size: 1.05rem; }
-#punch-modal table { width: 100%; border-collapse: collapse; font-size: .9rem; }
-#punch-modal td, #punch-modal th { padding: 5px 10px; border-bottom: 1px solid #e5e7eb; }
-#punch-modal th { background: #f3f4f6; font-size: .78rem; text-transform: uppercase; }
+#pm-box h3 { margin: 0 0 12px; font-size: 1rem; }
+#pm-box table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+#pm-box td, #pm-box th { padding: 5px 10px; border-bottom: 1px solid #e5e7eb; }
+#pm-box th { background: #f3f4f6; font-size: .76rem; text-transform: uppercase; }
 </style>
 
-{# ── Screen controls ───────────────────────────────────────────────────────── #}
+{# ── Page header ──────────────────────────────────────────────────────────── #}
 <section class="page-head no-print">
   <div>
     <p class="eyebrow">Reports</p>
     <h1>Daily Attendance Report</h1>
   </div>
-  <div class="head-actions" style="gap:8px;display:flex;flex-wrap:wrap">
-    <button class="btn" type="button" onclick="window.print()">Print</button>
-    <button class="btn" type="button" onclick="downloadPDF()">Download PDF</button>
-    <a class="btn primary" href="/reports/daily/excel?date_ad={{ sel_date_ad }}&date_bs={{ sel_date_bs }}&name_q={{ name_q }}&dept_q={{ dept_q }}">Export Excel</a>
+  <div class="head-actions" style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn" onclick="window.print()">Print</button>
+    <button class="btn" onclick="dlPDF()">Download PDF</button>
+    <a class="btn primary"
+       href="/reports/daily/excel?date_ad={{ sel_date_ad }}&date_bs={{ sel_date_bs }}&name_q={{ name_q | urlencode }}&dept_q={{ dept_q | urlencode }}">
+      Export Excel
+    </a>
   </div>
 </section>
 
-<section class="panel no-print">
-  <form method="get" action="/reports/daily" class="form" style="max-width:none">
-    <div class="filter-bar" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
+{# ── Filters ──────────────────────────────────────────────────────────────── #}
+<section class="panel no-print" style="margin-bottom:14px">
+  <form method="get" action="/reports/daily">
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
       <label style="min-width:160px">Date (BS)
-        <input class="bsdp" name="date_bs" value="{{ sel_date_bs }}" data-ad-target="date_ad_h"
-               autocomplete="off" placeholder="YYYY-MM-DD">
+        <input class="bsdp" name="date_bs" value="{{ sel_date_bs }}"
+               data-ad-target="date_ad_h" autocomplete="off" placeholder="YYYY-MM-DD">
         <input type="hidden" name="date_ad" id="date_ad_h" value="{{ sel_date_ad }}">
         {% if sel_date_ad %}<small class="muted">AD: {{ sel_date_ad }}</small>{% endif %}
       </label>
@@ -94,274 +128,315 @@
 </section>
 
 {% if error %}
-<section class="panel no-print"><p class="bad-text">{{ error }}</p></section>
+<div class="panel no-print" style="color:#b91c1c;padding:12px 16px">{{ error }}</div>
 {% endif %}
 
-{# ── Printable body ──────────────────────────────────────────────────────────── #}
-<div id="daily-report-content" class="rpt-wrap">
+{# ── Print header ─────────────────────────────────────────────────────────── #}
+<div id="rpt-content" class="rpt-wrap">
+<div class="print-hdr" style="text-align:center;border-bottom:2px solid #1769e0;padding-bottom:4px;margin-bottom:8px">
+  <div id="print-time" style="float:right;font-size:7pt;color:#666"></div>
+  <div style="font-size:13pt;font-weight:bold">{{ COMPANY_NAME }}</div>
+  {% if COMPANY_ADDRESS %}<div style="font-size:8pt;color:#555">{{ COMPANY_ADDRESS }}</div>{% endif %}
+  <div style="font-size:10pt;font-weight:bold;margin-top:2px">Daily Attendance Report</div>
+  <div style="font-size:8pt;color:#444;margin-top:1px">{{ sel_date_bs }} BS &nbsp;/&nbsp; {{ sel_date_ad }} AD</div>
+</div>
 
-  {# Print header (hidden on screen, visible on print) #}
-  <div class="print-hdr" style="text-align:center;border-bottom:2px solid #1769e0;padding-bottom:4px;margin-bottom:6px">
-    <div id="print-time" style="float:right;font-size:7pt;color:#666"></div>
-    <div style="font-size:13pt;font-weight:bold;line-height:1.2">{{ COMPANY_NAME }}</div>
-    {% if COMPANY_ADDRESS %}<div style="font-size:8pt;color:#555">{{ COMPANY_ADDRESS }}</div>{% endif %}
-    <div style="font-size:10pt;font-weight:bold;margin-top:3px">Daily Attendance Report</div>
-    <div style="font-size:8pt;margin-top:1px;color:#444">{{ sel_date_bs }} BS &nbsp;/&nbsp; {{ sel_date_ad }} AD</div>
+{# ── Day banner ───────────────────────────────────────────────────────────── #}
+{% if is_saturday %}
+<div class="day-banner day-saturday"><strong>Saturday — Weekly Off</strong></div>
+{% elif is_holiday %}
+<div class="day-banner day-holiday">
+  <strong>Holiday: {{ holiday.name }} ({{ holiday.holiday_type }})</strong>
+  {% if holiday.description %}<span style="font-size:11px;margin-left:8px">{{ holiday.description }}</span>{% endif %}
+</div>
+{% else %}
+<div class="day-banner day-working"><strong>Working Day</strong></div>
+{% endif %}
+
+{# ── Stat cards ───────────────────────────────────────────────────────────── #}
+<div class="stat-grid">
+  <div class="stat-card" style="border-top:3px solid #64748b">
+    <div class="sc-lbl">Total Employees</div>
+    <div class="sc-val" style="color:#374151">{{ total_employees }}</div>
+  </div>
+  <div class="stat-card" style="border-top:3px solid #22c55e">
+    <div class="sc-lbl">Present</div>
+    <div class="sc-val" style="color:#15803d">{{ totals.present }}</div>
+  </div>
+  <div class="stat-card" style="border-top:3px solid #f59e0b">
+    <div class="sc-lbl">On Leave</div>
+    <div class="sc-val" style="color:#b45309">{{ totals.on_leave }}</div>
+  </div>
+  <div class="stat-card" style="border-top:3px solid #ef4444">
+    <div class="sc-lbl">Absent</div>
+    <div class="sc-val" style="color:#b91c1c">{{ totals.absent }}</div>
+  </div>
+</div>
+
+{# ── Present ──────────────────────────────────────────────────────────────── #}
+<div class="rpt-section">
+  <div class="sec-head">
+    <h2>Present Employees ({{ totals.present }})</h2>
+    {% if total_pages > 1 %}
+    <span style="font-size:12px;color:#6b7280">Page {{ page }} of {{ total_pages }}</span>
+    {% endif %}
   </div>
 
-  {# Day status #}
-  {% if is_saturday %}
-  <div class="day-banner" style="background:#fffbeb;border-left:3px solid #f59e0b;padding:8px 14px;margin-bottom:10px;font-size:13px">
-    <strong style="color:#92400e">Saturday - Weekly Off</strong>
+  {# client-side row filter for current page #}
+  <div class="page-search no-print">
+    <input type="text" id="row-filter" placeholder="Filter this page — press Enter to search all pages"
+           onkeydown="if(event.key==='Enter'){searchAll(this.value)}">
   </div>
-  {% elif is_holiday %}
-  <div class="day-banner" style="background:#fef2f2;border-left:3px solid #ef4444;padding:8px 14px;margin-bottom:10px;font-size:13px">
-    <strong style="color:#991b1b">Holiday: {{ holiday.name }} ({{ holiday.holiday_type }})</strong>
-    {% if holiday.description %}<span style="color:#7f1d1d;font-size:11px;margin-left:8px">{{ holiday.description }}</span>{% endif %}
+
+  <div class="table-wrap">
+    <table class="table" id="present-tbl" style="font-size:13px">
+      <thead>
+        <tr>
+          <th style="width:36px">#</th>
+          <th>Name</th>
+          <th style="width:70px">Att. ID</th>
+          <th>Department</th>
+          <th>Section</th>
+          <th style="width:68px">Check-In</th>
+          <th style="width:68px">Check-Out</th>
+          <th style="width:58px">Hours</th>
+          <th style="width:76px" class="no-print">Punches</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set offset = (page - 1) * per_page %}
+        {% for emp in present %}
+        {% set fp = emp.first_punch %}
+        {% set lp = emp.last_punch %}
+        {% set has_co = lp and fp and lp != fp %}
+        <tr>
+          <td>{{ offset + loop.index }}</td>
+          <td><strong>{{ emp.emp_name }}</strong></td>
+          <td>{{ emp.att_id or '-' }}</td>
+          <td>{{ emp.department_name or '-' }}</td>
+          <td>{{ emp.section_name or '-' }}</td>
+          <td style="color:#15803d;font-weight:600">
+            {{ (fp | fmt_dt)[-5:] if fp else '-' }}
+          </td>
+          <td>{{ (lp | fmt_dt)[-5:] if has_co else '-' }}</td>
+          <td>
+            {% if has_co %}
+              {% set secs = (lp - fp).total_seconds() %}
+              {{ (secs // 3600) | int }}:{{ '%02d' % ((secs % 3600) // 60 | int) }}
+            {% else %}-{% endif %}
+          </td>
+          <td class="no-print">
+            {% set pc = emp.punch_count or (emp.punches | length) %}
+            {% if pc %}
+            <span class="punch-badge" onclick="showPunches({{ loop.index0 }})">
+              {{ pc }} punch{% if pc != 1 %}es{% endif %}
+            </span>
+            {% else %}-{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="empty">No employees present for this date.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
-  {% else %}
-  <div class="day-banner" style="background:#f0fdf4;border-left:3px solid #22c55e;padding:8px 14px;margin-bottom:10px;font-size:13px">
-    <strong style="color:#14532d">Working Day</strong>
+
+  {# pagination #}
+  {% if total_pages > 1 %}
+  <div class="pagination no-print">
+    {% set base = '/reports/daily?' ~ filter_qs %}
+    {% if page > 1 %}
+    <a href="{{ base }}&page={{ page - 1 }}">&laquo;</a>
+    {% endif %}
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == page %}
+        <span class="cur">{{ p }}</span>
+      {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+        <a href="{{ base }}&page={{ p }}">{{ p }}</a>
+      {% elif p == page - 3 or p == page + 3 %}
+        <span class="dots">…</span>
+      {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
+    <a href="{{ base }}&page={{ page + 1 }}">&raquo;</a>
+    {% endif %}
+    <span class="pg-info">{{ totals.present }} employees &nbsp;·&nbsp; {{ per_page }} per page</span>
   </div>
   {% endif %}
+</div>
 
-  {# Stat boxes #}
-  <div class="stat-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
-    <div class="stat-box panel" style="text-align:center;padding:12px 6px">
-      <div class="lbl" style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Total</div>
-      <div class="val" style="font-size:26px;font-weight:700;margin-top:2px">{{ total_employees }}</div>
-    </div>
-    <div class="stat-box panel" style="text-align:center;padding:12px 6px;border-top:3px solid #22c55e">
-      <div class="lbl" style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Present</div>
-      <div class="val" style="font-size:26px;font-weight:700;color:#15803d;margin-top:2px">{{ totals.present }}</div>
-    </div>
-    <div class="stat-box panel" style="text-align:center;padding:12px 6px;border-top:3px solid #f59e0b">
-      <div class="lbl" style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">On Leave</div>
-      <div class="val" style="font-size:26px;font-weight:700;color:#b45309;margin-top:2px">{{ totals.on_leave }}</div>
-    </div>
-    <div class="stat-box panel" style="text-align:center;padding:12px 6px;border-top:3px solid #ef4444">
-      <div class="lbl" style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Absent</div>
-      <div class="val" style="font-size:26px;font-weight:700;color:#b91c1c;margin-top:2px">{{ totals.absent }}</div>
-    </div>
+{# ── On Leave ─────────────────────────────────────────────────────────────── #}
+{% if on_leave %}
+<div class="rpt-section">
+  <div class="sec-head"><h2>On Leave ({{ on_leave | length }})</h2></div>
+  <div class="table-wrap">
+    <table class="table" style="font-size:13px">
+      <thead>
+        <tr>
+          <th style="width:36px">#</th><th>Name</th>
+          <th style="width:70px">Att. ID</th>
+          <th>Department</th><th>Leave Type</th><th>Reason</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for emp in on_leave %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td><strong>{{ emp.employee_name }}</strong></td>
+          <td>{{ emp.company_id or '-' }}</td>
+          <td>{{ emp.department_name or '-' }}</td>
+          <td>{{ emp.leave_type_name or '-' }}</td>
+          <td>{{ emp.reason or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
+</div>
+{% endif %}
 
-  {# ── Present ─────────────────────────────────────────────────────────────── #}
-  <section class="rpt-section panel" style="margin-bottom:14px">
-    <div class="sec-head panel-head">
-      <h2>Present Employees ({{ totals.present }})</h2>
-    </div>
-    <div class="table-wrap">
-      <table class="table" style="font-size:13px">
-        <thead>
-          <tr>
-            <th style="width:32px">#</th>
-            <th>Name</th>
-            <th style="width:66px">Att. ID</th>
-            <th>Department</th>
-            <th>Section</th>
-            <th style="width:66px">Check-In</th>
-            <th style="width:66px">Check-Out</th>
-            <th style="width:56px">Hours</th>
-            <th style="width:68px" class="no-print">Punches</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for emp in present %}
-          {% set fp = emp.first_punch %}
-          {% set lp = emp.last_punch %}
-          {% set has_co = lp and fp and lp != fp %}
-          <tr>
-            <td>{{ loop.index }}</td>
-            <td><strong>{{ emp.emp_name }}</strong></td>
-            <td>{{ emp.company_id or '-' }}</td>
-            <td>{{ emp.department_name or '-' }}</td>
-            <td>{{ emp.section_name or '-' }}</td>
-            <td>{{ (fp | fmt_dt)[-5:] if fp else '-' }}</td>
-            <td>{{ (lp | fmt_dt)[-5:] if has_co else '-' }}</td>
-            <td>
-              {% if has_co %}
-                {% set secs = (lp - fp).total_seconds() %}
-                {{ (secs // 3600) | int }}:{{ '%02d' % ((secs % 3600) // 60 | int) }}
-              {% else %}-{% endif %}
-            </td>
-            <td class="no-print">
-              {% set pc = emp.punch_count or (emp.punches | length) %}
-              {% if pc %}
-              <span class="punch-badge" onclick='showPunches({{ loop.index0 }})'>{{ pc }} punch{% if pc != 1 %}es{% endif %}</span>
-              {% else %}-{% endif %}
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="9" class="empty">No employees present.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </section>
+{# ── Absent ───────────────────────────────────────────────────────────────── #}
+{% if absent and not is_saturday and not is_holiday %}
+<div class="rpt-section">
+  <div class="sec-head"><h2>Absent ({{ totals.absent }})</h2></div>
+  <div class="table-wrap">
+    <table class="table" style="font-size:13px">
+      <thead>
+        <tr>
+          <th style="width:36px">#</th><th>Name</th>
+          <th style="width:70px">Att. ID</th>
+          <th>Department</th><th>Section</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for emp in absent %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td><strong>{{ emp.emp_name }}</strong></td>
+          <td>{{ emp.att_id or '-' }}</td>
+          <td>{{ emp.department_name or '-' }}</td>
+          <td>{{ emp.section_name or '-' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">No absent employees.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 
-  {# ── On Leave ─────────────────────────────────────────────────────────────── #}
-  {% if on_leave %}
-  <section class="rpt-section panel" style="margin-bottom:14px">
-    <div class="sec-head panel-head"><h2>On Leave ({{ on_leave | length }})</h2></div>
-    <div class="table-wrap">
-      <table class="table" style="font-size:13px">
-        <thead>
-          <tr>
-            <th style="width:32px">#</th><th>Name</th><th style="width:66px">Att. ID</th>
-            <th>Department</th><th>Leave Type</th><th>Reason</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for emp in on_leave %}
-          <tr>
-            <td>{{ loop.index }}</td>
-            <td><strong>{{ emp.employee_name }}</strong></td>
-            <td>{{ emp.company_id or '-' }}</td>
-            <td>{{ emp.department_name or '-' }}</td>
-            <td>{{ emp.leave_type_name or '-' }}</td>
-            <td>{{ emp.reason or '-' }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </section>
-  {% endif %}
+{# ── Dept Summary ─────────────────────────────────────────────────────────── #}
+{% if dept_summary %}
+<div class="rpt-section">
+  <div class="sec-head"><h2>Department-wise Summary</h2></div>
+  <div class="table-wrap">
+    <table class="table" style="font-size:13px">
+      <thead>
+        <tr>
+          <th>Department</th>
+          <th style="width:80px;text-align:center">Present</th>
+          <th style="width:80px;text-align:center">On Leave</th>
+          <th style="width:80px;text-align:center">Absent</th>
+          <th style="width:80px;text-align:center">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for dept_name, counts in dept_summary.items() %}
+        <tr>
+          <td>{{ dept_name }}</td>
+          <td style="text-align:center;color:#15803d;font-weight:600">{{ counts.present }}</td>
+          <td style="text-align:center;color:#b45309;font-weight:600">{{ counts.on_leave }}</td>
+          <td style="text-align:center;color:#b91c1c;font-weight:600">{{ counts.absent }}</td>
+          <td style="text-align:center;font-weight:700">{{ counts.present + counts.on_leave + counts.absent }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="font-weight:700;background:#f9fafb">
+          <td>Total</td>
+          <td style="text-align:center;color:#15803d">{{ totals.present }}</td>
+          <td style="text-align:center;color:#b45309">{{ totals.on_leave }}</td>
+          <td style="text-align:center;color:#b91c1c">{{ totals.absent }}</td>
+          <td style="text-align:center">{{ totals.present + totals.on_leave + totals.absent }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+{% endif %}
 
-  {# ── Absent ────────────────────────────────────────────────────────────────── #}
-  {% if absent and not is_saturday and not is_holiday %}
-  <section class="rpt-section panel" style="margin-bottom:14px">
-    <div class="sec-head panel-head"><h2>Absent ({{ totals.absent }})</h2></div>
-    <div class="table-wrap">
-      <table class="table" style="font-size:13px">
-        <thead>
-          <tr>
-            <th style="width:32px">#</th><th>Name</th><th style="width:66px">Att. ID</th>
-            <th>Department</th><th>Section</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for emp in absent %}
-          <tr>
-            <td>{{ loop.index }}</td>
-            <td><strong>{{ emp.emp_name }}</strong></td>
-            <td>{{ emp.company_id or '-' }}</td>
-            <td>{{ emp.department_name or '-' }}</td>
-            <td>{{ emp.section_name or '-' }}</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="5" class="empty">No absent employees.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </section>
-  {% endif %}
+</div>{# end #rpt-content #}
 
-  {# ── Dept Summary ─────────────────────────────────────────────────────────── #}
-  {% if dept_summary %}
-  <section class="rpt-section panel" style="margin-bottom:14px">
-    <div class="sec-head panel-head"><h2>Department-wise Summary</h2></div>
-    <div class="table-wrap">
-      <table class="table" style="font-size:13px">
-        <thead>
-          <tr>
-            <th>Department</th>
-            <th style="width:80px;text-align:center">Present</th>
-            <th style="width:80px;text-align:center">On Leave</th>
-            <th style="width:80px;text-align:center">Absent</th>
-            <th style="width:80px;text-align:center">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for dept_name, counts in dept_summary.items() %}
-          <tr>
-            <td>{{ dept_name }}</td>
-            <td style="text-align:center;color:#15803d;font-weight:600">{{ counts.present }}</td>
-            <td style="text-align:center;color:#b45309;font-weight:600">{{ counts.on_leave }}</td>
-            <td style="text-align:center;color:#b91c1c;font-weight:600">{{ counts.absent }}</td>
-            <td style="text-align:center;font-weight:700">{{ counts.present + counts.on_leave + counts.absent }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-        <tfoot>
-          <tr style="font-weight:700;background:#f9fafb">
-            <td>Total</td>
-            <td style="text-align:center;color:#15803d">{{ totals.present }}</td>
-            <td style="text-align:center;color:#b45309">{{ totals.on_leave }}</td>
-            <td style="text-align:center;color:#b91c1c">{{ totals.absent }}</td>
-            <td style="text-align:center">{{ totals.present + totals.on_leave + totals.absent }}</td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-  </section>
-  {% endif %}
-
-</div>{# end #daily-report-content #}
-
-{# Punch detail modal #}
-<div id="punch-modal-overlay">
-  <div id="punch-modal">
-    <h3 id="punch-modal-title">Punch Detail</h3>
+{# ── Punch modal ──────────────────────────────────────────────────────────── #}
+<div id="pm-overlay">
+  <div id="pm-box">
+    <h3 id="pm-title">Punch Detail</h3>
     <table>
       <thead><tr><th>#</th><th>Time (NPT)</th><th>BS Time</th><th>Type</th></tr></thead>
-      <tbody id="punch-modal-body"></tbody>
+      <tbody id="pm-body"></tbody>
     </table>
-    <button class="btn ghost" id="punch-modal-close" onclick="closePunchModal()" style="margin-top:14px">Close</button>
+    <button class="btn ghost" onclick="closePM()" style="margin-top:14px">Close</button>
   </div>
 </div>
 
 <script src="/static/html2pdf.bundle.min.js"></script>
 <script>
-(function () {
-  var el = document.getElementById('print-time');
-  if (el) el.textContent = 'Printed: ' + new Date().toLocaleString('en-NP');
-})();
+(function(){ var e = document.getElementById('print-time');
+  if(e) e.textContent = 'Printed: ' + new Date().toLocaleString('en-NP'); })();
 
-function downloadPDF() {
-  var el = document.getElementById('daily-report-content');
-  if (!el) { alert('No report to download.'); return; }
+function dlPDF() {
+  var el = document.getElementById('rpt-content');
+  if(!el){ alert('No report content.'); return; }
   html2pdf().set({
     margin: [6,5,8,5],
     filename: 'DailyReport_{{ sel_date_bs }}.pdf',
-    image: { type:'jpeg', quality:0.98 },
-    html2canvas: { scale:2, useCORS:true },
-    jsPDF: { unit:'mm', format:'a4', orientation:'portrait' }
+    image: {type:'jpeg',quality:0.98},
+    html2canvas: {scale:2,useCORS:true},
+    jsPDF: {unit:'mm',format:'a4',orientation:'portrait'}
   }).from(el).save();
 }
 
+/* client-side row filter */
+document.getElementById('row-filter').addEventListener('input', function(){
+  var q = this.value.toLowerCase();
+  var rows = document.querySelectorAll('#present-tbl tbody tr');
+  rows.forEach(function(r){
+    r.style.display = (!q || r.textContent.toLowerCase().includes(q)) ? '' : 'none';
+  });
+});
+
+function searchAll(q) {
+  if (!q) return;
+  var base = '/reports/daily?{{ filter_qs }}&name_q=' + encodeURIComponent(q);
+  window.location.href = base;
+}
+
+/* punch detail modal */
 var PUNCH_DATA = [
   {% for emp in present %}
-  {
-    name: {{ emp.emp_name | tojson }},
-    punches: [
-      {% for p in (emp.punches or []) %}
-      { ts: {{ (p.ts | fmt_dt) | tojson }}, bs: {{ (p.ts | bs_datetime) | tojson }}, label: {{ (p.label or '') | tojson }} }{% if not loop.last %},{% endif %}
-      {% endfor %}
-    ]
-  }{% if not loop.last %},{% endif %}
+  { name: {{ emp.emp_name | tojson }}, punches: [
+    {% for p in (emp.punches or []) %}
+    { ts: {{ (p.ts | fmt_dt) | tojson }}, bs: {{ (p.ts | bs_datetime) | tojson }},
+      label: {{ (p.label or '') | tojson }} }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ]}{% if not loop.last %},{% endif %}
   {% endfor %}
 ];
 
-function showPunches(idx) {
-  var d = PUNCH_DATA[idx];
-  if (!d) return;
-  document.getElementById('punch-modal-title').textContent = d.name + ' - Punch Detail';
+function showPunches(idx){
+  var d = PUNCH_DATA[idx]; if(!d) return;
+  document.getElementById('pm-title').textContent = d.name + ' — Punches';
   var html = '';
-  (d.punches || []).forEach(function(p, i) {
-    html += '<tr><td>' + (i+1) + '</td><td>' + p.ts + '</td><td>' + p.bs + '</td><td>' + (p.label || '-') + '</td></tr>';
+  (d.punches||[]).forEach(function(p,i){
+    html += '<tr><td>'+(i+1)+'</td><td>'+p.ts+'</td><td>'+p.bs+'</td><td>'+(p.label||'—')+'</td></tr>';
   });
-  document.getElementById('punch-modal-body').innerHTML = html || '<tr><td colspan="4">No punches</td></tr>';
-  document.getElementById('punch-modal-overlay').classList.add('open');
+  document.getElementById('pm-body').innerHTML = html || '<tr><td colspan="4">No punches</td></tr>';
+  document.getElementById('pm-overlay').classList.add('open');
 }
-
-function closePunchModal() {
-  document.getElementById('punch-modal-overlay').classList.remove('open');
-}
-
-document.getElementById('punch-modal-overlay').addEventListener('click', function(e) {
-  if (e.target === this) closePunchModal();
+function closePM(){ document.getElementById('pm-overlay').classList.remove('open'); }
+document.getElementById('pm-overlay').addEventListener('click',function(e){
+  if(e.target===this) closePM();
 });
 </script>
 {% endblock %}

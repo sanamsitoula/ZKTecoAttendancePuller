@@ -1973,6 +1973,80 @@ def update_holiday(conn, h_id: int, name: str, holiday_ad: str, holiday_bs: str,
     conn.commit()
 
 
+# ─── Daily Present List (used by /reports/daily) ─────────────────────────────
+
+def get_daily_present_list(conn, date_ad: str) -> list:
+    """
+    Returns one row per unique person who punched on date_ad.
+
+    Groups by al.user_id — the same field used by the attendance page —
+    so one person on multiple devices (or with multiple employee records
+    sharing the same user_id) is always counted once.
+
+    Dept/section are pulled via a LATERAL subquery that picks the single
+    best-matching employee record (preferring a globally-linked one).
+    """
+    sql = """
+        SELECT
+            al.user_id                                            AS identity_key,
+            MIN(COALESCE(al.name, emp_data.emp_name, '?'))        AS emp_name,
+            MIN(COALESCE(emp_data.att_id, al.user_id, ''))        AS att_id,
+            MIN(emp_data.department_name)                         AS department_name,
+            MIN(emp_data.section_name)                            AS section_name,
+            MIN(al.timestamp AT TIME ZONE 'Asia/Kathmandu')       AS first_punch,
+            MAX(al.timestamp AT TIME ZONE 'Asia/Kathmandu')       AS last_punch,
+            COUNT(*)                                              AS punch_count,
+            ARRAY_AGG((al.timestamp AT TIME ZONE 'Asia/Kathmandu')
+                      ORDER BY al.timestamp)                      AS punch_times,
+            ARRAY_AGG(al.punch_label ORDER BY al.timestamp)       AS punch_labels
+        FROM attendance_logs al
+        LEFT JOIN LATERAL (
+            SELECT
+                COALESCE(gu.name, e.name)                         AS emp_name,
+                COALESCE(gu.global_user_id, e.user_id, '')        AS att_id,
+                dept.name                                         AS department_name,
+                sect.name                                         AS section_name
+            FROM   employees   e
+            LEFT JOIN global_users gu   ON gu.id   = e.global_user_id
+            LEFT JOIN departments  dept ON dept.id  = gu.department_id
+            LEFT JOIN sections     sect ON sect.id  = gu.section_id
+            WHERE  e.device_id = al.device_id AND e.user_id = al.user_id
+            ORDER BY e.global_user_id NULLS LAST
+            LIMIT 1
+        ) emp_data ON TRUE
+        WHERE DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') = %s
+        GROUP BY al.user_id
+        ORDER BY (CASE WHEN al.user_id ~ '^\d+$' THEN al.user_id::bigint END) NULLS LAST,
+                 al.user_id
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (date_ad,))
+        rows = [dict(r) for r in cur.fetchall()]
+    for r in rows:
+        times  = r.get('punch_times')  or []
+        labels = r.get('punch_labels') or []
+        r['punches'] = [{'ts': ts, 'label': lbl or '—'}
+                        for ts, lbl in zip(times, labels + [None] * len(times))]
+    return rows
+
+
+def get_daily_present_gu_ids(conn, date_ad: str) -> set:
+    """
+    Returns the set of global_user IDs that have at least one punch on date_ad.
+    Used to build the absent list (global_users not in this set).
+    """
+    sql = """
+        SELECT DISTINCT e.global_user_id
+        FROM   attendance_logs al
+        JOIN   employees e ON e.device_id = al.device_id AND e.user_id = al.user_id
+        WHERE  e.global_user_id IS NOT NULL
+          AND  DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') = %s
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (date_ad,))
+        return {row[0] for row in cur.fetchall()}
+
+
 # ─── Daily Attendance Summary ─────────────────────────────────────────────────
 
 def get_daily_attendance_summary(conn, date_ad: str) -> dict:
@@ -1993,10 +2067,10 @@ def get_daily_attendance_summary(conn, date_ad: str) -> dict:
 
     sql_pres = """
         SELECT
-            COALESCE(gu.id::text, 'dev_' || e.device_id::text || '_' || e.user_id)
+            COALESCE(gu.id::text, 'nogu_' || e.user_id)
                                   AS global_user_id,
-            COALESCE(gu.name, e.name, '?')          AS emp_name,
-            COALESCE(gu.global_user_id, e.user_id, '') AS company_id,
+            MIN(COALESCE(gu.name, e.name, '?'))          AS emp_name,
+            MIN(COALESCE(gu.global_user_id, e.user_id, '')) AS company_id,
             dept.name             AS department_name,
             sect.name             AS section_name,
             MIN(al.timestamp AT TIME ZONE 'Asia/Kathmandu') AS first_punch,
@@ -2012,11 +2086,9 @@ def get_daily_attendance_summary(conn, date_ad: str) -> dict:
         LEFT JOIN sections    sect ON sect.id = gu.section_id
         WHERE DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') = %s
         GROUP BY
-            COALESCE(gu.id::text, 'dev_' || e.device_id::text || '_' || e.user_id),
-            COALESCE(gu.name, e.name, '?'),
-            COALESCE(gu.global_user_id, e.user_id, ''),
+            COALESCE(gu.id::text, 'nogu_' || e.user_id),
             dept.name, sect.name
-        ORDER BY dept.name NULLS LAST, COALESCE(gu.name, e.name, '?')
+        ORDER BY dept.name NULLS LAST, MIN(COALESCE(gu.name, e.name, '?'))
     """
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(sql_pres, (date_ad,))
@@ -2216,6 +2288,12 @@ def get_monthly_attendance_summary(conn, bs_year: int, bs_month: int) -> dict:
             'working_days':    working_days_total,
             'leave_by_type':   dict(leave_by_type),
         })
+
+    def _cid_num(e):
+        v = e.get('company_id') or ''
+        try:    return (0, int(v))
+        except: return (1, v)
+    emp_summaries.sort(key=_cid_num)
 
     from nepali_utils import NEPALI_MONTHS
     return {

@@ -24,7 +24,7 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 | **Dashboard** | Live device status, today's punch count, recent attendance with BS dates |
 | **Attendance** | Date-range filter (BS + AD), device/name search, Export Excel & PDF |
 | **Monthly Report** | Per-employee 16-column ZKBioTime-style report; multi-device; 60-second dedup; filter by directorate/department/section |
-| **Monthly Summary** | Aggregate present/absent/on-leave per employee for a BS month; print/PDF A4 landscape |
+| **Monthly Summary** | Aggregate present/absent/on-leave per employee for a BS month; sorted by Att. ID (numeric); print/PDF A4 landscape |
 | **Daily Attendance** | Present/absent/on-leave for any BS date; name & dept filter; punch-count badge with click-to-expand punch modal; AD date alongside BS; print/PDF/Excel |
 | **Absent Report** | Day-wise absent employee list; name/dept filter; print/PDF/Excel |
 | **Dept Attendance** | Department-wise present/absent/on-leave summary with per-dept expandable drilldown (employee lists with check-in/out times); % present; print/PDF/Excel |
@@ -60,7 +60,7 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 - Summary totals row shows **Working Days**, Present, Absent, Weekend, Holiday, Festival, Leave, Misc, Total Days — with color coding
 - **Print Single** — one employee; **Print All** — every employee, one page each
 - Filter by directorate, department, section; search by name or ID
-- Sorted by employee Attendance ID number; only employees linked to a Global User appear
+- Sorted by employee Att. ID number (numeric); only employees linked to a Global User appear
 
 ### Leave Management
 
@@ -81,19 +81,21 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 
 - Defaults to **NPT today** (Asia/Kathmandu) — no more UTC offset issues
 - BS date picker with AD date shown alongside; name and department search filter
-- **Present employees** table: Att. ID, Department, Section, Check-In, Check-Out, Hours worked
+- **Present employees** table: Att. ID, Department, Section, Check-In, Check-Out, Hours worked; **sorted by Att. ID (numeric)**
 - **Punch count badge** — click to open a modal showing every individual punch with AD time, BS time, and label (Check-In / Check-Out / etc.)
-- Department-wise absent list (excludes Saturdays and holidays automatically)
-- On-leave summary cross-referenced with approved leave applications
+- Department-wise absent list (excludes Saturdays and holidays automatically); **sorted by Att. ID (numeric)**
+- On-leave summary cross-referenced with approved leave applications; **sorted by Att. ID (numeric)**
 - Print / Download PDF (html2pdf, client-side) / Export Excel (4-sheet: Present, Absent, On Leave, Dept Summary)
 - All attendance timestamps use `Asia/Kathmandu` timezone — punches before 05:45 are correctly assigned to the same calendar day
+- **Deduplication**: groups by `attendance_logs.user_id` so one person on multiple devices, or with multiple employee records sharing the same user_id, is always counted once — matching the Attendance page count exactly
 - **Unlinked employees** (registered on a device but not yet linked to a Global User) appear in the Present list using their device name as a fallback; absent list remains Global User-based
 
 ### Day-wise Absent Report (`/reports/absent`)
 
 - Select any BS date (defaults to NPT today)
 - Search by employee name or department
-- Shows: Name, Att. ID, Department, Section
+- Shows: Name, Att. ID, Department, Section; **sorted by Att. ID (numeric)**
+- Uses the **same deduplication logic as the Daily Attendance report** — present count and absent list are always consistent
 - Absent employees are determined from Global Users minus present and on-leave
 - Not generated for Saturdays or holidays (banner shown instead)
 - Print / Download PDF / Export Excel
@@ -101,11 +103,12 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 ### Department Attendance Report (`/reports/dept-attendance`)
 
 - Select any BS date (defaults to NPT today)
+- Uses the **same deduplication logic as the Daily Attendance report** — all counts match across reports
 - **Summary table**: Department → Present / On Leave / Absent / Total / % Present
 - **Per-department drilldown**: expandable section for each department showing
-  - Present employees (Name, Att. ID, Section, Check-In, Check-Out)
-  - On-leave employees (Name, Att. ID, Leave Type)
-  - Absent employees (Name, Att. ID, Section)
+  - Present employees (Name, Att. ID, Section, Check-In, Check-Out) — **sorted by Att. ID (numeric)**
+  - On-leave employees (Name, Att. ID, Leave Type) — **sorted by Att. ID (numeric)**
+  - Absent employees (Name, Att. ID, Section) — **sorted by Att. ID (numeric)**
 - Print / Download PDF / Export Excel (3 sheets: Dept Summary, Present by Dept, Absent by Dept)
 
 ### Hajiri Report (Attendance Register)

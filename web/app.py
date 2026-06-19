@@ -3337,57 +3337,177 @@ async def edit_holiday_route(request: Request, h_id: int):
 # ─── Daily Attendance Report ──────────────────────────────────────────────────
 
 
+def _resolve_daily_date(date_bs, date_ad):
+    from nepali_utils import bs_to_ad, ad_to_bs
+    import datetime, zoneinfo as _zi
+    if date_bs and not date_ad:
+        date_ad = bs_to_ad(date_bs)
+    if not date_ad:
+        try:
+            date_ad = datetime.datetime.now(_zi.ZoneInfo('Asia/Kathmandu')).date().isoformat()
+        except Exception:
+            date_ad = datetime.date.today().isoformat()
+    if not date_bs:
+        date_bs = ad_to_bs(date_ad) or ''
+    return date_bs, date_ad
+
+
+def _build_daily_data(conn, date_ad: str, name_q: str = '', dept_q: str = ''):
+    """Shared data builder for both the HTML and Excel daily report routes."""
+    import datetime, psycopg2.extras as _pex
+    from db import (get_daily_present_list, get_daily_present_gu_ids,
+                    get_leaves_for_date, get_all_global_users_with_dept)
+
+    def _att_key(emp, field='att_id'):
+        v = emp.get(field) or ''
+        try:    return (0, int(v))
+        except: return (1, str(v))
+
+    # present grouped by al.user_id — same dedup as the attendance page
+    present_all = get_daily_present_list(conn, date_ad)
+    present_all.sort(key=lambda e: _att_key(e, 'att_id'))
+    for emp in present_all:
+        emp['company_id'] = emp.get('att_id', '')
+
+    # separate query: which global_user IDs actually have punches today
+    present_gu_ids = get_daily_present_gu_ids(conn, date_ad)
+
+    leave_rows    = get_leaves_for_date(conn, date_ad)
+    on_leave_ids  = {r['global_user_id'] for r in leave_rows}
+    on_leave_list = [r for r in leave_rows if r['global_user_id'] not in present_gu_ids]
+
+    d_obj       = datetime.date.fromisoformat(date_ad)
+    is_saturday = (d_obj.isoweekday() % 7 == 6)
+    with conn.cursor(cursor_factory=_pex.DictCursor) as cur:
+        cur.execute("SELECT * FROM holidays WHERE holiday_ad = %s", (date_ad,))
+        h_row = cur.fetchone()
+    holiday = dict(h_row) if h_row else None
+
+    all_emps    = get_all_global_users_with_dept(conn)
+    absent_list = []
+    if not is_saturday and not holiday:
+        for emp in all_emps:
+            uid = emp['id']
+            if uid in present_gu_ids or uid in on_leave_ids:
+                continue
+            cid = emp.get('company_id') or ''
+            absent_list.append({
+                'emp_name':        emp.get('name') or '(unknown)',
+                'att_id':          cid,
+                'company_id':      cid,
+                'department_name': emp.get('department_name') or '',
+                'section_name':    emp.get('section_name') or '',
+            })
+        absent_list.sort(key=lambda e: _att_key(e, 'att_id'))
+
+    on_leave_list.sort(key=lambda e: _att_key(e, 'company_id'))
+
+    # dept summary from full (unfiltered) data
+    dept_summary: dict = {}
+    for emp in present_all:
+        dn = emp.get('department_name') or 'No Department'
+        dept_summary.setdefault(dn, {'present': 0, 'on_leave': 0, 'absent': 0})
+        dept_summary[dn]['present'] += 1
+    for emp in on_leave_list:
+        dn = emp.get('department_name') or 'No Department'
+        dept_summary.setdefault(dn, {'present': 0, 'on_leave': 0, 'absent': 0})
+        dept_summary[dn]['on_leave'] += 1
+    for emp in absent_list:
+        dn = emp.get('department_name') or 'No Department'
+        dept_summary.setdefault(dn, {'present': 0, 'on_leave': 0, 'absent': 0})
+        dept_summary[dn]['absent'] += 1
+
+    # apply name/dept filters after dept summary is built
+    nq = name_q.strip().lower()
+    dq = dept_q.strip().lower()
+    if nq or dq:
+        def _m(emp, nk='emp_name'):
+            nm = (emp.get(nk) or emp.get('employee_name') or '').lower()
+            dn = (emp.get('department_name') or '').lower()
+            return (not nq or nq in nm) and (not dq or dq in dn)
+        present_all   = [e for e in present_all   if _m(e)]
+        on_leave_list = [e for e in on_leave_list if _m(e, 'employee_name')]
+        absent_list   = [e for e in absent_list   if _m(e)]
+
+    return {
+        'present_all':     present_all,
+        'present':         present_all,   # alias for routes that use summary.get('present')
+        'on_leave':        on_leave_list,
+        'absent':          absent_list,
+        'dept_summary':    dict(sorted(dept_summary.items())),
+        'total_employees': len(all_emps),
+        'is_saturday':     is_saturday,
+        'is_holiday':      bool(holiday),
+        'holiday':         holiday,
+        'totals': {
+            'present':  len(present_all),
+            'on_leave': len(on_leave_list),
+            'absent':   len(absent_list),
+        },
+    }
+
+
 @app.get("/reports/daily")
 def daily_report(request: Request,
                  date_bs: str | None = None,
                  date_ad: str | None = None,
                  name_q:  str | None = None,
-                 dept_q:  str | None = None):
-    from db import get_daily_attendance_summary
-    from nepali_utils import bs_to_ad, ad_to_bs
-    import datetime
+                 dept_q:  str | None = None,
+                 page:    str | None = None):
+    from nepali_utils import ad_to_bs
 
-    if date_bs and not date_ad:
-        date_ad = bs_to_ad(date_bs)
-    if not date_ad:
-        try:
-            import zoneinfo as _zi
-            _npt = _zi.ZoneInfo('Asia/Kathmandu')
-            date_ad = datetime.datetime.now(_npt).date().isoformat()
-        except Exception:
-            date_ad = datetime.date.today().isoformat()
-    if not date_bs:
-        date_bs = ad_to_bs(date_ad) or ''
+    date_bs, date_ad = _resolve_daily_date(date_bs, date_ad)
+    nq = (name_q or '').strip()
+    dq = (dept_q or '').strip()
 
     conn = get_connection()
     try:
-        summary = get_daily_attendance_summary(conn, date_ad)
+        data = _build_daily_data(conn, date_ad, nq, dq)
     except Exception as exc:
-        summary = {'error': str(exc)}
+        conn.close()
+        return render(templates, request, 'reports_daily.html', {
+            'error': str(exc), 'sel_date_bs': date_bs, 'sel_date_ad': date_ad,
+            'name_q': nq, 'dept_q': dq,
+            'COMPANY_NAME': COMPANY_NAME, 'COMPANY_ADDRESS': COMPANY_ADDRESS,
+        })
     finally:
         conn.close()
 
-    # Apply optional name / department filter
-    name_q = (name_q or '').strip().lower()
-    dept_q = (dept_q or '').strip().lower()
-    if name_q or dept_q:
-        def _match(emp):
-            nm = (emp.get('emp_name') or emp.get('employee_name') or '').lower()
-            dn = (emp.get('department_name') or '').lower()
-            return (not name_q or name_q in nm) and (not dept_q or dept_q in dn)
-        for key in ('present', 'on_leave', 'absent'):
-            if key in summary:
-                summary[key] = [e for e in summary[key] if _match(e)]
+    present_all = data['present_all']
+    per_page    = 100
+    page_num    = max(1, _int_param(page) or 1)
+    total_pres  = len(present_all)
+    total_pages = max(1, (total_pres + per_page - 1) // per_page)
+    page_num    = min(page_num, total_pages)
+    present_page = present_all[(page_num - 1) * per_page : page_num * per_page]
 
-    summary['sel_date_bs'] = date_bs
-    summary['sel_date_ad'] = date_ad
-    summary['date_bs']     = date_bs
-    summary['date_ad']     = date_ad
-    summary['name_q']      = name_q
-    summary['dept_q']      = dept_q
-    summary['COMPANY_NAME'] = COMPANY_NAME
-    summary['COMPANY_ADDRESS'] = COMPANY_ADDRESS
-    return render(templates, request, 'reports_daily.html', summary)
+    fqs = urlencode({'date_bs': date_bs, 'date_ad': date_ad,
+                     'name_q': nq, 'dept_q': dq})
+    return render(templates, request, 'reports_daily.html', {
+        'sel_date_bs':     date_bs,
+        'sel_date_ad':     date_ad,
+        'name_q':          nq,
+        'dept_q':          dq,
+        'present':         present_page,
+        'on_leave':        data['on_leave'],
+        'absent':          data['absent'],
+        'dept_summary':    data['dept_summary'],
+        'total_employees': data['total_employees'],
+        'is_saturday':     data['is_saturday'],
+        'is_holiday':      data['is_holiday'],
+        'holiday':         data['holiday'],
+        'totals': {
+            'present':  total_pres,
+            'on_leave': len(data['on_leave']),
+            'absent':   len(data['absent']),
+        },
+        'page':        page_num,
+        'total_pages': total_pages,
+        'per_page':    per_page,
+        'filter_qs':   fqs,
+        'COMPANY_NAME':    COMPANY_NAME,
+        'COMPANY_ADDRESS': COMPANY_ADDRESS,
+    })
 
 
 @app.get("/reports/daily/excel")
@@ -3397,41 +3517,24 @@ def daily_report_excel(
     name_q:  str | None = None,
     dept_q:  str | None = None,
 ):
-    from db import get_daily_attendance_summary
-    from nepali_utils import bs_to_ad, ad_to_bs
-    import datetime, openpyxl
+    import openpyxl
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.utils import get_column_letter
 
-    if date_bs and not date_ad:
-        date_ad = bs_to_ad(date_bs)
-    if not date_ad:
-        try:
-            import zoneinfo as _zi
-            date_ad = datetime.datetime.now(_zi.ZoneInfo('Asia/Kathmandu')).date().isoformat()
-        except Exception:
-            date_ad = datetime.date.today().isoformat()
-    if not date_bs:
-        date_bs = ad_to_bs(date_ad) or ''
+    date_bs, date_ad = _resolve_daily_date(date_bs, date_ad)
+    nq = (name_q or '').strip()
+    dq = (dept_q or '').strip()
 
     conn = get_connection()
     try:
-        summary = get_daily_attendance_summary(conn, date_ad)
-    except Exception:
-        summary = {}
+        data = _build_daily_data(conn, date_ad, nq, dq)
     finally:
         conn.close()
 
-    name_q = (name_q or '').strip().lower()
-    dept_q = (dept_q or '').strip().lower()
-    if name_q or dept_q:
-        def _match(emp):
-            nm = (emp.get('emp_name') or '').lower()
-            dn = (emp.get('department_name') or '').lower()
-            return (not name_q or name_q in nm) and (not dept_q or dept_q in dn)
-        for key in ('present', 'on_leave', 'absent'):
-            if key in summary:
-                summary[key] = [e for e in summary[key] if _match(e)]
+    present_all   = data['present_all']
+    on_leave_list = data['on_leave']
+    absent_list   = data['absent']
+    dept_summary  = data['dept_summary']
 
     wb = openpyxl.Workbook()
     thin     = Side(style='thin')
@@ -3439,115 +3542,85 @@ def daily_report_excel(
     hdr_fill = PatternFill("solid", fgColor="1769E0")
     hdr_font = Font(bold=True, color="FFFFFF")
     alt_fill = PatternFill("solid", fgColor="EEF6FF")
-    co_name  = COMPANY_NAME or ''
-    co_addr  = COMPANY_ADDRESS or ''
 
     def _ws_header(ws, title, ncols):
         last = get_column_letter(ncols)
         ws.merge_cells(f'A1:{last}1')
-        ws.cell(1, 1).value = co_name
-        ws.cell(1, 1).font      = Font(bold=True, size=13)
-        ws.cell(1, 1).alignment = Alignment(horizontal='center')
+        ws.cell(1,1).value = COMPANY_NAME or ''
+        ws.cell(1,1).font = Font(bold=True, size=13)
+        ws.cell(1,1).alignment = Alignment(horizontal='center')
         ws.merge_cells(f'A2:{last}2')
-        ws.cell(2, 1).value = co_addr
-        ws.cell(2, 1).font      = Font(size=10)
-        ws.cell(2, 1).alignment = Alignment(horizontal='center')
+        ws.cell(2,1).value = COMPANY_ADDRESS or ''
+        ws.cell(2,1).font = Font(size=10)
+        ws.cell(2,1).alignment = Alignment(horizontal='center')
         ws.merge_cells(f'A3:{last}3')
-        ws.cell(3, 1).value = f"{title}  |  {date_ad}  ({date_bs} BS)"
-        ws.cell(3, 1).font      = Font(italic=True, size=10)
-        ws.cell(3, 1).alignment = Alignment(horizontal='center')
-        ws.append([])  # row 4 blank
+        ws.cell(3,1).value = f"{title}  |  {date_ad}  ({date_bs} BS)"
+        ws.cell(3,1).font = Font(italic=True, size=10)
+        ws.cell(3,1).alignment = Alignment(horizontal='center')
+        ws.append([])
 
     def _style_header(ws):
         for cell in ws[ws.max_row]:
-            cell.fill      = hdr_fill
-            cell.font      = hdr_font
+            cell.fill = hdr_fill; cell.font = hdr_font
             cell.alignment = Alignment(horizontal='center', wrap_text=True)
-            cell.border    = bdr
+            cell.border = bdr
 
-    def _style_row(ws, alternate=False):
+    def _style_row(ws, alt=False):
         for cell in ws[ws.max_row]:
-            cell.border    = bdr
+            cell.border = bdr
             cell.alignment = Alignment(vertical='top')
-            if alternate:
-                cell.fill = alt_fill
+            if alt: cell.fill = alt_fill
 
     def _auto_width(ws):
         for i in range(1, ws.max_column + 1):
-            col_letter = get_column_letter(i)
-            max_len = 0
-            for row in ws.iter_rows(min_col=i, max_col=i):
-                for cell in row:
-                    v = getattr(cell, 'value', None)
-                    if v is not None:
-                        max_len = max(max_len, len(str(v)))
-            ws.column_dimensions[col_letter].width = min(max_len + 4, 42)
+            col = get_column_letter(i)
+            mx = max((len(str(c.value)) for row in ws.iter_rows(min_col=i, max_col=i)
+                      for c in row if c.value is not None), default=8)
+            ws.column_dimensions[col].width = min(mx + 4, 42)
 
-    # ── Sheet 1: Present ───────────────────────────────────────────────────────
-    PRES_COLS = ['#', 'Name', 'Att. ID', 'Department', 'Section',
-                 'Check-In', 'Check-Out', 'Hours', 'Total Punches']
+    PRES_COLS = ['#','Name','Att. ID','Department','Section','Check-In','Check-Out','Hours','Punches']
     ws1 = wb.active; ws1.title = "Present"
     _ws_header(ws1, "Present Employees", len(PRES_COLS))
-    ws1.append(PRES_COLS)
-    _style_header(ws1)
-    for i, emp in enumerate(summary.get('present', []), 1):
-        fp  = emp.get('first_punch')
-        lp  = emp.get('last_punch')
-        ci  = fp.strftime('%H:%M') if fp else '-'
+    ws1.append(PRES_COLS); _style_header(ws1)
+    for i, emp in enumerate(present_all, 1):
+        fp = emp.get('first_punch'); lp = emp.get('last_punch')
+        ci = fp.strftime('%H:%M') if fp else '-'
         has_co = lp and fp and lp != fp
-        co  = lp.strftime('%H:%M') if has_co else '-'
+        co = lp.strftime('%H:%M') if has_co else '-'
         hrs = '-'
         if has_co:
-            secs = (lp - fp).total_seconds()
-            hrs  = f"{int(secs // 3600)}:{int((secs % 3600) // 60):02d}"
-        ws1.append([i,
-                    emp.get('emp_name') or '-',
-                    emp.get('company_id') or '-',
-                    emp.get('department_name') or '-',
-                    emp.get('section_name') or '-',
-                    ci, co, hrs,
-                    emp.get('punch_count') or 0])
+            s = (lp - fp).total_seconds()
+            hrs = f"{int(s//3600)}:{int((s%3600)//60):02d}"
+        ws1.append([i, emp.get('emp_name') or '-', emp.get('att_id') or '-',
+                    emp.get('department_name') or '-', emp.get('section_name') or '-',
+                    ci, co, hrs, emp.get('punch_count') or 0])
         _style_row(ws1, i % 2 == 0)
 
-    # ── Sheet 2: Absent ────────────────────────────────────────────────────────
-    ABS_COLS = ['#', 'Name', 'Att. ID', 'Department', 'Section']
+    ABS_COLS = ['#','Name','Att. ID','Department','Section']
     ws2 = wb.create_sheet("Absent")
     _ws_header(ws2, "Absent Employees", len(ABS_COLS))
-    ws2.append(ABS_COLS)
-    _style_header(ws2)
-    for i, emp in enumerate(summary.get('absent', []), 1):
-        ws2.append([i,
-                    emp.get('emp_name') or '-',
-                    emp.get('company_id') or '-',
-                    emp.get('department_name') or '-',
-                    emp.get('section_name') or '-'])
+    ws2.append(ABS_COLS); _style_header(ws2)
+    for i, emp in enumerate(absent_list, 1):
+        ws2.append([i, emp.get('emp_name') or '-', emp.get('att_id') or '-',
+                    emp.get('department_name') or '-', emp.get('section_name') or '-'])
         _style_row(ws2, i % 2 == 0)
 
-    # ── Sheet 3: On Leave ──────────────────────────────────────────────────────
-    OL_COLS = ['#', 'Name', 'Att. ID', 'Department', 'Leave Type']
+    OL_COLS = ['#','Name','Att. ID','Department','Leave Type']
     ws3 = wb.create_sheet("On Leave")
     _ws_header(ws3, "On Leave", len(OL_COLS))
-    ws3.append(OL_COLS)
-    _style_header(ws3)
-    for i, emp in enumerate(summary.get('on_leave', []), 1):
-        ws3.append([i,
-                    emp.get('employee_name') or '-',
-                    emp.get('company_id') or '-',
-                    emp.get('department_name') or '-',
-                    emp.get('leave_type_name') or '-'])
+    ws3.append(OL_COLS); _style_header(ws3)
+    for i, emp in enumerate(on_leave_list, 1):
+        ws3.append([i, emp.get('employee_name') or '-', emp.get('company_id') or '-',
+                    emp.get('department_name') or '-', emp.get('leave_type_name') or '-'])
         _style_row(ws3, i % 2 == 0)
 
-    # ── Sheet 4: Dept Summary ─────────────────────────────────────────────────
-    DS_COLS = ['Department', 'Present', 'On Leave', 'Absent', 'Total']
+    DS_COLS = ['Department','Present','On Leave','Absent','Total']
     ws4 = wb.create_sheet("Dept Summary")
     _ws_header(ws4, "Department-wise Summary", len(DS_COLS))
-    ws4.append(DS_COLS)
-    _style_header(ws4)
-    for i, (dept, counts) in enumerate(sorted((summary.get('dept_summary') or {}).items()), 1):
-        p  = counts.get('present', 0)
-        ol = counts.get('on_leave', 0)
-        ab = counts.get('absent', 0)
-        ws4.append([dept, p, ol, ab, p + ol + ab])
+    ws4.append(DS_COLS); _style_header(ws4)
+    for i, (dept, counts) in enumerate(sorted(dept_summary.items()), 1):
+        p = counts.get('present',0); ol = counts.get('on_leave',0); ab = counts.get('absent',0)
+        ws4.append([dept, p, ol, ab, p+ol+ab])
         _style_row(ws4, i % 2 == 0)
 
     for ws in [ws1, ws2, ws3, ws4]:
@@ -3570,47 +3643,26 @@ def absent_report(request: Request,
                   date_ad: str | None = None,
                   name_q:  str | None = None,
                   dept_q:  str | None = None):
-    from db import get_daily_attendance_summary
-    from nepali_utils import bs_to_ad, ad_to_bs
-    import datetime
-
-    if date_bs and not date_ad:
-        date_ad = bs_to_ad(date_bs)
-    if not date_ad:
-        try:
-            import zoneinfo as _zi
-            _npt = _zi.ZoneInfo('Asia/Kathmandu')
-            date_ad = datetime.datetime.now(_npt).date().isoformat()
-        except Exception:
-            date_ad = datetime.date.today().isoformat()
-    if not date_bs:
-        date_bs = ad_to_bs(date_ad) or ''
+    nq = (name_q or '').strip()
+    dq = (dept_q or '').strip()
+    date_bs, date_ad = _resolve_daily_date(date_bs, date_ad)
 
     conn = get_connection()
     try:
-        summary = get_daily_attendance_summary(conn, date_ad)
+        data = _build_daily_data(conn, date_ad, nq, dq)
     except Exception as exc:
-        summary = {'error': str(exc), 'absent': [], 'is_saturday': False,
-                   'is_holiday': False, 'holiday': None, 'total_employees': 0,
-                   'totals': {'present': 0, 'on_leave': 0, 'absent': 0}}
+        data = {'error': str(exc), 'absent': [], 'is_saturday': False,
+                'is_holiday': False, 'holiday': None, 'total_employees': 0,
+                'totals': {'present': 0, 'on_leave': 0, 'absent': 0}}
     finally:
         conn.close()
 
-    name_q = (name_q or '').strip().lower()
-    dept_q = (dept_q or '').strip().lower()
-    absent = summary.get('absent', [])
-    if name_q or dept_q:
-        absent = [e for e in absent
-                  if (not name_q or name_q in (e.get('emp_name') or '').lower())
-                  and (not dept_q or dept_q in (e.get('department_name') or '').lower())]
-
     return render(templates, request, 'reports_absent.html', {
-        **summary,
-        'absent':        absent,
+        **data,
         'sel_date_bs':   date_bs,
         'sel_date_ad':   date_ad,
-        'name_q':        name_q,
-        'dept_q':        dept_q,
+        'name_q':        nq,
+        'dept_q':        dq,
         'COMPANY_NAME':  COMPANY_NAME,
         'COMPANY_ADDRESS': COMPANY_ADDRESS,
     })
@@ -3623,39 +3675,23 @@ def absent_report_excel(
     name_q:  str | None = None,
     dept_q:  str | None = None,
 ):
-    from db import get_daily_attendance_summary
-    from nepali_utils import bs_to_ad, ad_to_bs
-    import datetime, openpyxl
+    import openpyxl
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.utils import get_column_letter
 
-    if date_bs and not date_ad:
-        date_ad = bs_to_ad(date_bs)
-    if not date_ad:
-        try:
-            import zoneinfo as _zi
-            _npt = _zi.ZoneInfo('Asia/Kathmandu')
-            date_ad = datetime.datetime.now(_npt).date().isoformat()
-        except Exception:
-            date_ad = datetime.date.today().isoformat()
-    if not date_bs:
-        date_bs = ad_to_bs(date_ad) or ''
+    nq = (name_q or '').strip()
+    dq = (dept_q or '').strip()
+    date_bs, date_ad = _resolve_daily_date(date_bs, date_ad)
 
     conn = get_connection()
     try:
-        summary = get_daily_attendance_summary(conn, date_ad)
+        data = _build_daily_data(conn, date_ad, nq, dq)
     except Exception:
-        summary = {'absent': []}
+        data = {'absent': []}
     finally:
         conn.close()
 
-    name_q = (name_q or '').strip().lower()
-    dept_q = (dept_q or '').strip().lower()
-    absent = summary.get('absent', [])
-    if name_q or dept_q:
-        absent = [e for e in absent
-                  if (not name_q or name_q in (e.get('emp_name') or '').lower())
-                  and (not dept_q or dept_q in (e.get('department_name') or '').lower())]
+    absent = data.get('absent', [])
 
     COLS = ['#', 'Name', 'Att. ID', 'Department', 'Section']
     ncols = len(COLS)
@@ -3716,50 +3752,35 @@ def absent_report_excel(
 def dept_attendance_report(request: Request,
                             date_bs: str | None = None,
                             date_ad: str | None = None):
-    from db import get_daily_attendance_summary
-    from nepali_utils import bs_to_ad, ad_to_bs
-    import datetime
-
-    if date_bs and not date_ad:
-        date_ad = bs_to_ad(date_bs)
-    if not date_ad:
-        try:
-            import zoneinfo as _zi
-            _npt = _zi.ZoneInfo('Asia/Kathmandu')
-            date_ad = datetime.datetime.now(_npt).date().isoformat()
-        except Exception:
-            date_ad = datetime.date.today().isoformat()
-    if not date_bs:
-        date_bs = ad_to_bs(date_ad) or ''
+    date_bs, date_ad = _resolve_daily_date(date_bs, date_ad)
 
     conn = get_connection()
     try:
-        summary = get_daily_attendance_summary(conn, date_ad)
+        data = _build_daily_data(conn, date_ad)
     except Exception as exc:
-        summary = {'error': str(exc), 'dept_summary': {}, 'is_saturday': False,
-                   'is_holiday': False, 'holiday': None, 'total_employees': 0,
-                   'present': [], 'absent': [], 'on_leave': [],
-                   'totals': {'present': 0, 'on_leave': 0, 'absent': 0}}
+        data = {'error': str(exc), 'dept_summary': {}, 'is_saturday': False,
+                'is_holiday': False, 'holiday': None, 'total_employees': 0,
+                'present': [], 'absent': [], 'on_leave': [],
+                'totals': {'present': 0, 'on_leave': 0, 'absent': 0}}
     finally:
         conn.close()
 
-    # Build per-dept employee lists for drilldown
     dept_detail: dict = {}
-    for emp in summary.get('present', []):
+    for emp in data.get('present', []):
         dn = emp.get('department_name') or 'No Department'
         dept_detail.setdefault(dn, {'present': [], 'absent': [], 'on_leave': []})
         dept_detail[dn]['present'].append(emp)
-    for emp in summary.get('on_leave', []):
+    for emp in data.get('on_leave', []):
         dn = emp.get('department_name') or 'No Department'
         dept_detail.setdefault(dn, {'present': [], 'absent': [], 'on_leave': []})
         dept_detail[dn]['on_leave'].append(emp)
-    for emp in summary.get('absent', []):
+    for emp in data.get('absent', []):
         dn = emp.get('department_name') or 'No Department'
         dept_detail.setdefault(dn, {'present': [], 'absent': [], 'on_leave': []})
         dept_detail[dn]['absent'].append(emp)
 
     return render(templates, request, 'reports_dept_attendance.html', {
-        **summary,
+        **data,
         'dept_detail':   dict(sorted(dept_detail.items())),
         'sel_date_bs':   date_bs,
         'sel_date_ad':   date_ad,
@@ -3773,28 +3794,15 @@ def dept_attendance_excel(
     date_bs: str | None = None,
     date_ad: str | None = None,
 ):
-    from db import get_daily_attendance_summary
-    from nepali_utils import bs_to_ad, ad_to_bs
-    import datetime, openpyxl
+    import openpyxl
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from openpyxl.utils import get_column_letter
-    import nepali_utils as _nu
 
-    if date_bs and not date_ad:
-        date_ad = bs_to_ad(date_bs)
-    if not date_ad:
-        try:
-            import zoneinfo as _zi
-            _npt = _zi.ZoneInfo('Asia/Kathmandu')
-            date_ad = datetime.datetime.now(_npt).date().isoformat()
-        except Exception:
-            date_ad = datetime.date.today().isoformat()
-    if not date_bs:
-        date_bs = ad_to_bs(date_ad) or ''
+    date_bs, date_ad = _resolve_daily_date(date_bs, date_ad)
 
     conn = get_connection()
     try:
-        summary = get_daily_attendance_summary(conn, date_ad)
+        summary = _build_daily_data(conn, date_ad)
     except Exception:
         summary = {'dept_summary': {}}
     finally:
