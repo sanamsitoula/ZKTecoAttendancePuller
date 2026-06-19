@@ -1,11 +1,14 @@
 """
-Authentication helpers — users loaded from users.json (gitignored).
+Authentication helpers.
+
+Primary source: web_users DB table (linked to global_users).
+Fallback source: users.json (gitignored) — keeps legacy admin accounts working.
 """
 import json
 import os
 import bcrypt
 
-_USERS_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'users.json')
+_USERS_PATH    = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'users.json')
 _USERS_EXAMPLE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'users.json.example')
 
 _cache: dict | None = None
@@ -49,9 +52,33 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
+def hash_password(plain: str) -> str:
+    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
+
+
 def get_session_user(request) -> dict | None:
-    """Return the user dict for the current session, or None if not logged in."""
+    """
+    Return a user dict for the current session, or None if not logged in.
+
+    For DB-sourced users the dict is built directly from session data
+    (no DB query on every request).  For JSON-sourced users we fall back
+    to the users.json lookup.
+    """
     uid = request.session.get('user_id')
     if not uid:
         return None
-    return find_user_by_id(uid)
+    source = request.session.get('user_source', 'json')
+    if source == 'db':
+        return {
+            'id':             uid,
+            'username':       request.session.get('username', ''),
+            'display_name':   request.session.get('display_name', ''),
+            'role':           request.session.get('role', 'viewer'),
+            'source':         'db',
+            'global_user_id': request.session.get('global_user_id'),
+        }
+    # legacy json fallback
+    u = find_user_by_id(uid)
+    if u:
+        u.setdefault('source', 'json')
+    return u

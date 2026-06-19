@@ -34,7 +34,11 @@ from config import COMPANY_NAME, COMPANY_ADDRESS, COMPANY_EMAIL, COMPANY_WEBSITE
 from urllib.parse import urlencode
 from web.flash import redirect_with_flash
 from web.helpers import render, device_config_from_row, attendance_to_dict, action_label
-from web.auth import get_secret_key, find_user_by_username, verify_password, get_session_user
+from web.auth import (get_secret_key, find_user_by_username, verify_password,
+                      get_session_user, hash_password)
+from db import (get_web_user_by_username, get_web_user_by_id, get_all_web_users,
+                create_web_user, update_web_user, update_web_user_login,
+                add_web_audit_log, get_web_audit_logs)
 import nepali_utils
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -136,14 +140,46 @@ def _current_user_id(request: Request) -> int:
     return u['id'] if u else 0
 
 
+_ADMIN_ONLY_PREFIXES = (
+    '/devices', '/sync', '/migrate', '/schedule',
+    '/pull-sessions', '/settings', '/web-users',
+)
+_VIEWER_ALLOWED_PREFIXES = (
+    '/', '/attendance', '/reports/daily', '/reports/absent',
+    '/profile', '/logout',
+)
+
+
 async def _auth_gate_dispatch(request: Request, call_next):
     path = request.url.path
     if path == "/login" or path.startswith("/static"):
         return await call_next(request)
+
     if not request.session.get("user_id"):
         if path.startswith("/api/"):
             return JSONResponse({"error": "Not authenticated"}, status_code=401)
         return RedirectResponse(url=f"/login?next={path}", status_code=302)
+
+    role = request.session.get("role", "admin")
+
+    # admin-only paths
+    if any(path == p or path.startswith(p + '/') for p in _ADMIN_ONLY_PREFIXES):
+        if role != "admin":
+            if path.startswith("/api/"):
+                return JSONResponse({"error": "Access denied"}, status_code=403)
+            return RedirectResponse(url="/?no_access=1", status_code=302)
+
+    # viewer: restrict to allowed paths
+    if role == "viewer":
+        allowed = any(
+            path == p or path.startswith(p + '/') or path.startswith(p + '?')
+            for p in _VIEWER_ALLOWED_PREFIXES
+        ) or path == "/"
+        if not allowed:
+            if path.startswith("/api/"):
+                return JSONResponse({"error": "Access denied"}, status_code=403)
+            return RedirectResponse(url="/attendance", status_code=302)
+
     return await call_next(request)
 
 
@@ -159,6 +195,13 @@ app.add_middleware(SessionMiddleware, secret_key=get_secret_key(), session_cooki
 
 # ─── Login / Logout ────────────────────────────────────────────────────────────
 
+def _get_client_ip(request: Request) -> str:
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else ""
+
+
 @app.get("/login")
 def login_get(request: Request, next: str | None = None):
     if request.session.get("user_id"):
@@ -167,15 +210,53 @@ def login_get(request: Request, next: str | None = None):
 
 
 @app.post("/login")
-def login_post(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/login")):
-    user = find_user_by_username(username)
-    if user and verify_password(password, user["password_hash"]):
-        request.session["user_id"]      = user["id"]
-        request.session["username"]     = user["username"]
-        request.session["display_name"] = user.get("display_name", user["username"])
-        request.session["role"]         = user.get("role", "user")
-        dest = next if next and next not in ("/login", "") else "/"
-        return RedirectResponse(url=dest, status_code=302)
+def login_post(request: Request,
+               username: str = Form(...),
+               password: str = Form(...),
+               next: str = Form("/login")):
+    ip = _get_client_ip(request)
+    ua = request.headers.get("User-Agent", "")[:255]
+    conn = None
+    try:
+        conn = get_connection()
+        # Try DB first
+        db_user = get_web_user_by_username(conn, username)
+        if db_user and verify_password(password, db_user["password_hash"]):
+            request.session["user_id"]        = db_user["id"]
+            request.session["username"]       = db_user["username"]
+            request.session["display_name"]   = db_user.get("display_name") or db_user["username"]
+            request.session["role"]           = db_user.get("role", "viewer")
+            request.session["user_source"]    = "db"
+            request.session["global_user_id"] = db_user.get("global_user_id")
+            update_web_user_login(conn, db_user["id"], ip)
+            add_web_audit_log(conn, db_user["id"], db_user["username"],
+                              "login", ip, ua)
+            dest = next if next and next not in ("/login", "") else "/"
+            return RedirectResponse(url=dest, status_code=302)
+        if db_user:
+            # Username matched but wrong password
+            add_web_audit_log(conn, db_user["id"], username,
+                              "login_failed", ip, ua, {"reason": "bad_password"})
+        else:
+            # Try users.json fallback
+            json_user = find_user_by_username(username)
+            if json_user and verify_password(password, json_user["password_hash"]):
+                request.session["user_id"]        = json_user["id"]
+                request.session["username"]       = json_user["username"]
+                request.session["display_name"]   = json_user.get("display_name", json_user["username"])
+                request.session["role"]           = json_user.get("role", "admin")
+                request.session["user_source"]    = "json"
+                request.session["global_user_id"] = None
+                dest = next if next and next not in ("/login", "") else "/"
+                return RedirectResponse(url=dest, status_code=302)
+            # No match anywhere — log failed attempt if we can find any partial match
+            add_web_audit_log(conn, None, username,
+                              "login_failed", ip, ua, {"reason": "user_not_found"})
+    except Exception:
+        pass
+    finally:
+        if conn:
+            conn.close()
     return templates.TemplateResponse(request, "login.html", {
         "error": "Invalid username or password.",
         "username": username,
@@ -184,14 +265,252 @@ def login_post(request: Request, username: str = Form(...), password: str = Form
 
 @app.post("/logout")
 def logout(request: Request):
+    uid    = request.session.get("user_id")
+    uname  = request.session.get("username", "")
+    source = request.session.get("user_source", "json")
+    ip     = _get_client_ip(request)
+    if uid and source == "db":
+        try:
+            conn = get_connection()
+            add_web_audit_log(conn, uid, uname, "logout", ip)
+            conn.close()
+        except Exception:
+            pass
     request.session.clear()
     return RedirectResponse(url="/login", status_code=302)
 
 
 @app.get("/logout")
 def logout_get(request: Request):
+    uid    = request.session.get("user_id")
+    uname  = request.session.get("username", "")
+    source = request.session.get("user_source", "json")
+    ip     = _get_client_ip(request)
+    if uid and source == "db":
+        try:
+            conn = get_connection()
+            add_web_audit_log(conn, uid, uname, "logout", ip)
+            conn.close()
+        except Exception:
+            pass
     request.session.clear()
     return RedirectResponse(url="/login", status_code=302)
+
+
+# ─── Profile ──────────────────────────────────────────────────────────────────
+
+
+@app.get("/profile")
+def profile_get(request: Request):
+    user = _current_user(request)
+    linked = None
+    last_login_at = None
+    last_login_ip = None
+    if user and user.get("source") == "db":
+        conn = get_connection()
+        try:
+            db_u = get_web_user_by_id(conn, user["id"])
+            if db_u:
+                last_login_at = db_u.get("last_login_at")
+                last_login_ip = db_u.get("last_login_ip")
+                if db_u.get("global_user_id"):
+                    from db import get_global_user
+                    linked = get_global_user(conn, db_u["global_user_id"])
+        finally:
+            conn.close()
+    return render(templates, request, "profile.html", {
+        "current_user":  user,
+        "linked":        linked,
+        "last_login_at": last_login_at,
+        "last_login_ip": last_login_ip,
+        "COMPANY_NAME":  COMPANY_NAME,
+    })
+
+
+@app.post("/profile/change-password")
+def profile_change_password(request: Request,
+                             current_password: str = Form(...),
+                             new_password:     str = Form(...),
+                             confirm_password: str = Form(...)):
+    user = _current_user(request)
+    if not user or user.get("source") != "db":
+        return redirect_with_flash("/profile", "error",
+                                   "Password change is only available for DB accounts.")
+    if new_password != confirm_password:
+        return redirect_with_flash("/profile", "error", "New passwords do not match.")
+    if len(new_password) < 6:
+        return redirect_with_flash("/profile", "error", "Password must be at least 6 characters.")
+    conn = get_connection()
+    try:
+        db_u = get_web_user_by_id(conn, user["id"])
+        if not db_u or not verify_password(current_password, db_u["password_hash"]):
+            return redirect_with_flash("/profile", "error", "Current password is incorrect.")
+        update_web_user(conn, user["id"], user["id"],
+                        password_hash=hash_password(new_password),
+                        must_change_pwd=False)
+        ip = _get_client_ip(request)
+        add_web_audit_log(conn, user["id"], user["username"],
+                          "password_changed", ip,
+                          request.headers.get("User-Agent", "")[:255])
+    finally:
+        conn.close()
+    return redirect_with_flash("/profile", "success", "Password updated successfully.")
+
+
+# ─── Web User Management (admin only) ─────────────────────────────────────────
+
+
+@app.get("/web-users")
+def web_users_list(request: Request):
+    conn = get_connection()
+    try:
+        users = get_all_web_users(conn)
+    finally:
+        conn.close()
+    return render(templates, request, "web_users.html", {
+        "users":        users,
+        "COMPANY_NAME": COMPANY_NAME,
+    })
+
+
+@app.get("/web-users/new")
+def web_user_new_get(request: Request):
+    from db import get_all_global_users_with_dept
+    conn = get_connection()
+    try:
+        global_users = get_all_global_users_with_dept(conn)
+    finally:
+        conn.close()
+    return render(templates, request, "web_user_form.html", {
+        "form_user":    None,
+        "global_users": global_users,
+        "COMPANY_NAME": COMPANY_NAME,
+    })
+
+
+@app.post("/web-users/new")
+def web_user_new_post(request: Request,
+                      username:       str = Form(...),
+                      display_name:   str = Form(""),
+                      password:       str = Form(...),
+                      confirm_pwd:    str = Form(...),
+                      role:           str = Form("viewer"),
+                      global_user_id: str = Form(""),
+                      must_change_pwd: str = Form("")):
+    if password != confirm_pwd:
+        return redirect_with_flash("/web-users/new", "error", "Passwords do not match.")
+    if len(password) < 6:
+        return redirect_with_flash("/web-users/new", "error", "Password must be at least 6 characters.")
+    conn = get_connection()
+    try:
+        if get_web_user_by_username(conn, username):
+            return redirect_with_flash("/web-users/new", "error",
+                                       f"Username '{username}' already exists.")
+        gid = int(global_user_id) if global_user_id.isdigit() else None
+        uid = create_web_user(conn,
+                              username     = username.strip(),
+                              password_hash= hash_password(password),
+                              display_name = display_name.strip() or username.strip(),
+                              role         = role,
+                              global_user_id = gid,
+                              created_by   = _current_user_id(request))
+        if must_change_pwd:
+            update_web_user(conn, uid, _current_user_id(request), must_change_pwd=True)
+        ip = _get_client_ip(request)
+        add_web_audit_log(conn, uid, username, "created", ip,
+                          request.headers.get("User-Agent", "")[:255],
+                          {"created_by": request.session.get("username")})
+    finally:
+        conn.close()
+    return redirect_with_flash("/web-users", "success",
+                                f"User '{username}' created successfully.")
+
+
+@app.get("/web-users/{user_id}/edit")
+def web_user_edit_get(request: Request, user_id: int):
+    from db import get_all_global_users_with_dept
+    conn = get_connection()
+    try:
+        form_user    = get_web_user_by_id(conn, user_id)
+        global_users = get_all_global_users_with_dept(conn)
+    finally:
+        conn.close()
+    if not form_user:
+        return redirect_with_flash("/web-users", "error", "User not found.")
+    return render(templates, request, "web_user_form.html", {
+        "form_user":    form_user,
+        "global_users": global_users,
+        "COMPANY_NAME": COMPANY_NAME,
+    })
+
+
+@app.post("/web-users/{user_id}/edit")
+def web_user_edit_post(request: Request,
+                       user_id:        int,
+                       display_name:   str = Form(""),
+                       role:           str = Form("viewer"),
+                       global_user_id: str = Form(""),
+                       is_active:      str = Form(""),
+                       new_password:   str = Form(""),
+                       confirm_pwd:    str = Form("")):
+    conn = get_connection()
+    try:
+        fields: dict = {
+            "display_name":   display_name.strip(),
+            "role":           role,
+            "global_user_id": int(global_user_id) if global_user_id.isdigit() else None,
+            "is_active":      bool(is_active),
+        }
+        if new_password:
+            if new_password != confirm_pwd:
+                return redirect_with_flash(f"/web-users/{user_id}/edit", "error",
+                                           "Passwords do not match.")
+            if len(new_password) < 6:
+                return redirect_with_flash(f"/web-users/{user_id}/edit", "error",
+                                           "Password must be at least 6 characters.")
+            fields["password_hash"] = hash_password(new_password)
+        update_web_user(conn, user_id, _current_user_id(request), **fields)
+        ip = _get_client_ip(request)
+        add_web_audit_log(conn, user_id, "", "updated", ip,
+                          request.headers.get("User-Agent", "")[:255],
+                          {"updated_by": request.session.get("username"),
+                           "pwd_changed": bool(new_password)})
+    finally:
+        conn.close()
+    return redirect_with_flash("/web-users", "success", "User updated successfully.")
+
+
+@app.post("/web-users/{user_id}/toggle-active")
+def web_user_toggle_active(request: Request, user_id: int):
+    conn = get_connection()
+    try:
+        u = get_web_user_by_id(conn, user_id)
+        if not u:
+            return redirect_with_flash("/web-users", "error", "User not found.")
+        new_active = not u["is_active"]
+        update_web_user(conn, user_id, _current_user_id(request), is_active=new_active)
+        action = "enabled" if new_active else "disabled"
+        add_web_audit_log(conn, user_id, u["username"], action, _get_client_ip(request))
+    finally:
+        conn.close()
+    msg = f"User '{u['username']}' {'enabled' if new_active else 'disabled'}."
+    return redirect_with_flash("/web-users", "success", msg)
+
+
+@app.get("/web-users/audit-log")
+def web_users_audit_log(request: Request, uid: int | None = None):
+    conn = get_connection()
+    try:
+        logs  = get_web_audit_logs(conn, web_user_id=uid, limit=300)
+        users = get_all_web_users(conn)
+    finally:
+        conn.close()
+    return render(templates, request, "web_users_audit.html", {
+        "logs":         logs,
+        "users":        users,
+        "filter_uid":   uid,
+        "COMPANY_NAME": COMPANY_NAME,
+    })
 
 
 def _fmt_schedule() -> list[str]:

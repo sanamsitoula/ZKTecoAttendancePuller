@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+{% block content %}
+
+{% set is_edit = form_user is not none %}
+
+<section class="page-head">
+  <div>
+    <p class="eyebrow"><a href="/web-users">Web Users</a></p>
+    <h1>{{ 'Edit User' if is_edit else 'New Web User' }}</h1>
+    {% if is_edit %}<p class="sub">{{ form_user.username }}</p>{% endif %}
+  </div>
+</section>
+
+<section class="panel" style="max-width:560px">
+  <form method="post"
+        action="{{ '/web-users/' + form_user.id|string + '/edit' if is_edit else '/web-users/new' }}"
+        class="form" style="padding:20px 24px">
+
+    <label>Username {% if not is_edit %}<span style="color:#ef4444">*</span>{% endif %}
+      {% if is_edit %}
+      <input type="text" value="{{ form_user.username }}" disabled style="background:#f9fafb;color:#6b7280">
+      {% else %}
+      <input type="text" name="username" required autocomplete="off"
+             placeholder="e.g. jsmith" value="">
+      {% endif %}
+    </label>
+
+    <label>Display Name
+      <input type="text" name="display_name"
+             value="{{ form_user.display_name if is_edit else '' }}"
+             placeholder="Full name shown in the UI">
+    </label>
+
+    <label>Role <span style="color:#ef4444">*</span>
+      <select name="role">
+        {% for r in ('admin', 'manager', 'viewer') %}
+        <option value="{{ r }}"
+                {{ 'selected' if (is_edit and form_user.role == r) or (not is_edit and r == 'viewer') }}>
+          {{ r | capitalize }}
+          {% if r == 'admin' %} — full access{% endif %}
+          {% if r == 'manager' %} — attendance, reports, leaves, calendar{% endif %}
+          {% if r == 'viewer' %} — attendance & daily reports only{% endif %}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>Linked Global User
+      <select name="global_user_id">
+        <option value="">— None (standalone account) —</option>
+        {% for gu in global_users %}
+        <option value="{{ gu.id }}"
+                {{ 'selected' if is_edit and form_user.global_user_id == gu.id }}>
+          {{ gu.name or gu.global_user_id }}
+          {% if gu.department_name %} ({{ gu.department_name }}){% endif %}
+          {% if gu.global_user_id %} — ATT.ID {{ gu.global_user_id }}{% endif %}
+        </option>
+        {% endfor %}
+      </select>
+      <small class="muted">Links this login account to an employee record.</small>
+    </label>
+
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:4px">
+      <input type="checkbox" name="is_active" value="1"
+             {{ 'checked' if (is_edit and form_user.is_active) or not is_edit }}>
+      <span>Account is active</span>
+    </label>
+
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+      <input type="checkbox" name="must_change_pwd" value="1"
+             {{ 'checked' if is_edit and form_user.must_change_pwd }}>
+      <span>Require password change on next login</span>
+    </label>
+
+    <hr style="margin: 16px 0; border: none; border-top: 1px solid #e5e7eb">
+
+    {% if is_edit %}
+    <p style="font-size:13px;color:#6b7280;margin:0 0 10px">
+      Leave password fields blank to keep the current password.
+    </p>
+    <label>New Password <small class="muted">(min 6 chars)</small>
+      <input type="password" name="new_password" minlength="6" autocomplete="new-password">
+    </label>
+    <label>Confirm New Password
+      <input type="password" name="confirm_pwd" autocomplete="new-password">
+    </label>
+    {% else %}
+    <label>Password <span style="color:#ef4444">*</span> <small class="muted">(min 6 chars)</small>
+      <input type="password" name="password" required minlength="6" autocomplete="new-password">
+    </label>
+    <label>Confirm Password <span style="color:#ef4444">*</span>
+      <input type="password" name="confirm_pwd" required autocomplete="new-password">
+    </label>
+    {% endif %}
+
+    <div style="display:flex;gap:10px;margin-top:20px">
+      <button class="btn primary" type="submit">
+        {{ 'Save Changes' if is_edit else 'Create User' }}
+      </button>
+      <a class="btn ghost" href="/web-users">Cancel</a>
+    </div>
+
+  </form>
+</section>
+
+{% endblock %}

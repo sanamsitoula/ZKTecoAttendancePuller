@@ -20,30 +20,49 @@
           <small>ZKTeco device sync</small>
         </span>
       </a>
+      {%- set _role = request.session.get('role', 'admin') -%}
       <div class="nav-links">
         <a href="/" class="{{ 'active' if request.url.path == '/' else '' }}">Dashboard</a>
+        {% if _role in ('admin', 'manager') %}
         <a href="/users" class="{{ 'active' if request.url.path.startswith('/users') else '' }}">Users</a>
+        {% endif %}
         <a href="/attendance" class="{{ 'active' if request.url.path.startswith('/attendance') else '' }}">Attendance</a>
+        {% if _role == 'admin' %}
         <a href="/pull-sessions" class="{{ 'active' if request.url.path.startswith('/pull-sessions') else '' }}">Runs</a>
         <a href="/schedule" class="{{ 'active' if request.url.path.startswith('/schedule') else '' }}">Schedule</a>
         <a href="/migrate" class="{{ 'active' if request.url.path.startswith('/migrate') else '' }}">Migrate</a>
+        {% endif %}
+        {% if _role in ('admin', 'manager') %}
         <a href="/leaves" class="{{ 'active' if request.url.path.startswith('/leaves') else '' }}">Leave</a>
         <a href="/calendar" class="{{ 'active' if request.url.path.startswith('/calendar') else '' }}">Calendar</a>
+        {% endif %}
         <div class="nav-dropdown {{ 'active' if request.url.path.startswith('/reports') else '' }}">
-          <a href="/reports/monthly">Reports ▾</a>
+          <a href="/reports/daily">Reports ▾</a>
           <div class="nav-dropdown-menu">
+            {% if _role in ('admin', 'manager') %}
             <a href="/reports/monthly">Monthly Detail</a>
             <a href="/reports/monthly-summary">Monthly Summary</a>
+            {% endif %}
             <a href="/reports/daily">Daily Attendance</a>
             <a href="/reports/absent">Absent Report</a>
+            {% if _role in ('admin', 'manager') %}
             <a href="/reports/dept-attendance">Dept Attendance</a>
             <a href="/reports/hajiri">Hajiri Report</a>
+            {% endif %}
           </div>
         </div>
+        {% if _role == 'admin' %}
         <a href="/settings" class="{{ 'active' if request.url.path.startswith('/settings') else '' }}">Settings</a>
+        {% endif %}
       </div>
       <div class="nav-user">
-        <span class="nav-user-name">{{ request.session.get('display_name', request.session.get('username', '')) }}</span>
+        <a href="/profile" class="nav-user-name" style="text-decoration:none;color:inherit" title="My Profile">
+          {{ request.session.get('display_name', request.session.get('username', '')) }}
+          <span style="font-size:10px;opacity:.6;margin-left:3px">({{ _role }})</span>
+        </a>
+        {% if _role == 'admin' %}
+        <a href="/web-users" class="btn-logout" style="text-decoration:none;margin-right:4px">Users</a>
+        {% endif %}
         <form method="post" action="/logout" style="display:inline">
           <button type="submit" class="btn-logout">Logout</button>
         </form>

@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<style>
+.action-login         { color: #15803d; font-weight: 600; }
+.action-login_failed  { color: #b91c1c; font-weight: 600; }
+.action-logout        { color: #6b7280; }
+.action-password_changed { color: #7c3aed; font-weight: 600; }
+.action-created, .action-updated, .action-enabled, .action-disabled
+                      { color: #1d4ed8; font-weight: 600; }
+</style>
+
+<section class="page-head">
+  <div>
+    <p class="eyebrow"><a href="/web-users">Web Users</a></p>
+    <h1>Audit Log</h1>
+  </div>
+</section>
+
+<section class="panel no-print" style="margin-bottom:12px">
+  <form method="get" action="/web-users/audit-log" class="form" style="max-width:none">
+    <div class="filter-bar" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
+      <label style="min-width:200px">Filter by User
+        <select name="uid" onchange="this.form.submit()">
+          <option value="">— All users —</option>
+          {% for u in users %}
+          <option value="{{ u.id }}" {{ 'selected' if filter_uid == u.id }}>
+            {{ u.username }}{% if u.display_name and u.display_name != u.username %} ({{ u.display_name }}){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      {% if filter_uid %}
+      <div style="padding-top:18px">
+        <a class="btn ghost" href="/web-users/audit-log">Clear Filter</a>
+      </div>
+      {% endif %}
+    </div>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>{{ logs | length }} event{{ 's' if logs | length != 1 }}
+      {% if filter_uid %}<span style="font-weight:400;color:#6b7280"> for selected user</span>{% endif %}
+    </h2>
+  </div>
+  <div class="table-wrap">
+    <table class="table" style="font-size:13px">
+      <thead>
+        <tr>
+          <th style="width:160px">Time (NPT)</th>
+          <th>Username</th>
+          <th>Action</th>
+          <th>IP Address</th>
+          <th>User Agent</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in logs %}
+        <tr>
+          <td style="font-family:monospace;font-size:12px">
+            {{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else '—' }}
+          </td>
+          <td>
+            <strong>{{ log.username or '—' }}</strong>
+            {% if log.display_name and log.display_name != log.username %}
+            <br><small class="muted">{{ log.display_name }}</small>
+            {% endif %}
+          </td>
+          <td><span class="action-{{ log.action }}">{{ log.action }}</span></td>
+          <td style="font-family:monospace;font-size:12px">{{ log.ip_address or '—' }}</td>
+          <td style="font-size:11px;color:#6b7280;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+              title="{{ log.user_agent or '' }}">
+            {{ (log.user_agent or '—')[:60] }}
+          </td>
+          <td style="font-size:12px;color:#6b7280">
+            {% if log.details %}{{ log.details }}{% else %}—{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">No audit log entries.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% endblock %}

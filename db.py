@@ -459,6 +459,45 @@ _PHASE8_SQL = """
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS connection_timeout INTEGER NOT NULL DEFAULT 10;
 """
 
+_WEB_USERS_SQL = """
+-- Phase 9: web_users login table and audit log
+CREATE TABLE IF NOT EXISTS web_users (
+    id              SERIAL       PRIMARY KEY,
+    global_user_id  INTEGER      REFERENCES global_users(id) ON DELETE SET NULL,
+    username        VARCHAR(100) NOT NULL,
+    password_hash   VARCHAR(200) NOT NULL,
+    display_name    VARCHAR(200),
+    role            VARCHAR(20)  NOT NULL DEFAULT 'viewer',
+    is_active       BOOLEAN      NOT NULL DEFAULT TRUE,
+    last_login_at   TIMESTAMPTZ,
+    last_login_ip   VARCHAR(45),
+    must_change_pwd BOOLEAN      NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    created_by      INTEGER,
+    updated_by      INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_web_users_username
+    ON web_users (LOWER(username));
+CREATE INDEX IF NOT EXISTS idx_web_users_global_user
+    ON web_users (global_user_id);
+
+CREATE TABLE IF NOT EXISTS web_user_audit_log (
+    id           BIGSERIAL    PRIMARY KEY,
+    web_user_id  INTEGER      REFERENCES web_users(id) ON DELETE SET NULL,
+    username     VARCHAR(100),
+    action       VARCHAR(50)  NOT NULL,
+    ip_address   VARCHAR(45),
+    user_agent   TEXT,
+    details      JSONB,
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_web_audit_user
+    ON web_user_audit_log (web_user_id);
+CREATE INDEX IF NOT EXISTS idx_web_audit_ts
+    ON web_user_audit_log (created_at DESC);
+"""
+
 
 def get_connection():
     return psycopg2.connect(**load_db_config())
@@ -532,6 +571,14 @@ def init_schema(conn) -> None:
     except Exception as e:
         conn.rollback()
         logger.warning("Phase 8 migration skipped: %s", e)
+    # Phase 9: web_users login table and audit log
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_WEB_USERS_SQL)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 9 (web_users) migration skipped: %s", e)
     logger.info("Database schema initialized.")
 
 
@@ -2016,7 +2063,7 @@ def get_daily_present_list(conn, date_ad: str) -> list:
         ) emp_data ON TRUE
         WHERE DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') = %s
         GROUP BY al.user_id
-        ORDER BY (CASE WHEN al.user_id ~ '^\d+$' THEN al.user_id::bigint END) NULLS LAST,
+        ORDER BY (CASE WHEN al.user_id ~ E'^\\d+$' THEN al.user_id::bigint END) NULLS LAST,
                  al.user_id
     """
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -2751,3 +2798,142 @@ def get_hajiri_data_from_logs(conn, global_user_ids: list,
             d += timedelta(days=1)
 
     return result
+
+
+# ─── Web User Management ──────────────────────────────────────────────────────
+
+def get_web_user_by_username(conn, username: str) -> 'dict | None':
+    sql = """
+        SELECT wu.id, wu.global_user_id, wu.username, wu.password_hash,
+               wu.display_name, wu.role, wu.is_active, wu.last_login_at,
+               wu.last_login_ip, wu.must_change_pwd, wu.created_at,
+               gu.name AS gu_name, gu.global_user_id AS att_id,
+               d.name AS department_name, s.name AS section_name,
+               gu.email, gu.phone, gu.designation
+        FROM   web_users wu
+        LEFT JOIN global_users gu ON gu.id = wu.global_user_id
+        LEFT JOIN departments  d  ON d.id  = gu.department_id
+        LEFT JOIN sections     s  ON s.id  = gu.section_id
+        WHERE  LOWER(wu.username) = LOWER(%s) AND wu.is_active = TRUE
+        LIMIT  1
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (username,))
+        r = cur.fetchone()
+    return dict(r) if r else None
+
+
+def get_web_user_by_id(conn, user_id: int) -> 'dict | None':
+    sql = """
+        SELECT wu.id, wu.global_user_id, wu.username, wu.password_hash,
+               wu.display_name, wu.role, wu.is_active, wu.last_login_at,
+               wu.last_login_ip, wu.must_change_pwd, wu.created_at,
+               gu.name AS gu_name, gu.global_user_id AS att_id,
+               d.name AS department_name, s.name AS section_name,
+               gu.email, gu.phone, gu.designation, gu.emp_type, gu.emp_status
+        FROM   web_users wu
+        LEFT JOIN global_users gu ON gu.id = wu.global_user_id
+        LEFT JOIN departments  d  ON d.id  = gu.department_id
+        LEFT JOIN sections     s  ON s.id  = gu.section_id
+        WHERE  wu.id = %s
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (user_id,))
+        r = cur.fetchone()
+    return dict(r) if r else None
+
+
+def get_all_web_users(conn) -> list:
+    sql = """
+        SELECT wu.id, wu.username, wu.display_name, wu.role, wu.is_active,
+               wu.last_login_at, wu.last_login_ip, wu.must_change_pwd,
+               wu.created_at, wu.global_user_id,
+               gu.name AS gu_name, gu.global_user_id AS att_id,
+               d.name AS department_name
+        FROM   web_users wu
+        LEFT JOIN global_users gu ON gu.id = wu.global_user_id
+        LEFT JOIN departments  d  ON d.id  = gu.department_id
+        ORDER  BY LOWER(wu.username)
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def create_web_user(conn, username: str, password_hash: str, display_name: str,
+                    role: str, global_user_id, created_by: int) -> int:
+    sql = """
+        INSERT INTO web_users (username, password_hash, display_name, role,
+                               global_user_id, created_by, updated_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (username, password_hash, display_name, role,
+                          global_user_id or None, created_by, created_by))
+        uid = cur.fetchone()[0]
+    conn.commit()
+    return uid
+
+
+def update_web_user(conn, user_id: int, updated_by: int, **fields) -> None:
+    allowed = {'display_name', 'role', 'is_active', 'global_user_id',
+               'password_hash', 'must_change_pwd'}
+    parts, vals = [], []
+    for k, v in fields.items():
+        if k in allowed:
+            parts.append(f"{k} = %s")
+            vals.append(v)
+    if not parts:
+        return
+    parts += ["updated_at = NOW()", "updated_by = %s"]
+    vals  += [updated_by, user_id]
+    sql = f"UPDATE web_users SET {', '.join(parts)} WHERE id = %s"
+    with conn.cursor() as cur:
+        cur.execute(sql, vals)
+    conn.commit()
+
+
+def update_web_user_login(conn, user_id: int, ip_address: str) -> None:
+    sql = """
+        UPDATE web_users
+        SET last_login_at = NOW(), last_login_ip = %s
+        WHERE id = %s
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (ip_address or '', user_id))
+    conn.commit()
+
+
+def add_web_audit_log(conn, web_user_id, username: str, action: str,
+                      ip_address: str = '', user_agent: str = '',
+                      details: 'dict | None' = None) -> None:
+    import json as _json
+    sql = """
+        INSERT INTO web_user_audit_log
+               (web_user_id, username, action, ip_address, user_agent, details)
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (
+            web_user_id, username, action,
+            ip_address or '', user_agent or '',
+            _json.dumps(details) if details else None,
+        ))
+    conn.commit()
+
+
+def get_web_audit_logs(conn, web_user_id=None, limit: int = 200) -> list:
+    sql = """
+        SELECT wl.id, wl.web_user_id, wl.username, wl.action,
+               wl.ip_address, wl.user_agent, wl.details, wl.created_at,
+               wu.display_name
+        FROM   web_user_audit_log wl
+        LEFT JOIN web_users wu ON wu.id = wl.web_user_id
+        WHERE  (%s::integer IS NULL OR wl.web_user_id = %s)
+        ORDER  BY wl.created_at DESC
+        LIMIT  %s
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (web_user_id, web_user_id, limit))
+        return [dict(r) for r in cur.fetchall()]
