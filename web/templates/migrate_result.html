@@ -7,13 +7,13 @@
       <h1>Migration Result</h1>
     </div>
     <div class="head-actions">
-      <a class="btn" href="/migrate">New Migration</a>
-      <a class="btn" href="/users">Back to Users</a>
+      <a class="btn" href="/migrate" aria-label="Start a new migration">New Migration</a>
+      <a class="btn" href="/users" aria-label="Go back to users list">Back to Users</a>
     </div>
   </section>
 
   <section class="panel {{ 'error-panel' if not result.ok else '' }}">
-    <div class="panel-head">
+    <div class="card-header">
       <h2>{{ source_device.name }} → {{ target_device.name }}</h2>
       <span class="status {{ 'success' if result.ok else 'failed' }}">
         {{ 'Success' if result.ok else 'Failed' }}
@@ -24,7 +24,7 @@
       <p class="{{ 'error-line' if not result.ok else '' }}">{{ result.message }}</p>
     {% else %}
       <div class="run-summary" style="margin-bottom:16px">
-        <span class="status success">{{ result.succeeded }} migrated</span>
+        <span class="badge badge-success">{{ result.succeeded }} migrated</span>
         {% if result.failed %}
         <span class="status failed">{{ result.failed }} failed</span>
         {% endif %}
@@ -35,8 +35,8 @@
         <table class="table compact">
           <thead>
             <tr>
-              <th>User ID</th><th>Name</th><th>Action</th>
-              <th>Fingerprints</th><th>Status</th>
+              <th scope="col">User ID</th><th scope="col">Name</th><th scope="col">Action</th>
+              <th scope="col">Fingerprints</th><th scope="col">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -66,7 +66,7 @@
               </td>
               <td>
                 {% if r.ok %}
-                  <span class="status success">OK</span>
+                  <span class="badge badge-success">OK</span>
                 {% else %}
                   <span class="status failed" title="{{ r.message }}">Error</span>
                   <small class="error-line">{{ r.message }}</small>

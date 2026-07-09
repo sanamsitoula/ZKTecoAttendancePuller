@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% from 'components/ui.html' import stat_card %}
+{% block title %}Payroll — ZKTeco Attendance{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="subtitle">HR</p>
+    <h1>Payroll</h1>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-secondary btn-sm" href="/payroll/salary-structures">Salary Structures</a>
+    <a class="btn btn-primary btn-sm" href="/payroll/runs/new">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+      Generate Payroll
+    </a>
+  </div>
+</div>
+
+<div class="dashboard-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--space-4);margin-bottom:var(--space-6)">
+  {{ stat_card("Payroll Runs", runs|length, color="blue") }}
+  {{ stat_card("Total Net Paid", "Rs " + '{:,.0f}'.format(total_net), color="green") }}
+  {{ stat_card("Tax Regime", "Nepal FY 2081/82", color="orange") }}
+</div>
+
+<div class="card">
+  <div class="card-header"><h2>Payroll Runs</h2></div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Period (BS)</th><th class="text-right">Employees</th>
+          <th class="text-right">Gross</th><th class="text-right">Tax (TDS)</th>
+          <th class="text-right">Net Pay</th><th>Status</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in runs %}
+        <tr>
+          <td>{{ r.month_name }} {{ r.bs_year }}</td>
+          <td class="text-right">{{ r.item_count }}</td>
+          <td class="text-right">{{ '{:,.2f}'.format(r.total_gross|float) }}</td>
+          <td class="text-right">{{ '{:,.2f}'.format(r.total_tax|float) }}</td>
+          <td class="text-right"><strong>{{ '{:,.2f}'.format(r.total_net|float) }}</strong></td>
+          <td><span class="badge badge-{{ 'success' if r.status=='finalized' else 'neutral' }}">{{ r.status }}</span></td>
+          <td class="text-right"><a class="btn btn-secondary btn-sm" href="/payroll/runs/{{ r.id }}">View</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted" style="padding:var(--space-8)">No payroll runs yet. Click <strong>Generate Payroll</strong> to create one.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

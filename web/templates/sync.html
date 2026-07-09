@@ -8,8 +8,8 @@
       <p class="muted">{{ device.ip_address }}:{{ device.port }}</p>
     </div>
     <div class="head-actions">
-      <a class="btn ghost" href="/devices/{{ device.id }}/users">Live users</a>
-      <a class="btn ghost" href="/">Back</a>
+      <a class="btn btn-ghost" href="/devices/{{ device.id }}/users" aria-label="View live users on {{ device.name }}">Live users</a>
+      <a class="btn btn-ghost" href="/" aria-label="Go back to dashboard">Back</a>
     </div>
   </section>
 
@@ -43,21 +43,22 @@
     </section>
 
     <section class="panel">
-      <div class="panel-head">
+      <div class="card-header">
         <h2>Device Only</h2>
         <span class="muted">
           <span id="sync-device-table-count">{{ only_on_device|length }}</span> users — import unknown terminal users into global users and employees.
         </span>
       </div>
       <div class="no-print" style="margin-bottom:10px">
-        <input data-table-filter="sync-device-table" placeholder="Search by name, user ID…" style="max-width:280px">
+        <label for="sync-device-search" class="sr-only">Search device-only users</label>
+        <input id="sync-device-search" data-table-filter="sync-device-table" placeholder="Search by name, user ID…" style="max-width:280px">
       </div>
       <form method="post" action="/devices/{{ device.id }}/sync">
         <input type="hidden" name="action" value="import_unknown">
-        <div class="toolbar no-print"><button class="btn primary" type="submit">Import selected</button></div>
+        <div class="toolbar no-print"><button class="btn btn-primary" type="submit">Import selected</button></div>
         <div class="table-wrap">
           <table class="table" id="sync-device-table">
-            <thead><tr><th class="no-print">Select</th><th>UID</th><th>User ID</th><th>Name</th><th>Privilege</th></tr></thead>
+            <thead><tr><th class="no-print" scope="col">Select</th><th scope="col">UID</th><th scope="col">User ID</th><th scope="col">Name</th><th scope="col">Privilege</th></tr></thead>
             <tbody>
             {% for u in only_on_device %}
             <tr>
@@ -77,21 +78,22 @@
     </section>
 
     <section class="panel">
-      <div class="panel-head">
+      <div class="card-header">
         <h2>Database Only</h2>
         <span class="muted">
           <span id="sync-db-table-count">{{ only_in_db|length }}</span> users — push stored users that are missing on this terminal.
         </span>
       </div>
       <div class="no-print" style="margin-bottom:10px">
-        <input data-table-filter="sync-db-table" placeholder="Search by name, user ID…" style="max-width:280px">
+        <label for="sync-db-search" class="sr-only">Search DB-only users</label>
+        <input id="sync-db-search" data-table-filter="sync-db-table" placeholder="Search by name, user ID…" style="max-width:280px">
       </div>
       <form method="post" action="/devices/{{ device.id }}/sync">
         <input type="hidden" name="action" value="push_missing">
-        <div class="toolbar no-print"><button class="btn primary" type="submit">Push selected</button></div>
+        <div class="toolbar no-print"><button class="btn btn-primary" type="submit">Push selected</button></div>
         <div class="table-wrap">
           <table class="table" id="sync-db-table">
-            <thead><tr><th class="no-print">Select</th><th>User ID</th><th>Name</th><th>Privilege</th></tr></thead>
+            <thead><tr><th class="no-print" scope="col">Select</th><th scope="col">User ID</th><th scope="col">Name</th><th scope="col">Privilege</th></tr></thead>
             <tbody>
             {% for u in only_in_db %}
             <tr>

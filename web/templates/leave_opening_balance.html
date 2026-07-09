@@ -1,0 +1,110 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<section class="page-head">
+  <div>
+    <p class="eyebrow"><a href="/leaves">Leave Management</a></p>
+    <h1>Opening Balance</h1>
+    <p class="sub">Set per-employee leave opening balances for a BS year</p>
+  </div>
+</section>
+
+{# Filter bar #}
+<section class="panel no-print" style="margin-bottom:12px">
+  <form method="get" action="/leaves/opening-balance" class="form" style="max-width:none">
+    <div class="filter-bar" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
+      <label for="ob-year">Year (BS) <span style="color:#ef4444">*</span>
+        <input type="number" id="ob-year" name="bs_year" value="{{ sel_bs_year }}" min="2060" max="2100" required>
+      </label>
+      {% if all_depts %}
+      <label for="ob-dept">Department
+        <select id="ob-dept" name="department_id">
+          <option value="">All Departments</option>
+          {% for d in all_depts %}
+          <option value="{{ d.id }}" {% if f_dept|string == d.id|string %}selected{% endif %}>{{ d.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <div class="filter-actions" style="padding-top:4px">
+        <button class="btn btn-primary" type="submit">Load</button>
+        <a class="btn btn-ghost" href="/leaves/opening-balance?bs_year={{ sel_bs_year }}">Reset Filter</a>
+      </div>
+    </div>
+  </form>
+</section>
+
+{% if employees_data %}
+<form method="post" action="/leaves/opening-balance/save">
+  <input type="hidden" name="bs_year" value="{{ sel_bs_year }}">
+
+  <section class="panel" style="overflow-x:auto">
+    <div class="card-header">
+      <h2>{{ employees_data | length }} employee{{ 's' if employees_data | length != 1 }} — {{ sel_bs_year }} BS</h2>
+      <button class="btn btn-primary" type="submit">Save All Changes</button>
+    </div>
+    <div class="table-wrap">
+      <table class="table" style="min-width:900px;font-size:13px">
+        <thead>
+          <tr>
+            <th scope="col" style="width:40px">SN</th>
+            <th scope="col">Employee</th>
+            <th scope="col">Department</th>
+            {% for lt in leave_types %}
+            <th scope="col" style="min-width:80px;text-align:center"
+                title="{{ lt.name }}">
+              <span style="color:{{ lt.color_code or '#6366f1' }}">
+                {{ lt.display_code or lt.code }}
+              </span>
+            </th>
+            {% endfor %}
+          </tr>
+          <tr style="background:#f8fafc;font-size:11px">
+            <th scope="col"></th>
+            <th scope="col">ATT.ID / Name</th>
+            <th scope="col"></th>
+            {% for lt in leave_types %}
+            <th scope="col" style="text-align:center;font-weight:400;color:#64748b">Opening</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for emp in employees_data %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>
+              <strong>{{ emp.name }}</strong>
+              {% if emp.company_id %}<br><small class="muted">{{ emp.company_id }}</small>{% endif %}
+            </td>
+            <td>{{ emp.department_name or '—' }}</td>
+            {% for lt in leave_types %}
+            {% set bal = emp.balances.get(lt.code) %}
+            <td style="text-align:center">
+              <input type="number"
+                     name="ob_{{ emp.global_user_id }}_{{ lt.code }}"
+                     value="{{ bal.opening_balance if bal else 0 }}"
+                     min="0" max="999" step="0.5"
+                     style="width:60px;text-align:center;padding:4px;font-size:12px">
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="padding:12px 0">
+      <button class="btn btn-primary" type="submit">Save All Changes</button>
+      <span class="muted" style="margin-left:12px;font-size:12px">
+        Opening balance = days carried from previous year (or initial allocation).
+        Days earned = annual entitlement (auto-calculated on allocation).
+      </span>
+    </div>
+  </section>
+</form>
+{% else %}
+<section class="panel">
+  <p class="muted">Select a year and optionally filter by department, then click Load.</p>
+</section>
+{% endif %}
+
+{% endblock %}

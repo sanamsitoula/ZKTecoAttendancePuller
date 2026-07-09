@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Payslip — {{ item.name }} — {{ run.month_name }} {{ run.bs_year }}{% endblock %}
+
+{% block head %}
+<style>
+  .slip { max-width:760px; margin:0 auto; }
+  .slip-head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid var(--color-border); padding-bottom:var(--space-4); margin-bottom:var(--space-5); }
+  .slip-title { font-size:var(--text-xl); font-weight:var(--weight-bold); }
+  .slip-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--space-6); }
+  .slip-line { display:flex; justify-content:space-between; padding:var(--space-2) 0; border-bottom:1px dashed var(--color-border-light); font-size:var(--text-sm); }
+  .slip-line.total { border-bottom:none; border-top:2px solid var(--color-border); font-weight:var(--weight-bold); margin-top:var(--space-2); }
+  .slip-sec-title { font-size:var(--text-sm); font-weight:var(--weight-semibold); text-transform:uppercase; letter-spacing:.04em; color:var(--color-text-muted); margin-bottom:var(--space-2); }
+  .net-box { background:var(--color-success-light); border:1px solid var(--color-success); border-radius:var(--radius-lg); padding:var(--space-4); text-align:center; margin-top:var(--space-5); }
+  .net-box .amt { font-size:var(--text-2xl); font-weight:var(--weight-bold); color:var(--color-success); }
+  @media print { .sidebar, .top-header, .page-actions, .no-print { display:none !important; } .main, .page-content { margin:0 !important; padding:0 !important; } }
+  @media (max-width:640px){ .slip-grid { grid-template-columns:1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header no-print">
+  <div>
+    <p class="subtitle">Payslip</p>
+    <h1>{{ run.month_name }} {{ run.bs_year }} BS</h1>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-secondary btn-sm" href="/payroll/runs/{{ run.id }}">Back to Run</a>
+    <button class="btn btn-primary btn-sm" type="button" onclick="window.print()">Print / Save PDF</button>
+  </div>
+</div>
+
+<div class="card slip">
+  <div class="card-body">
+    <div class="slip-head">
+      <div>
+        {% if company %}<div class="slip-title">{{ company.company_name }}</div>{% endif %}
+        <div class="text-xs text-muted">{{ company.address if company else '' }}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="slip-title">Salary Slip</div>
+        <div class="text-xs text-muted">{{ run.month_name }} {{ run.bs_year }} BS</div>
+      </div>
+    </div>
+
+    <div class="slip-grid" style="margin-bottom:var(--space-5)">
+      <div>
+        <div class="slip-sec-title">Employee</div>
+        <div class="slip-line"><span>Name</span><span>{{ item.name or '—' }}</span></div>
+        <div class="slip-line"><span>Code</span><span>{{ item.emp_code }}</span></div>
+        <div class="slip-line"><span>Department</span><span>{{ item.department or '—' }}</span></div>
+        <div class="slip-line"><span>Tax status</span><span>{{ marital|capitalize }}</span></div>
+      </div>
+      <div>
+        <div class="slip-sec-title">Attendance</div>
+        <div class="slip-line"><span>Present days</span><span>{{ item.present_days }} / {{ run.working_days }}</span></div>
+        <div class="slip-line"><span>OT hours</span><span>{{ '%.1f'|format(item.ot_hours|float) }}{% if item.ot_manual %} (manual){% endif %}</span></div>
+        {% if item.detail %}
+        <div class="slip-line"><span>Hourly rate</span><span>Rs {{ '{:,.2f}'.format(item.detail.hourly_rate|float) }}</span></div>
+        <div class="slip-line"><span>OT multiplier</span><span>{{ item.detail.ot_multiplier }}×</span></div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="slip-grid">
+      <div>
+        <div class="slip-sec-title">Earnings</div>
+        <div class="slip-line"><span>Basic (earned)</span><span>{{ '{:,.2f}'.format(item.earned_basic|float) }}</span></div>
+        <div class="slip-line"><span>Allowances</span><span>{{ '{:,.2f}'.format(item.earned_allowance|float) }}</span></div>
+        {% if item.detail and (item.detail.regular_ot_hours or item.detail.holiday_ot_hours) %}
+        <div class="slip-line"><span>Regular OT ({{ '%.1f'|format(item.detail.regular_ot_hours|float) }}h × {{ item.detail.ot_multiplier }}×)</span><span>{{ '{:,.2f}'.format(item.detail.regular_ot_pay|float) }}</span></div>
+        <div class="slip-line"><span>Holiday OT ({{ '%.1f'|format(item.detail.holiday_ot_hours|float) }}h × {{ item.detail.holiday_ot_multiplier }}×{% if item.detail.holiday_ot_eligible %} <span class="badge badge-success" style="font-size:9px">premium</span>{% endif %})</span><span>{{ '{:,.2f}'.format(item.detail.holiday_ot_pay|float) }}</span></div>
+        {% else %}
+        <div class="slip-line"><span>Overtime</span><span>{{ '{:,.2f}'.format(item.ot_pay|float) }}</span></div>
+        {% endif %}
+        <div class="slip-line"><span>Other earnings</span><span>{{ '{:,.2f}'.format(item.other_earnings|float) }}</span></div>
+        <div class="slip-line total"><span>Gross</span><span>{{ '{:,.2f}'.format(item.gross|float) }}</span></div>
+      </div>
+      <div>
+        <div class="slip-sec-title">Deductions</div>
+        <div class="slip-line"><span>Income Tax (TDS)</span><span>{{ '{:,.2f}'.format(item.tax|float) }}</span></div>
+        <div class="slip-line"><span>Other deductions</span><span>{{ '{:,.2f}'.format(item.other_deductions|float) }}</span></div>
+        <div class="slip-line total"><span>Total deductions</span><span>{{ '{:,.2f}'.format((item.tax|float) + (item.other_deductions|float)) }}</span></div>
+        <div class="slip-sec-title" style="margin-top:var(--space-4)">Year-to-date (FY)</div>
+        <div class="slip-line"><span>Taxable income YTD</span><span>{{ '{:,.2f}'.format(item.taxable_ytd|float) }}</span></div>
+      </div>
+    </div>
+
+    <div class="net-box">
+      <div class="text-sm text-muted">Net Pay</div>
+      <div class="amt">Rs {{ '{:,.2f}'.format(item.net_pay|float) }}</div>
+    </div>
+
+    {% if tax_bands %}
+    <div style="margin-top:var(--space-6)">
+      <div class="slip-sec-title">Tax slab breakdown (annual, on YTD taxable Rs {{ '{:,.0f}'.format(item.taxable_ytd|float) }})</div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>From</th><th>To</th><th>Rate</th><th class="text-right">Amount</th><th class="text-right">Tax</th></tr></thead>
+          <tbody>
+            {% for b in tax_bands %}
+            <tr>
+              <td>{{ '{:,.0f}'.format(b['from']|float) }}</td>
+              <td>{{ '{:,.0f}'.format(b['to']|float) }}</td>
+              <td>{{ b.rate_pct }}</td>
+              <td class="text-right">{{ '{:,.0f}'.format(b.amount|float) }}</td>
+              <td class="text-right">{{ '{:,.2f}'.format(b.tax|float) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    <form class="no-print" method="post" action="/payroll/runs/{{ run.id }}/item/{{ item.global_user_id }}" style="margin-top:var(--space-6);border-top:1px solid var(--color-border);padding-top:var(--space-4)">
+      <div class="slip-sec-title">Manual adjustments (recalculates this payslip)</div>
+      <div class="slip-grid">
+        <div class="form-group">
+          <label class="form-label" for="ot_hours">Regular OT hours</label>
+          <input class="form-control" id="ot_hours" type="number" step="0.25" name="ot_hours" value="{{ '%.2f'|format((item.detail.regular_ot_hours if item.detail and item.detail.regular_ot_hours is not none else item.ot_hours)|float) }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="holiday_ot_hours">Holiday OT hours</label>
+          <input class="form-control" id="holiday_ot_hours" type="number" step="0.25" name="holiday_ot_hours" value="{{ '%.2f'|format((item.detail.holiday_ot_hours if item.detail and item.detail.holiday_ot_hours is not none else 0)|float) }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="other_earnings">Other earnings</label>
+          <input class="form-control" id="other_earnings" type="number" step="0.01" name="other_earnings" value="{{ '%.2f'|format(item.other_earnings|float) }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="other_deductions">Other deductions</label>
+          <input class="form-control" id="other_deductions" type="number" step="0.01" name="other_deductions" value="{{ '%.2f'|format(item.other_deductions|float) }}">
+        </div>
+      </div>
+      <button class="btn btn-primary btn-sm" type="submit">Recalculate Payslip</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

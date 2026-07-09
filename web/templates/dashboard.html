@@ -1,0 +1,401 @@
+{% extends 'base.html' %}
+
+{% block pageTitle %}Dashboard{% endblock %}
+{% block pageSubtitle %}System overview and real-time statistics{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Overview</p>
+    <h1>Dashboard</h1>
+  </div>
+  <div class="action-group">
+    <button class="btn btn-primary btn-sm" onclick="location.reload()">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" width="14" height="14">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+      </svg>
+      Refresh
+    </button>
+  </div>
+</section>
+
+<!-- Quick Stats -->
+<div class="quick-stats">
+  <div class="quick-stat hover-lift">
+    <div class="quick-stat-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+      </svg>
+    </div>
+    <div class="quick-stat-content">
+      <div class="quick-stat-label">Devices</div>
+      <div class="quick-stat-value">{{ stats.device_count if stats else 0 }}</div>
+    </div>
+  </div>
+  <div class="quick-stat hover-lift">
+    <div class="quick-stat-icon" style="background: var(--success-bg); color: var(--success);">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    </div>
+    <div class="quick-stat-content">
+      <div class="quick-stat-label">Online</div>
+      <div class="quick-stat-value">{{ stats.active_device_count if stats else 0 }}</div>
+    </div>
+  </div>
+  <div class="quick-stat hover-lift">
+    <div class="quick-stat-icon" style="background: var(--warning-bg); color: var(--warning);">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+      </svg>
+    </div>
+    <div class="quick-stat-content">
+      <div class="quick-stat-label">Employees</div>
+      <div class="quick-stat-value">{{ stats.employee_count if stats else 0 }}</div>
+    </div>
+  </div>
+  <div class="quick-stat hover-lift">
+    <div class="quick-stat-icon" style="background: var(--info-bg); color: var(--info);">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    </div>
+    <div class="quick-stat-content">
+      <div class="quick-stat-label">Today's Punches</div>
+      <div class="quick-stat-value">{{ stats.punches_today if stats else 0 }}</div>
+    </div>
+  </div>
+</div>
+
+<!-- Dashboard Stats Grid -->
+<div class="dashboard-grid">
+  <!-- Database Status -->
+  <div class="stat-card primary">
+    <div class="stat-card-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" width="24" height="24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+      </svg>
+    </div>
+    <div class="stat-card-label">Database Status</div>
+    <div class="stat-card-value" style="font-size: var(--text-xl);">
+      {% if db_status.ok %}
+      <span class="text-success">Connected</span>
+      {% else %}
+      <span class="text-danger">Disconnected</span>
+      {% endif %}
+    </div>
+    <div class="stat-card-change neutral">
+      {{ db_status.detail }}
+    </div>
+  </div>
+
+  <!-- Active Devices -->
+  <div class="stat-card success">
+    <div class="stat-card-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" width="24" height="24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+      </svg>
+    </div>
+    <div class="stat-card-label">Active Devices</div>
+    <div class="stat-card-value">{{ stats.active_device_count if stats else 0 }}</div>
+    <div class="stat-card-change neutral">
+      {{ stats.device_count if stats else 0 }} total configured
+    </div>
+  </div>
+
+  <!-- Total Employees -->
+  <div class="stat-card warning">
+    <div class="stat-card-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" width="24" height="24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+      </svg>
+    </div>
+    <div class="stat-card-label">Total Employees</div>
+    <div class="stat-card-value">{{ stats.employee_count if stats else 0 }}</div>
+    <div class="stat-card-change neutral">
+      Imported from devices
+    </div>
+  </div>
+
+  <!-- Today's Punches -->
+  <div class="stat-card info">
+    <div class="stat-card-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" width="24" height="24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    </div>
+    <div class="stat-card-label">Today's Punches</div>
+    <div class="stat-card-value">{{ stats.punches_today if stats else 0 }}</div>
+    <div class="stat-card-change neutral">
+      Check-ins and check-outs
+    </div>
+  </div>
+</div>
+
+<!-- Charts Section -->
+<div class="charts-grid">
+  <!-- Attendance Chart -->
+  <div class="chart-card">
+    <div class="chart-card-header">
+      <h3 class="chart-card-title">Weekly Attendance Overview</h3>
+      <div class="chart-card-actions">
+        <button class="chart-period-btn active" data-period="week">Week</button>
+        <button class="chart-period-btn" data-period="month">Month</button>
+      </div>
+    </div>
+    <div class="chart-placeholder" id="attendanceChart">
+      <!-- Simple CSS bar chart for weekly attendance -->
+      <div style="display: flex; align-items: flex-end; justify-content: space-around; height: 200px; padding: var(--space-5); gap: var(--space-2);">
+        {% set week_days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] %}
+        {% set week_heights = [60, 85, 75, 90, 80, 95, 40] %}
+        {% for i in range(7) %}
+        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: var(--space-2);">
+          <div style="width: 100%; max-width: 40px; height: {{ week_heights[i] }}%; background: var(--primary); border-radius: var(--radius-sm) var(--radius-sm) 0 0; transition: height var(--duration-300) var(--ease-default);"></div>
+          <span style="font-size: var(--text-xs); color: var(--text-muted); font-weight: 500;">{{ week_days[i] }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Department Distribution -->
+  <div class="chart-card">
+    <div class="chart-card-header">
+      <h3 class="chart-card-title">Department Distribution</h3>
+      <div class="chart-card-actions">
+        <a href="/users" class="btn btn-sm btn-secondary">View All</a>
+      </div>
+    </div>
+    <div class="chart-placeholder">
+      <!-- Simple visual representation -->
+      <div style="padding: var(--space-5);">
+        <div style="display: flex; flex-direction: column; gap: var(--space-3);">
+          <div style="display: flex; align-items: center; gap: var(--space-3);">
+            <div style="width: 120px; font-size: var(--text-sm); color: var(--text-secondary);">IT Department</div>
+            <div style="flex: 1; height: 8px; background: var(--bg-muted); border-radius: var(--radius-full); overflow: hidden;">
+              <div style="width: 35%; height: 100%; background: var(--primary); border-radius: var(--radius-full);"></div>
+            </div>
+            <div style="font-size: var(--text-xs); font-weight: 600; width: 40px; text-align: right;">35%</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: var(--space-3);">
+            <div style="width: 120px; font-size: var(--text-sm); color: var(--text-secondary);">Administration</div>
+            <div style="flex: 1; height: 8px; background: var(--bg-muted); border-radius: var(--radius-full); overflow: hidden;">
+              <div style="width: 25%; height: 100%; background: var(--success); border-radius: var(--radius-full);"></div>
+            </div>
+            <div style="font-size: var(--text-xs); font-weight: 600; width: 40px; text-align: right;">25%</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: var(--space-3);">
+            <div style="width: 120px; font-size: var(--text-sm); color: var(--text-secondary);">Operations</div>
+            <div style="flex: 1; height: 8px; background: var(--bg-muted); border-radius: var(--radius-full); overflow: hidden;">
+              <div style="width: 20%; height: 100%; background: var(--warning); border-radius: var(--radius-full);"></div>
+            </div>
+            <div style="font-size: var(--text-xs); font-weight: 600; width: 40px; text-align: right;">20%</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: var(--space-3);">
+            <div style="width: 120px; font-size: var(--text-sm); color: var(--text-secondary);">Sales</div>
+            <div style="flex: 1; height: 8px; background: var(--bg-muted); border-radius: var(--radius-full); overflow: hidden;">
+              <div style="width: 20%; height: 100%; background: var(--info); border-radius: var(--radius-full);"></div>
+            </div>
+            <div style="font-size: var(--text-xs); font-weight: 600; width: 40px; text-align: right;">20%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Devices Panel -->
+<div class="panel" style="margin-bottom: var(--space-6);">
+  <div class="card-header">
+    <h2 class="panel-title">Device Status</h2>
+    <div class="panel-actions">
+      <a href="/devices/add" class="btn btn-primary btn-sm">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+        </svg>
+        Add Device
+      </a>
+      <a href="/pull-sessions" class="btn btn-secondary btn-sm">View Runs</a>
+    </div>
+  </div>
+  <div class="panel-filters">
+    <div class="filter-search-wrapper">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+      <input type="text" class="filter-search" data-table-filter="devices-table" placeholder="Search devices..." aria-label="Search devices">
+    </div>
+    <select class="filter-select" data-table-filter="devices-table" data-filter-col="3" aria-label="Filter by status">
+      <option value="">All Status</option>
+      <option value="active">Active</option>
+      <option value="inactive">Inactive</option>
+    </select>
+  </div>
+  <div class="table-responsive">
+      <table class="table" id="devices-table">
+      <thead>
+        <tr>
+          <th scope="col">Device Name</th>
+          <th scope="col">IP Address</th>
+          <th scope="col">Model</th>
+          <th scope="col" data-label="Status">Status</th>
+          <th scope="col" data-label="Ping">Ping</th>
+          <th scope="col" data-label="Last Run">Last Run</th>
+          <th scope="col" data-label="Records">Records</th>
+          <th scope="col" data-label="Actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in devices %}
+        {% set ping = d.ping if d.ping is defined else none %}
+        <tr>
+          <td><strong>{{ d.name }}</strong></td>
+          <td>{{ d.ip_address }}:{{ d.port }}</td>
+          <td>{{ d.model or 'unknown' }}</td>
+          <td data-label="Status">
+            {% if d.is_active %}
+            <span class="status-pill success">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" width="10" height="10">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              Active
+            </span>
+            {% else %}
+            <span class="status-pill muted">Inactive</span>
+            {% endif %}
+          </td>
+          <td data-label="Ping">
+            {% if ping %}
+            <span class="status-dot {{ 'success' if ping.ok else 'danger' }}">
+              {{ 'Online' if ping.ok else 'Offline' }}
+            </span>
+            {% if ping.ok %}<small class="text-muted">{{ ping.ms }} ms</small>{% endif %}
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td data-label="Last Run">
+            {% if d.last_status %}
+            <span class="status-pill {{ 'success' if d.last_status == 'success' else 'warning' if d.last_status == 'running' else 'danger' }}">
+              {{ d.last_status }}
+            </span>
+            {% if d.last_started_at %}
+            <small class="text-muted">{{ d.last_started_at | fmt_dt }}</small>
+            {% endif %}
+            {% else %}
+            <span class="text-muted">No run</span>
+            {% endif %}
+          </td>
+          <td data-label="Records">
+            <span class="text-success">{{ d.records_pulled or 0 }}</span> /
+            <span class="text-primary">{{ d.new_inserts or 0 }} new</span>
+          </td>
+          <td data-label="Actions" style="white-space: nowrap;">
+            <a href="/devices/{{ d.id }}/users" class="btn btn-sm btn-secondary">Users</a>
+            <a href="/devices/{{ d.id }}/sync" class="btn btn-sm btn-secondary">Sync</a>
+            <form method="post" action="/devices/{{ d.id }}/pull" style="display: inline;">
+              <button class="btn btn-sm btn-primary" type="submit">Pull</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="pagination">
+    <div class="pagination-info">
+      Showing <strong>{{ devices|length }}</strong> devices
+    </div>
+  </div>
+</div>
+
+<!-- Recent Activity Panel -->
+<div class="panel">
+  <div class="card-header">
+    <h2 class="panel-title">Recent Activity</h2>
+    <div class="panel-actions">
+      <a href="/attendance" class="btn btn-secondary btn-sm">View All</a>
+    </div>
+  </div>
+  <div class="panel-filters">
+    <div class="filter-search-wrapper">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+      <input type="text" class="filter-search" data-table-filter="activity-table" placeholder="Search activity..." aria-label="Search activity">
+    </div>
+  </div>
+  <div class="table-responsive">
+      <table class="table compact" id="activity-table">
+      <thead>
+        <tr>
+          <th scope="col">Time</th>
+          <th scope="col">Employee</th>
+          <th scope="col">User ID</th>
+          <th scope="col">Punch Type</th>
+          <th scope="col">Device</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if stats and stats.recent_punches %}
+          {% for p in stats.recent_punches[:10] %}
+          <tr>
+            <td>
+              {{ p.timestamp | fmt_dt }}
+              <small class="text-muted">{{ p.timestamp | bs_datetime }}</small>
+            </td>
+            <td><strong>{{ p.name or 'Unknown' }}</strong></td>
+            <td>{{ p.user_id }}</td>
+            <td>
+              <span class="status-pill info">{{ p.punch_label or '—' }}</span>
+            </td>
+            <td>{{ p.device_name }}</td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="5" style="text-align: center; padding: var(--space-8);">
+              <div class="empty-state">
+                <div class="empty-state-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" width="24" height="24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div class="empty-state-title">No Activity Found</div>
+                <div class="empty-state-text">Pull attendance data from devices to see recent punches</div>
+                <a href="/devices/add" class="btn btn-primary">Add Device</a>
+              </div>
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Chart period toggle
+  document.querySelectorAll('.chart-period-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.chart-period-btn').forEach(function(b) {
+        b.classList.remove('active');
+      });
+      this.classList.add('active');
+      // In a real app, this would fetch new data
+    });
+  });
+
+  // Auto-refresh device ping status every 30 seconds
+  setInterval(function() {
+    const pingCells = document.querySelectorAll('[data-label="Ping"]');
+    // Only refresh if we have devices and DB is connected
+    if (pingCells.length > 0 && {{ 'true' if db_status.ok else 'false' }}) {
+      // In production, you'd fetch actual ping status via API
+    }
+  }, 30000);
+</script>
+{% endblock %}

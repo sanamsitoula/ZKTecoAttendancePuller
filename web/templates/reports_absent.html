@@ -31,40 +31,43 @@
 .print-hdr { display: none; }
 </style>
 
-<section class="page-head no-print">
+<div class="page-header no-print">
   <div>
-    <p class="eyebrow">Reports</p>
+    <p class="subtitle">Reports / Absent</p>
     <h1>Day-wise Absent Report</h1>
   </div>
-  <div class="head-actions" style="gap:8px;display:flex;flex-wrap:wrap">
-    <button class="btn" type="button" onclick="window.print()">Print</button>
-    <button class="btn" type="button" onclick="downloadPDF()">Download PDF</button>
-    <a class="btn primary" href="/reports/absent/excel?date_ad={{ sel_date_ad }}&date_bs={{ sel_date_bs }}&name_q={{ name_q }}&dept_q={{ dept_q }}">Export Excel</a>
+  <div class="page-actions">
+    <button class="btn btn-secondary" type="button" onclick="window.print()">Print</button>
+    <button class="btn btn-secondary" type="button" onclick="downloadPDF()">Download PDF</button>
+    <a class="btn btn-primary" href="/reports/absent/excel?date_ad={{ sel_date_ad }}&date_bs={{ sel_date_bs }}&name_q={{ name_q }}&dept_q={{ dept_q }}">Export Excel</a>
   </div>
-</section>
+</div>
 
-<section class="panel no-print">
-  <form method="get" action="/reports/absent" class="form" style="max-width:none">
-    <div class="filter-bar" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
-      <label style="min-width:160px">Date (BS)
-        <input class="bsdp" name="date_bs" value="{{ sel_date_bs }}" data-ad-target="date_ad_h"
+<div class="card no-print" style="margin-bottom:var(--space-6)">
+  <div class="card-body">
+    <form method="get" action="/reports/absent" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="margin-bottom:0;min-width:160px">
+        <label class="form-label" for="rpt-absent-date">Date (BS)</label>
+        <input class="form-input bsdp" id="rpt-absent-date" name="date_bs" value="{{ sel_date_bs }}" data-ad-target="date_ad_h"
                autocomplete="off" placeholder="YYYY-MM-DD">
         <input type="hidden" name="date_ad" id="date_ad_h" value="{{ sel_date_ad }}">
-        {% if sel_date_ad %}<small class="muted">AD: {{ sel_date_ad }}</small>{% endif %}
-      </label>
-      <label style="min-width:150px">Search Name
-        <input name="name_q" value="{{ name_q or '' }}" placeholder="Employee name...">
-      </label>
-      <label style="min-width:150px">Department
-        <input name="dept_q" value="{{ dept_q or '' }}" placeholder="Department...">
-      </label>
-      <div style="padding-top:18px;display:flex;gap:8px">
-        <button class="btn primary" type="submit">View</button>
-        <a class="btn ghost" href="/reports/absent">Reset</a>
+        {% if sel_date_ad %}<span class="form-hint">AD: {{ sel_date_ad }}</span>{% endif %}
       </div>
-    </div>
-  </form>
-</section>
+      <div class="form-group" style="margin-bottom:0;min-width:150px;flex:1">
+        <label class="form-label" for="rpt-absent-name">Search Name</label>
+        <input class="form-input" id="rpt-absent-name" name="name_q" value="{{ name_q or '' }}" placeholder="Employee name...">
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:150px;flex:1">
+        <label class="form-label" for="rpt-absent-dept">Department</label>
+        <input class="form-input" id="rpt-absent-dept" name="dept_q" value="{{ dept_q or '' }}" placeholder="Department...">
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-primary btn-sm" type="submit">View</button>
+        <a class="btn btn-ghost btn-sm" href="/reports/absent">Reset</a>
+      </div>
+    </form>
+  </div>
+</div>
 
 {% if error %}
 <section class="panel no-print"><p class="bad-text">{{ error }}</p></section>
@@ -74,8 +77,22 @@
 
   <div class="print-hdr" style="text-align:center;border-bottom:2px solid #1769e0;padding-bottom:4px;margin-bottom:6px">
     <div id="print-time" style="float:right;font-size:7pt;color:#666"></div>
-    <div style="font-size:13pt;font-weight:bold;line-height:1.2">{{ COMPANY_NAME }}</div>
-    {% if COMPANY_ADDRESS %}<div style="font-size:8pt;color:#555">{{ COMPANY_ADDRESS }}</div>{% endif %}
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      {% if company and company.logo_url %}
+      <img src="{{ company.logo_url }}" alt="Logo" style="max-height:48px;max-width:180px;object-fit:contain">
+      {% endif %}
+      <div>
+        <div style="font-size:13pt;font-weight:bold;line-height:1.2">{{ company.company_name if company else COMPANY_NAME }}</div>
+        {% if company and company.address %}<div style="font-size:8pt;color:#555">{{ company.address }}</div>{% endif %}
+        {% if company and (company.email or company.website) %}
+        <div style="font-size:8pt;color:#555">
+          {% if company.email %}Email: {{ company.email }}{% endif %}
+          {% if company.email and company.website %} &middot; {% endif %}
+          {% if company.website %}{{ company.website }}{% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
     <div style="font-size:10pt;font-weight:bold;margin-top:3px">Day-wise Absent Report</div>
     <div style="font-size:8pt;margin-top:1px;color:#444">{{ sel_date_bs }} BS &nbsp;/&nbsp; {{ sel_date_ad }} AD</div>
   </div>
@@ -106,7 +123,7 @@
   </div>
 
   <section class="rpt-section panel">
-    <div class="sec-head panel-head">
+    <div class="sec-head card-header">
       <h2>Absent Employees ({{ absent | length }})</h2>
     </div>
 
@@ -117,11 +134,11 @@
       <table class="table" style="font-size:13px">
         <thead>
           <tr>
-            <th style="width:32px">#</th>
-            <th>Name</th>
-            <th style="width:66px">Att. ID</th>
-            <th>Department</th>
-            <th>Section</th>
+            <th scope="col" style="width:32px">#</th>
+            <th scope="col">Name</th>
+            <th scope="col" style="width:66px">Att. ID</th>
+            <th scope="col">Department</th>
+            <th scope="col">Section</th>
           </tr>
         </thead>
         <tbody>

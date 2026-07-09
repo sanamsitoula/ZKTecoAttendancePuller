@@ -3,150 +3,336 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Janak Education – Attendance Console</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <title>{% block title %}ZKTeco Attendance Console{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles/main.css">
     <script src="/static/bs-datepicker.js" defer></script>
+    {% block head %}{% endblock %}
   </head>
   <body>
-    <div class="org-bar">
-      <span class="org-name">JANAK EDUCATION MATERIALS CENTER</span>
-      <span class="org-sub">Sanothimi, Bhaktapur &nbsp;&middot;&nbsp; info@janakedu.org.np &nbsp;&middot;&nbsp; www.janakedu.org.np</span>
-    </div>
-    <nav class="topbar">
-      <a class="brand" href="/">
-        <span class="brand-mark">JE</span>
-        <span>
-          <strong>Attendance Console</strong>
-          <small>ZKTeco device sync</small>
-        </span>
-      </a>
-      {%- set _role = request.session.get('role', 'admin') -%}
-      <div class="nav-links">
-        <a href="/" class="{{ 'active' if request.url.path == '/' else '' }}">Dashboard</a>
-        {% if _role in ('admin', 'manager') %}
-        <a href="/users" class="{{ 'active' if request.url.path.startswith('/users') else '' }}">Users</a>
-        {% endif %}
-        <a href="/attendance" class="{{ 'active' if request.url.path.startswith('/attendance') else '' }}">Attendance</a>
-        {% if _role == 'admin' %}
-        <a href="/pull-sessions" class="{{ 'active' if request.url.path.startswith('/pull-sessions') else '' }}">Runs</a>
-        <a href="/schedule" class="{{ 'active' if request.url.path.startswith('/schedule') else '' }}">Schedule</a>
-        <a href="/migrate" class="{{ 'active' if request.url.path.startswith('/migrate') else '' }}">Migrate</a>
-        {% endif %}
-        {% if _role in ('admin', 'manager') %}
-        <a href="/leaves" class="{{ 'active' if request.url.path.startswith('/leaves') else '' }}">Leave</a>
-        <a href="/calendar" class="{{ 'active' if request.url.path.startswith('/calendar') else '' }}">Calendar</a>
-        {% endif %}
-        <div class="nav-dropdown {{ 'active' if request.url.path.startswith('/reports') else '' }}">
-          <a href="/reports/daily">Reports ▾</a>
-          <div class="nav-dropdown-menu">
-            {% if _role in ('admin', 'manager') %}
-            <a href="/reports/monthly">Monthly Detail</a>
-            <a href="/reports/monthly-summary">Monthly Summary</a>
+    <a href="#main-content" class="sr-only" style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;z-index:9999;background:#fff;padding:8px 16px;font-size:14px" onfocus="this.style.left='8px';this.style.top='8px';this.style.width='auto';this.style.height='auto'" onblur="this.style.left='-9999px';this.style.top='auto';this.style.width='1px';this.style.height='1px'">Skip to main content</a>
+    <div class="app">
+      {# ── Sidebar ──────────────────────────────────────────────────── #}
+      <aside class="sidebar" id="sidebar" role="navigation" aria-label="Main navigation">
+        <div class="sidebar-header">
+          <a class="sidebar-brand" href="/">
+            {% if company and company.logo_url %}
+              <img src="{{ company.logo_url }}" alt="Logo" class="sidebar-logo">
+            {% else %}
+              <span class="sidebar-brand-icon">ZK</span>
             {% endif %}
-            <a href="/reports/daily">Daily Attendance</a>
-            <a href="/reports/absent">Absent Report</a>
-            {% if _role in ('admin', 'manager') %}
-            <a href="/reports/dept-attendance">Dept Attendance</a>
-            <a href="/reports/hajiri">Hajiri Report</a>
-            {% endif %}
-          </div>
+            <span class="sidebar-brand-text">{{ company.company_name if company else 'Attendance' }}</span>
+          </a>
+          <button class="sidebar-collapse-btn" onclick="toggleSidebarCollapse()" aria-label="Toggle sidebar" title="Collapse/Expand sidebar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+              <polyline points="11 17 6 12 11 7"/>
+              <polyline points="18 17 13 12 18 7"/>
+            </svg>
+          </button>
         </div>
-        {% if _role == 'admin' %}
-        <a href="/settings" class="{{ 'active' if request.url.path.startswith('/settings') else '' }}">Settings</a>
-        {% endif %}
+
+        <nav class="sidebar-nav" aria-label="Sidebar navigation">
+          {# Dashboard #}
+          <div class="sidebar-section">
+            <a href="/" class="sidebar-link {{ 'active' if request.url.path == '/' }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+                <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+              </svg>
+              Dashboard
+            </a>
+          </div>
+
+          {# Devices #}
+          <div class="sidebar-section">
+            <div class="sidebar-section-label">Devices</div>
+            <a href="/" class="sidebar-link {{ 'active' if request.url.path == '/' and request.url.path != '/devices/add' }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>
+              </svg>
+              All Devices
+            </a>
+            <a href="/devices/add" class="sidebar-link {{ 'active' if request.url.path == '/devices/add' }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/>
+              </svg>
+              Add Device
+            </a>
+          </div>
+
+          {# Users #}
+          <div class="sidebar-section">
+            <div class="sidebar-section-label">Users</div>
+            <a href="/employees" class="sidebar-link {{ 'active' if request.url.path.startswith('/employees') }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+              Employees
+            </a>
+            <a href="/users" class="sidebar-link {{ 'active' if request.url.path.startswith('/users') and '/users/add' not in request.url.path }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+              </svg>
+              Global Users
+            </a>
+            <a href="/web-users" class="sidebar-link {{ 'active' if request.url.path.startswith('/web-users') }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+              Web Users
+            </a>
+          </div>
+
+          {# Attendance #}
+          <div class="sidebar-section">
+            <div class="sidebar-section-label">Attendance</div>
+            <a href="/attendance" class="sidebar-link {{ 'active' if request.url.path.startswith('/attendance') and '/attendance/export' not in request.url.path }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/>
+                <path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/>
+              </svg>
+              Attendance
+            </a>
+            <a href="/pull-sessions" class="sidebar-link {{ 'active' if request.url.path.startswith('/pull-sessions') }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9"/>
+              </svg>
+              Sync Runs
+            </a>
+          </div>
+
+          {# Management #}
+          <div class="sidebar-section">
+            <div class="sidebar-section-label">Management</div>
+            <a href="/bulk-enroll" class="sidebar-link {{ 'active' if request.url.path.startswith('/bulk-enroll') }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                <path d="M22 11h-6"/><path d="M20 8v6"/>
+              </svg>
+              Bulk Enroll
+            </a>
+            <a href="/migrate" class="sidebar-link {{ 'active' if request.url.path.startswith('/migrate') }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <path d="M7 16V4m0 0L3 8m4-4l4 4"/><path d="M17 8v12m0 0l4-4m-4 4l-4-4"/>
+              </svg>
+              Migrate
+            </a>
+            <a href="/schedule" class="sidebar-link {{ 'active' if request.url.path.startswith('/schedule') }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              Schedule
+            </a>
+          </div>
+
+          {# Leave #}
+          <div class="sidebar-section">
+            <div class="sidebar-section-label">Leave</div>
+            <a href="/leaves" class="sidebar-link {{ 'active' if request.url.path.startswith('/leaves') }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/>
+                <path d="M3 10h18"/><path d="M9 16l2 2 4-4"/>
+              </svg>
+              Leave Applications
+            </a>
+          </div>
+
+          {# Payroll #}
+          <div class="sidebar-section">
+            <div class="sidebar-section-label">Payroll</div>
+            <a href="/payroll" class="sidebar-link {{ 'active' if request.url.path == '/payroll' or request.url.path.startswith('/payroll/runs') }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>
+              </svg>
+              Payroll Runs
+            </a>
+            <a href="/payroll/salary-structures" class="sidebar-link {{ 'active' if request.url.path.startswith('/payroll/salary-structures') }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+              </svg>
+              Salary Structures
+            </a>
+            <a href="/payroll/holiday-ot-rules" class="sidebar-link {{ 'active' if request.url.path.startswith('/payroll/holiday-ot-rules') }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              Holiday OT Rules
+            </a>
+          </div>
+
+          {# Calendar #}
+          <div class="sidebar-section">
+            <div class="sidebar-section-label">Calendar</div>
+            <a href="/calendar" class="sidebar-link {{ 'active' if request.url.path.startswith('/calendar') }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/>
+                <path d="M3 10h18"/>
+              </svg>
+              Holidays
+            </a>
+          </div>
+
+          {# Reports (accordion) #}
+          <div class="sidebar-section">
+            <div class="sidebar-section-label">Reports</div>
+            <button class="sidebar-link sidebar-accordion-toggle {{ 'active' if request.url.path.startswith('/reports') }}" aria-expanded="{{ 'true' if request.url.path.startswith('/reports') else 'false' }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+              </svg>
+              Reports
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon chevron" style="margin-left:auto;width:14px;height:14px">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            <div class="sidebar-submenu {{ 'open' if request.url.path.startswith('/reports') }}">
+              <a href="/reports/daily" class="sidebar-link {{ 'active' if request.url.path.startswith('/reports/daily') }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon" style="width:14px;height:14px"><circle cx="12" cy="12" r="1"/></svg>
+                Daily Report
+              </a>
+              <a href="/reports/hajiri" class="sidebar-link {{ 'active' if request.url.path.startswith('/reports/hajiri') }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon" style="width:14px;height:14px"><circle cx="12" cy="12" r="1"/></svg>
+                Hajiri Report
+              </a>
+              <a href="/reports/monthly" class="sidebar-link {{ 'active' if request.url.path.startswith('/reports/monthly') and 'print-all' not in request.url.path and 'summary' not in request.url.path }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon" style="width:14px;height:14px"><circle cx="12" cy="12" r="1"/></svg>
+                Monthly Report
+              </a>
+              <a href="/reports/monthly-summary" class="sidebar-link {{ 'active' if request.url.path.startswith('/reports/monthly-summary') }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon" style="width:14px;height:14px"><circle cx="12" cy="12" r="1"/></svg>
+                Monthly Summary
+              </a>
+              <a href="/reports/dept-attendance" class="sidebar-link {{ 'active' if request.url.path.startswith('/reports/dept-attendance') }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon" style="width:14px;height:14px"><circle cx="12" cy="12" r="1"/></svg>
+                Dept Attendance
+              </a>
+              <a href="/reports/absent" class="sidebar-link {{ 'active' if request.url.path.startswith('/reports/absent') }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon" style="width:14px;height:14px"><circle cx="12" cy="12" r="1"/></svg>
+                Absent Report
+              </a>
+            </div>
+          </div>
+
+          {# Settings #}
+          <div class="sidebar-section">
+            <div class="sidebar-section-label">System</div>
+            <a href="/settings" class="sidebar-link {{ 'active' if request.url.path.startswith('/settings') }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+              Settings
+            </a>
+          </div>
+        </nav>
+
+        {# ── Sidebar Footer (profile + logout) ────────────────────────── #}
+        <div class="sidebar-footer">
+          <div class="sidebar-user">
+            <div class="sidebar-user-avatar">{{ session.get('display_name', 'U')[:1] | upper }}</div>
+            <div class="sidebar-user-info">
+              <span class="sidebar-user-name">{{ session.get('display_name', 'User') }}</span>
+              <span class="sidebar-user-role">{{ session.get('role', 'admin') }}</span>
+            </div>
+          </div>
+          <a href="/profile" class="sidebar-link {{ 'active' if request.url.path == '/profile' }}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+            </svg>
+            Profile
+          </a>
+          <form method="post" action="/logout" style="margin:0">
+            <button type="submit" class="sidebar-link" aria-label="Log out of your account" style="width:100%;text-align:left;background:none;border:none;cursor:pointer;font:inherit;color:inherit">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+              Logout
+            </button>
+          </form>
+        </div>
+      </aside>
+
+      {# ── Sidebar Overlay (mobile) ──────────────────────────────────── #}
+      <div class="sidebar-overlay" id="sidebarOverlay" role="button" tabindex="-1" aria-label="Close sidebar" onclick="toggleSidebar()"></div>
+
+      {# ── Main Content ─────────────────────────────────────────────── #}
+      <div class="main">
+        <header class="top-header" role="banner">
+          <div class="header-left">
+            <button class="menu-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 12h18M3 6h18M3 18h18"/>
+              </svg>
+            </button>
+            <span class="text-sm text-muted" id="breadcrumb"></span>
+          </div>
+          <div class="header-right">
+            <span class="text-sm text-muted" id="current-time"></span>
+          </div>
+        </header>
+
+        <div class="page-content" id="main-content" role="main">
+          {% block content %}{% endblock %}
+        </div>
       </div>
-      <div class="nav-user">
-        <a href="/profile" class="nav-user-name" style="text-decoration:none;color:inherit" title="My Profile">
-          {{ request.session.get('display_name', request.session.get('username', '')) }}
-          <span style="font-size:10px;opacity:.6;margin-left:3px">({{ _role }})</span>
-        </a>
-        {% if _role == 'admin' %}
-        <a href="/web-users" class="btn-logout" style="text-decoration:none;margin-right:4px">Users</a>
-        {% endif %}
-        <form method="post" action="/logout" style="display:inline">
-          <button type="submit" class="btn-logout">Logout</button>
-        </form>
-      </div>
-    </nav>
-    {% if flashes %}
-    <div class="toast-stack" id="toast-stack" aria-live="polite">
-      {% for flash in flashes %}
-      <div class="toast toast-{{ flash.category }}" data-toast>
-        <strong>{{ flash.category|capitalize }}</strong>
-        <span>{{ flash.message }}</span>
-        <button type="button" class="toast-close" aria-label="Dismiss">&times;</button>
-      </div>
-      {% endfor %}
     </div>
-    {% endif %}
-    <main class="container">
-      {% block content %}{% endblock %}
-    </main>
+
     <script>
-      /* ── Toast auto-dismiss ──────────────────────────────── */
-      (function () {
-        var stack = document.getElementById("toast-stack");
-        if (!stack) return;
-        stack.querySelectorAll("[data-toast]").forEach(function (toast) {
-          var close = toast.querySelector(".toast-close");
-          var hide = function () {
-            toast.classList.add("toast-hide");
-            setTimeout(function () { toast.remove(); }, 220);
-          };
-          if (close) close.addEventListener("click", hide);
-          setTimeout(hide, 6000);
+      /* ── Sidebar mobile toggle ─────────────────────────────────────── */
+      function toggleSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('sidebarOverlay');
+        sidebar.classList.toggle('open');
+        overlay.classList.toggle('active');
+      }
+
+      /* ── Sidebar collapse (desktop) ────────────────────────────────── */
+      function toggleSidebarCollapse() {
+        const sidebar = document.getElementById('sidebar');
+        sidebar.classList.toggle('collapsed');
+        localStorage.setItem('sidebar-collapsed', sidebar.classList.contains('collapsed') ? '1' : '0');
+      }
+      // Tooltips for collapsed sidebar (browser shows title on hover)
+      document.querySelectorAll('.sidebar-link').forEach(link => {
+        const label = link.textContent.trim();
+        if (label && !link.title) link.title = label;
+      });
+      // Restore collapsed state
+      (function() {
+        if (localStorage.getItem('sidebar-collapsed') === '1') {
+          document.getElementById('sidebar').classList.add('collapsed');
+        }
+      })();
+
+      /* ── Accordion toggles ────────────────────────────────────────── */
+      document.querySelectorAll('.sidebar-accordion-toggle').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const expanded = btn.getAttribute('aria-expanded') === 'true';
+          btn.setAttribute('aria-expanded', !expanded);
+          const submenu = btn.nextElementSibling;
+          if (submenu) submenu.classList.toggle('open');
         });
-      })();
+      });
 
-      /* ── Reusable client-side table filter ───────────────────
-         Usage:
-           <input data-table-filter="my-table" placeholder="Search…">
-           <select data-table-filter="my-table" data-filter-col="2">
-           <table id="my-table">…</table>
-           <span id="my-table-count"></span>   ← optional live count
-         Multiple filter elements sharing the same data-table-filter
-         are ANDed together.
-      ──────────────────────────────────────────────────────── */
-      (function () {
-        function applyFilters(tableId) {
-          var table = document.getElementById(tableId);
-          if (!table) return;
-          var tbody = table.querySelector('tbody');
-          if (!tbody) return;
-          var filters = document.querySelectorAll('[data-table-filter="' + tableId + '"]');
-          var rows = tbody.querySelectorAll('tr');
-          var visible = 0;
-          rows.forEach(function (row) {
-            var show = true;
-            filters.forEach(function (f) {
-              var val = f.value.trim().toLowerCase();
-              if (!val) return;
-              if (f.dataset.filterCol !== undefined) {
-                var col = parseInt(f.dataset.filterCol, 10);
-                var cell = row.cells[col];
-                if (cell && !cell.textContent.toLowerCase().includes(val)) show = false;
-              } else {
-                if (!row.textContent.toLowerCase().includes(val)) show = false;
-              }
-            });
-            row.style.display = show ? '' : 'none';
-            if (show) visible++;
-          });
-          var countEl = document.getElementById(tableId + '-count');
-          if (countEl) countEl.textContent = visible + ' shown';
+      /* ── Current time ─────────────────────────────────────────────── */
+      function updateTime() {
+        const el = document.getElementById('current-time');
+        if (el) {
+          const now = new Date();
+          el.textContent = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
         }
+      }
+      updateTime();
+      setInterval(updateTime, 30000);
 
-        function bindFilter(el) {
-          var ev = el.tagName === 'SELECT' ? 'change' : 'input';
-          el.addEventListener(ev, function () { applyFilters(this.dataset.tableFilter); });
-        }
-
-        document.querySelectorAll('[data-table-filter]').forEach(bindFilter);
-
-        // Also expose globally so templates can call it for dynamic content
-        window.applyTableFilter = applyFilters;
-        window.bindTableFilter  = bindFilter;
-      })();
+      /* ── Close sidebar on mobile when clicking a link ─────────────── */
+      document.querySelectorAll('.sidebar-link, .sidebar-submenu a').forEach(link => {
+        link.addEventListener('click', () => {
+          if (window.innerWidth <= 1024) toggleSidebar();
+        });
+      });
     </script>
+    {% block scripts %}{% endblock %}
   </body>
 </html>

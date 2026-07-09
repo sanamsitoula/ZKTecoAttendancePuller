@@ -1,0 +1,14 @@
+[Unit]
+Description=ZKTeco Auto Attend Service
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ZKTecePuller
+ExecStart=/usr/bin/python3 /opt/ZKTecePuller/auto_attend/auto_attend.py
+Restart=always
+RestartSec=30
+Environment=TZ=Asia/Kathmandu
+
+[Install]
+WantedBy=multi-user.target

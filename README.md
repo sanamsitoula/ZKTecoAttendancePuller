@@ -30,6 +30,9 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 | **Dept Attendance** | Department-wise present/absent/on-leave summary with per-dept expandable drilldown (employee lists with check-in/out times); % present; print/PDF/Excel |
 | **Hajiri Report** | Cross-tab attendance register (Nepali hajiri vivaran) — one row per employee, one column per day; shows present/absent/Saturday/holiday/leave codes; summary columns for OT, late-in, early-out; print-ready A3 landscape |
 | **Leave Management** | Employee leave applications; approve/reject; annual leave allocation; BS datepicker |
+| **Leave Opening Balance** | Set per-employee opening leave balance for each leave type per BS year; editable grid with all leave types as columns |
+| **Kaaj / Field Duty** | Log paid or unpaid field-visit days per employee; shown with color badge in monthly report; filter by year/month/department/type |
+| **Manual Attendance** | Add individual punch records directly into `attendance_logs`; bulk upload via Excel (.xlsx); download sample Excel template |
 | **Holiday Calendar** | Monthly BS calendar grid with public/festival/other holidays; working-day count |
 | **Users** | Two tabs — **Global Users** (sortable columns: Att. ID, Emp ID, Name, Dept, Section, Shift; server-side pagination, search/filter by org, CSV export, print) and **Device Employees** (default sort by Att. ID/UID numeric order; independent server-side pagination via `emp_page` param, migrate to global user, bulk delete) |
 | **Devices** | Add / edit / delete ZKTeco devices; per-device Force UDP toggle and Connection Timeout; test TCP connectivity |
@@ -55,19 +58,25 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 - Device name shown in brackets: `10:02 (Main Gate)`
 - 16 columns matching ZKBioTime format: Work Date, Planned In/Out, Work Time, Time In/Out, Break In/Out, Time, Actual, OT, LateIn, EarlyOut, EarlyIn, LateOut, Remark
 - **Holiday-aware**: days marked in the Holiday Calendar appear as "Holiday" or "Festival" in the Remark column; planned hours set to 00:00; excluded from working-day count
-- **Leave-aware**: approved leave applications appear as "Leave" in the Remark column for days with no attendance punch
-- **Remark priority**: Weekend → Holiday/Festival → Present (has punch) → Leave → Absent
-- Summary totals row shows **Working Days**, Present, Absent, Weekend, Holiday, Festival, Leave, Misc, Total Days — with color coding
+- **Leave-aware**: approved leave applications appear with **leave type name and color** (e.g., "SL — Sick Leave" in red, "HL — Home Leave" in green) in the Remark column
+- **Kaaj-aware**: field duty days (paid/unpaid) appear as "Kaaj (Paid)" or "Kaaj (Unpaid)" with a blue/gray row background
+- **Manual remarks**: per-day notes entered via the Attendance Day Remarks feature appear in a Note column (no-print)
+- **Remark priority**: Weekend → Holiday/Festival → Present + Kaaj → Kaaj (no punch) → Leave → Absent
+- Leave type legend shown above the table with color-coded badges
+- Summary totals row shows **Working Days**, Present, Absent, Weekend, Holiday, Festival, Leave, Kaaj, Misc, Total Days — with per-type leave breakdown
 - **Print Single** — one employee; **Print All** — every employee, one page each
 - Filter by directorate, department, section; search by name or ID
 - Sorted by employee Att. ID number (numeric); only employees linked to a Global User appear
 
 ### Leave Management
 
-- Eight standard leave types following Nepal government rules: Home (13d/yr, carries forward up to 60), Sick (12d/yr, carries forward up to 45), Casual (12d/yr, no carry-forward), Maternity (98d), Paternity (15d), Mourning (13d), Study, Unpaid
+- Ten leave types: Home (13d/yr), Sick (12d/yr), Casual (12d/yr, no carry-forward), Maternity (98d), Paternity (15d), Mourning (13d), Study, Unpaid, **Kaaj Paid**, **Kaaj Unpaid**
+- Each leave type has a **color code** — shown as colored badges in all reports (monthly, daily, dept-attendance)
 - BS datepicker auto-calculates working days (skips Saturdays and holidays)
 - Annual leave allocation for all employees in one click
 - Approve / reject / delete applications with audit trail
+- **Opening Balance** — set per-employee opening balance + earned days per leave type per BS year
+- **Kaaj / Field Duty** — dedicated page to log field visits (paid/unpaid) with reason and approver; separate from the leave application flow
 
 ### Holiday Calendar
 
@@ -940,10 +949,12 @@ pg_dump -U postgres -d zkteco -f ~/backups/zkteco_$(date +%F).sql
 | `holidays` | id, name, holiday_ad, holiday_bs, holiday_type, description, **holiday_type_id** (FK) |
 | `holiday_types` | id, name, type_code (PUB/FEST/NAT/OPT/COMP), color_code, sort_order |
 | `attendance_daily` | id, global_user_id, work_date, status_code, display_code, first_in, last_out, work_minutes, ot_minutes, late_in_minutes, early_out_min, source ('device'/'manual'), note, computed_at |
+| `kaaj_records` | id, global_user_id, ad_date, bs_date, is_paid, reason, approved_by, created_by, created_at, updated_at — UNIQUE (global_user_id, ad_date) |
+| `attendance_day_remarks` | id, global_user_id, ad_date, bs_date, remark_text, created_by, created_at — UNIQUE (global_user_id, ad_date) |
 
 **Bold** columns were added in extended migrations (auto-applied on startup). All tables store a BS date column (`bs_date`, `created_bs`, etc.) alongside AD timestamps.
 
-#### New columns added to existing tables (Phase 5 / Phase 6 / Phase 7 / Phase 8)
+#### New columns added to existing tables (Phase 5 / Phase 6 / Phase 7 / Phase 8 / Phase 10)
 
 | Table | New Columns |
 |---|---|
@@ -954,10 +965,11 @@ pg_dump -U postgres -d zkteco -f ~/backups/zkteco_$(date +%F).sql
 | `shifts` | `grace_late_in` (minutes), `grace_early_out` (minutes), `break_minutes` |
 | `pull_sessions` | `error_detail` TEXT (full Python traceback on failure), `completed_bs` |
 | `devices` | `force_udp` BOOLEAN DEFAULT FALSE (use UDP protocol for iFace302 etc.), `connection_timeout` INTEGER DEFAULT 10 |
+| `attendance_logs` | `source` VARCHAR(20) DEFAULT 'device' (tracks manual vs device punches), `manual_note` TEXT |
 
 ### Migration Notes (Upgrading from an Earlier Version)
 
-All schema changes are additive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` — safe to run against an existing database. The web server applies them automatically on startup via `init_schema` (Phases 1–8). No manual SQL needed.
+All schema changes are additive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` — safe to run against an existing database. The web server applies them automatically on startup via `init_schema` (Phases 1–10). No manual SQL needed.
 
 To verify the new columns exist:
 ```sql
@@ -1003,6 +1015,9 @@ ZKTecePuller/
 │       ├── reports_daily.html              ← Daily attendance report
 │       ├── reports_hajiri.html             ← Hajiri vivaran cross-tab register (A3 landscape print)
 │       ├── leaves.html                     ← Leave management
+│       ├── leave_opening_balance.html      ← Per-employee leave opening balance grid
+│       ├── kaaj.html                       ← Kaaj / Field Duty log
+│       ├── manual_attendance.html          ← Manual attendance add / bulk Excel upload
 │       ├── calendar.html                   ← Holiday calendar (BS grid)
 │       ├── _macros.html                    ← Shared Jinja2 macros (paginate macro with ellipsis)
 │       ├── users.html                      ← Global user list with pagination and search

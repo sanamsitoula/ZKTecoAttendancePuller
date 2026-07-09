@@ -100,13 +100,32 @@
       color: #94a3b8;
       margin-top: 22px;
     }
+    @media (max-width: 440px) {
+      html, body { align-items: flex-start; padding-top: 40px; }
+      .login-card {
+        padding: 28px 20px 24px;
+        border-radius: 10px;
+        max-width: 96vw;
+      }
+      .login-card input[type=text],
+      .login-card input[type=password] {
+        padding: 12px 12px;
+        font-size: 16px; /* prevents iOS auto-zoom */
+        min-height: 44px;
+      }
+      .login-card .btn-login {
+        padding: 13px;
+        font-size: 16px;
+        min-height: 48px;
+      }
+    }
   </style>
 </head>
 <body>
 <div class="login-card">
   <div class="login-logo">
     <div class="logo-icon">
-      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24">
+      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v2h20v-2c0-3.3-6.7-5-10-5z"/>
       </svg>
     </div>
@@ -115,7 +134,7 @@
   </div>
 
   {% if error %}
-  <div class="login-error">{{ error }}</div>
+  <div class="login-error" role="alert">{{ error }}</div>
   {% endif %}
 
   <form method="post" action="/login">

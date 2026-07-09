@@ -18,34 +18,35 @@ details > summary::before { content: '▶ '; font-size: .75em; color: #6b7280; }
 details[open] > summary::before { content: '▼ '; }
 </style>
 
-<section class="page-head no-print">
+<div class="page-header no-print">
   <div>
-    <p class="eyebrow">Reports</p>
+    <p class="subtitle">Reports / Dept Attendance</p>
     <h1>Department Attendance Report</h1>
   </div>
-  <div class="head-actions" style="gap:8px;display:flex;flex-wrap:wrap">
-    <button class="btn" type="button" onclick="window.print()">Print</button>
-    <button class="btn" type="button" onclick="downloadPDF()">Download PDF</button>
-    <a class="btn primary" href="/reports/dept-attendance/excel?date_ad={{ sel_date_ad }}&date_bs={{ sel_date_bs }}">Export Excel</a>
+  <div class="page-actions">
+    <button class="btn btn-secondary" type="button" onclick="window.print()">Print</button>
+    <button class="btn btn-secondary" type="button" onclick="downloadPDF()">Download PDF</button>
+    <a class="btn btn-primary" href="/reports/dept-attendance/excel?date_ad={{ sel_date_ad }}&date_bs={{ sel_date_bs }}">Export Excel</a>
   </div>
-</section>
+</div>
 
-<section class="panel no-print">
-  <form method="get" action="/reports/dept-attendance" class="form" style="max-width:none">
-    <div class="filter-bar" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
-      <label style="min-width:160px">Date (BS)
-        <input class="bsdp" name="date_bs" value="{{ sel_date_bs }}" data-ad-target="date_ad_h"
+<div class="card no-print" style="margin-bottom:var(--space-6)">
+  <div class="card-body">
+    <form method="get" action="/reports/dept-attendance" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="margin-bottom:0;min-width:160px">
+        <label class="form-label" for="rpt-dept-date">Date (BS)</label>
+        <input class="form-input bsdp" id="rpt-dept-date" name="date_bs" value="{{ sel_date_bs }}" data-ad-target="date_ad_h"
                autocomplete="off" placeholder="YYYY-MM-DD">
         <input type="hidden" name="date_ad" id="date_ad_h" value="{{ sel_date_ad }}">
-        {% if sel_date_ad %}<small class="muted">AD: {{ sel_date_ad }}</small>{% endif %}
-      </label>
-      <div style="padding-top:18px;display:flex;gap:8px">
-        <button class="btn primary" type="submit">View</button>
-        <a class="btn ghost" href="/reports/dept-attendance">Reset</a>
+        {% if sel_date_ad %}<span class="form-hint">AD: {{ sel_date_ad }}</span>{% endif %}
       </div>
-    </div>
-  </form>
-</section>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-primary btn-sm" type="submit">View</button>
+        <a class="btn btn-ghost btn-sm" href="/reports/dept-attendance">Reset</a>
+      </div>
+    </form>
+  </div>
+</div>
 
 {% if error %}
 <section class="panel no-print"><p class="bad-text">{{ error }}</p></section>
@@ -56,8 +57,22 @@ details[open] > summary::before { content: '▼ '; }
   <div class="print-report-header" style="position:relative;margin-bottom:10px">
     <div style="position:absolute;top:0;right:0;font-size:7pt" id="print-time"></div>
     <div style="text-align:center">
-      <div style="font-size:14pt;font-weight:bold">{{ COMPANY_NAME }}</div>
-      {% if COMPANY_ADDRESS %}<div style="font-size:9pt">{{ COMPANY_ADDRESS }}</div>{% endif %}
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+        {% if company and company.logo_url %}
+        <img src="{{ company.logo_url }}" alt="Logo" style="max-height:48px;max-width:180px;object-fit:contain">
+        {% endif %}
+        <div>
+          <div style="font-size:14pt;font-weight:bold">{{ company.company_name if company else COMPANY_NAME }}</div>
+          {% if company and company.address %}<div style="font-size:9pt">{{ company.address }}</div>{% endif %}
+          {% if company and (company.email or company.website) %}
+          <div style="font-size:8pt;color:#555">
+            {% if company.email %}Email: {{ company.email }}{% endif %}
+            {% if company.email and company.website %} &middot; {% endif %}
+            {% if company.website %}{{ company.website }}{% endif %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
       <div style="font-size:11pt;font-weight:bold;margin-top:4px">Department Attendance Report</div>
       <div style="font-size:9pt;margin-top:2px">
         {{ sel_date_bs }} BS &nbsp;|&nbsp; {{ sel_date_ad }}
@@ -97,17 +112,17 @@ details[open] > summary::before { content: '▼ '; }
 
   {# Department Summary Table #}
   <section class="panel" style="margin-bottom:16px">
-    <div class="panel-head"><h2>Department-wise Summary</h2></div>
+    <div class="card-header"><h2>Department-wise Summary</h2></div>
     <div class="table-wrap">
       <table class="table">
         <thead>
           <tr>
-            <th>Department</th>
-            <th style="width:90px;text-align:center">Present</th>
-            <th style="width:90px;text-align:center">On Leave</th>
-            <th style="width:90px;text-align:center">Absent</th>
-            <th style="width:90px;text-align:center">Total</th>
-            <th style="width:80px;text-align:center">% Present</th>
+            <th scope="col">Department</th>
+            <th scope="col" style="width:90px;text-align:center">Present</th>
+            <th scope="col" style="width:90px;text-align:center">On Leave</th>
+            <th scope="col" style="width:90px;text-align:center">Absent</th>
+            <th scope="col" style="width:90px;text-align:center">Total</th>
+            <th scope="col" style="width:80px;text-align:center">% Present</th>
           </tr>
         </thead>
         <tbody>
@@ -148,7 +163,7 @@ details[open] > summary::before { content: '▼ '; }
   {# Per-department drilldown #}
   {% for dept_name, lists in dept_detail.items() %}
   <section class="panel" style="margin-bottom:12px">
-    <div class="panel-head" style="padding:10px 16px">
+    <div class="card-header" style="padding:10px 16px">
       <h3 style="margin:0;font-size:1rem">
         {{ dept_name }}
         <span style="font-weight:400;color:#6b7280;font-size:.85rem">
@@ -163,7 +178,7 @@ details[open] > summary::before { content: '▼ '; }
     <details open style="padding:0 16px 8px">
       <summary style="color:#15803d">Present ({{ lists.present | length }})</summary>
       <table class="table" style="margin-top:6px">
-        <thead><tr><th>#</th><th>Name</th><th>Att. ID</th><th>Section</th><th>Check-In</th><th>Check-Out</th></tr></thead>
+        <thead><tr><th scope="col">#</th><th scope="col">Name</th><th scope="col">Att. ID</th><th scope="col">Section</th><th scope="col">Check-In</th><th scope="col">Check-Out</th></tr></thead>
         <tbody>
           {% for emp in lists.present %}
           {% set fp = emp.first_punch %}
@@ -186,14 +201,22 @@ details[open] > summary::before { content: '▼ '; }
     <details style="padding:0 16px 8px">
       <summary style="color:#b45309">On Leave ({{ lists.on_leave | length }})</summary>
       <table class="table" style="margin-top:6px">
-        <thead><tr><th>#</th><th>Name</th><th>Att. ID</th><th>Leave Type</th></tr></thead>
+        <thead><tr><th scope="col">#</th><th scope="col">Name</th><th scope="col">Att. ID</th><th scope="col">Leave Type</th></tr></thead>
         <tbody>
           {% for emp in lists.on_leave %}
           <tr>
             <td>{{ loop.index }}</td>
             <td>{{ emp.employee_name or emp.emp_name or '&mdash;' }}</td>
             <td>{{ emp.company_id or '&mdash;' }}</td>
-            <td>{{ emp.leave_type_name or '&mdash;' }}</td>
+            <td>
+              {% if emp.leave_type_name %}
+              <span style="display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:600;
+                           background:{{ (emp.color_code or '#6366f1') + '22' }};
+                           color:{{ emp.color_code or '#6366f1' }}">
+                {% if emp.display_code %}{{ emp.display_code }} — {% endif %}{{ emp.leave_type_name }}
+              </span>
+              {% else %}&mdash;{% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
@@ -205,7 +228,7 @@ details[open] > summary::before { content: '▼ '; }
     <details style="padding:0 16px 8px">
       <summary style="color:#b91c1c">Absent ({{ lists.absent | length }})</summary>
       <table class="table" style="margin-top:6px">
-        <thead><tr><th>#</th><th>Name</th><th>Att. ID</th><th>Section</th></tr></thead>
+        <thead><tr><th scope="col">#</th><th scope="col">Name</th><th scope="col">Att. ID</th><th scope="col">Section</th></tr></thead>
         <tbody>
           {% for emp in lists.absent %}
           <tr>

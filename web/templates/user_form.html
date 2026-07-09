@@ -1,137 +1,151 @@
 {% extends 'base.html' %}
 
+{% block title %}{{ 'Edit' if user else 'Add' }} User — ZKTeco Attendance{% endblock %}
+
 {% block content %}
-<section class="page-head">
+<div class="page-header">
   <div>
-    <p class="eyebrow">Global User</p>
+    <p class="subtitle">Global User</p>
     <h1>{{ 'Edit User: ' + user.name if user else 'Add New User' }}</h1>
   </div>
-  <a class="btn" href="/users">Back to Users</a>
-</section>
+  <div class="page-actions">
+    <a class="btn btn-secondary" href="/users">Back to Users</a>
+  </div>
+</div>
 
-<section class="panel">
-  <form class="form" method="post"
-        action="{{ '/users/' + user.id|string + '/edit' if user else '/users/add' }}">
+<div style="max-width:900px">
+  <div class="card">
+    <div class="card-body">
+      <form method="post" action="{{ '/users/' + user.id|string + '/edit' if user else '/users/add' }}">
 
-    <h3 style="margin:0 0 14px;font-size:14px;color:#64748b;text-transform:uppercase;letter-spacing:.05em">
-      Identity &amp; Device
-    </h3>
-    <div class="form-grid-2">
-      <label>Attendance Device User ID <span style="color:red">*</span>
-        <input name="global_user_id" required
-               value="{{ user.global_user_id if user else '' }}"
-               placeholder="Must match device user_id exactly">
-        <small class="muted">This ID must match the user ID on the attendance device.</small>
-      </label>
-      <label>Employee ID (HR)
-        <input name="employee_id" value="{{ user.employee_id if user else '' }}"
-               placeholder="e.g. EMP001 or 001">
-      </label>
-    </div>
-    <div class="form-grid-2">
-      <label>Full Name <span style="color:red">*</span>
-        <input name="name" required value="{{ user.name if user else '' }}">
-      </label>
-      <label>Card Number
-        <input name="card" value="{{ user.card if user else '' }}" placeholder="RFID card number">
-      </label>
-    </div>
-    <div class="form-grid-2">
-      <label>Privilege Level
-        <select name="privilege">
-          <option value="0" {{ 'selected' if not user or user.privilege == 0 else '' }}>0 — Normal user</option>
-          <option value="2" {{ 'selected' if user and user.privilege == 2 else '' }}>2 — Enroller</option>
-          <option value="6" {{ 'selected' if user and user.privilege == 6 else '' }}>6 — Manager</option>
-          <option value="14" {{ 'selected' if user and user.privilege == 14 else '' }}>14 — Administrator</option>
-        </select>
-      </label>
-      <label>Bank Account Number
-        <input name="bank_number" value="{{ user.bank_number if user else '' }}"
-               placeholder="e.g. 12345678901234">
-      </label>
-    </div>
-    <div class="form-grid-2">
-      <label>Email
-        <input type="email" name="email" value="{{ user.email if user else '' }}"
-               placeholder="employee@example.com">
-      </label>
-      <label>Phone
-        <input type="tel" name="phone" value="{{ user.phone if user else '' }}"
-               placeholder="98XXXXXXXX">
-      </label>
-    </div>
+        <h3 class="form-section-title">Identity &amp; Device</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="global_user_id">Attendance Device User ID <span class="required">*</span></label>
+            <input class="form-input" id="global_user_id" name="global_user_id" required
+                   value="{{ user.global_user_id if user else '' }}"
+                   placeholder="Must match device user_id exactly">
+            <span class="form-hint">This ID must match the user ID on the attendance device.</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="employee_id">Employee ID (HR)</label>
+            <input class="form-input" id="employee_id" name="employee_id"
+                   value="{{ user.employee_id if user else '' }}"
+                   placeholder="e.g. EMP001 or 001">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="name">Full Name <span class="required">*</span></label>
+            <input class="form-input" id="name" name="name" required
+                   value="{{ user.name if user else '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="card">Card Number</label>
+            <input class="form-input" id="card" name="card"
+                   value="{{ user.card if user else '' }}"
+                   placeholder="RFID card number">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="privilege">Privilege Level</label>
+            <select class="form-select" id="privilege" name="privilege">
+              <option value="0" {{ 'selected' if not user or user.privilege == 0 else '' }}>0 — Normal user</option>
+              <option value="2" {{ 'selected' if user and user.privilege == 2 else '' }}>2 — Enroller</option>
+              <option value="6" {{ 'selected' if user and user.privilege == 6 else '' }}>6 — Manager</option>
+              <option value="14" {{ 'selected' if user and user.privilege == 14 else '' }}>14 — Administrator</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="bank_number">Bank Account Number</label>
+            <input class="form-input" id="bank_number" name="bank_number"
+                   value="{{ user.bank_number if user else '' }}"
+                   placeholder="e.g. 12345678901234">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="email">Email</label>
+            <input class="form-input" id="email" name="email" type="email"
+                   value="{{ user.email if user else '' }}"
+                   placeholder="employee@example.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="phone">Phone</label>
+            <input class="form-input" id="phone" name="phone" type="tel"
+                   value="{{ user.phone if user else '' }}"
+                   placeholder="98XXXXXXXX">
+          </div>
+        </div>
 
-    <h3 style="margin:20px 0 14px;font-size:14px;color:#64748b;text-transform:uppercase;letter-spacing:.05em">
-      Organisation
-    </h3>
-    <div class="form-grid-2">
-      <label>Department
-        <select name="department_id" id="form-dept">
-          <option value="">— none —</option>
-          {% for d in departments %}
-          <option value="{{ d.id }}"
-                  data-dir="{{ d.directorate_id or '' }}"
-                  {{ 'selected' if user and user.department_id == d.id else '' }}>
-            {{ d.name }}{% if d.directorate_name %} ({{ d.directorate_name }}){% endif %}
-          </option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Section
-        <select name="section_id" id="form-sec">
-          <option value="">— none —</option>
-          {% for s in sections %}
-          <option value="{{ s.id }}"
-                  data-dept="{{ s.department_id or '' }}"
-                  {{ 'selected' if user and user.section_id == s.id else '' }}>
-            {{ s.name }}{% if s.department_name %} ({{ s.department_name }}){% endif %}
-          </option>
-          {% endfor %}
-        </select>
-      </label>
-    </div>
-    <div class="form-grid-2">
-      <label>Unit
-        <select name="unit_id" id="form-unit">
-          <option value="">— none —</option>
-          {% for u in units %}
-          <option value="{{ u.id }}"
-                  data-sec="{{ u.section_id or '' }}"
-                  {{ 'selected' if user and user.unit_id == u.id else '' }}>
-            {{ u.name }}{% if u.section_name %} ({{ u.section_name }}){% endif %}
-          </option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Default Shift
-        <select name="shift_id">
-          <option value="">— none —</option>
-          {% for s in shifts %}
-          <option value="{{ s.id }}"
-                  {{ 'selected' if user and user.shift_id == s.id else '' }}>
-            {{ s.name }} ({{ s.start_time[:5] }}–{{ s.end_time[:5] }})
-          </option>
-          {% endfor %}
-        </select>
-      </label>
-    </div>
+        <h3 class="form-section-title" style="margin-top:var(--space-6)">Organisation</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="form-dept">Department</label>
+            <select class="form-select" id="form-dept" name="department_id">
+              <option value="">— none —</option>
+              {% for d in departments %}
+              <option value="{{ d.id }}"
+                      data-dir="{{ d.directorate_id or '' }}"
+                      {{ 'selected' if user and user.department_id == d.id else '' }}>
+                {{ d.name }}{% if d.directorate_name %} ({{ d.directorate_name }}){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="form-sec">Section</label>
+            <select class="form-select" id="form-sec" name="section_id">
+              <option value="">— none —</option>
+              {% for s in sections %}
+              <option value="{{ s.id }}"
+                      data-dept="{{ s.department_id or '' }}"
+                      {{ 'selected' if user and user.section_id == s.id else '' }}>
+                {{ s.name }}{% if s.department_name %} ({{ s.department_name }}){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="form-unit">Unit</label>
+            <select class="form-select" id="form-unit" name="unit_id">
+              <option value="">— none —</option>
+              {% for u in units %}
+              <option value="{{ u.id }}"
+                      data-sec="{{ u.section_id or '' }}"
+                      {{ 'selected' if user and user.unit_id == u.id else '' }}>
+                {{ u.name }}{% if u.section_name %} ({{ u.section_name }}){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="shift_id">Default Shift</label>
+            <select class="form-select" id="shift_id" name="shift_id">
+              <option value="">— none —</option>
+              {% for s in shifts %}
+              <option value="{{ s.id }}"
+                      {{ 'selected' if user and user.shift_id == s.id else '' }}>
+                {{ s.name }} ({{ s.start_time[:5] }}–{{ s.end_time[:5] }})
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
 
-    {% if not user %}
-    <h3 style="margin:20px 0 14px;font-size:14px;color:#64748b;text-transform:uppercase;letter-spacing:.05em">
-      Push to Devices
-    </h3>
-    <label>Enroll on Devices
-      <input name="enroll_devices" placeholder="Comma-separated device IDs (optional)">
-      <small class="muted">Push this user to selected devices after creation.</small>
-    </label>
-    {% endif %}
+        {% if not user %}
+        <h3 class="form-section-title" style="margin-top:var(--space-6)">Push to Devices</h3>
+        <div class="form-group">
+          <label class="form-label" for="enroll_devices">Enroll on Devices</label>
+          <input class="form-input" id="enroll_devices" name="enroll_devices"
+                 placeholder="Comma-separated device IDs (optional)">
+          <span class="form-hint">Push this user to selected devices after creation.</span>
+        </div>
+        {% endif %}
 
-    <div class="toolbar" style="margin-top:24px">
-      <button class="btn primary" type="submit">{{ 'Update User' if user else 'Create User' }}</button>
-      <a class="btn ghost" href="/users">Cancel</a>
+        <div style="display:flex;gap:var(--space-3);margin-top:var(--space-6)">
+          <button class="btn btn-primary" type="submit">{{ 'Update User' if user else 'Create User' }}</button>
+          <a class="btn btn-secondary" href="/users">Cancel</a>
+        </div>
+      </form>
     </div>
-  </form>
-</section>
+  </div>
+</div>
 
 <script>
 /* Filter sections by selected department, units by selected section */
@@ -158,7 +172,6 @@
       filterOptions('form-unit', 'data-sec', this.value);
     });
   }
-  // Run on load to hide non-matching options
   if (deptSel && deptSel.value) filterOptions('form-sec', 'data-dept', deptSel.value);
   if (secSel  && secSel.value)  filterOptions('form-unit', 'data-sec', secSel.value);
 })();

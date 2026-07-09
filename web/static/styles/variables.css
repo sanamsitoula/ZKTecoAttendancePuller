@@ -1,0 +1,168 @@
+:root {
+  /* ── Colors ─────────────────────────────────────────────────────────── */
+  --color-bg:           #f0f2f5;
+  --color-surface:      #ffffff;
+  --color-surface-2:    #f8f9fb;
+  --color-surface-3:    #f0f2f5;
+  --color-border:       #e2e6ea;
+  --color-border-light: #eef1f4;
+
+  --color-text:         #1a1d21;
+  --color-text-secondary: #5f6368;
+  --color-text-muted:   #9aa0a6;
+
+  --color-primary:      #1a73e8;
+  --color-primary-hover:#1557b0;
+  --color-primary-light:#e8f0fe;
+  --color-primary-bg:   #d2e3fc;
+
+  --color-success:      #1e8e3e;
+  --color-success-light:#e6f4ea;
+  --color-success-bg:   #ceead6;
+
+  --color-danger:       #d93025;
+  --color-danger-light: #fce8e6;
+  --color-danger-bg:    #f5c6c2;
+
+  --color-warning:      #e37400;
+  --color-warning-light:#fef7e0;
+  --color-warning-bg:   #fde293;
+
+  --color-info:         #1a73e8;
+  --color-info-light:   #e8f0fe;
+
+  /* ── Typography ─────────────────────────────────────────────────────── */
+  --font-family:        'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono:          'JetBrains Mono', 'Fira Code', monospace;
+
+  --text-xs:            0.75rem;
+  --text-sm:            0.8125rem;
+  --text-base:          0.875rem;
+  --text-md:            1rem;
+  --text-lg:            1.125rem;
+  --text-xl:            1.25rem;
+  --text-2xl:           1.5rem;
+  --text-3xl:           2rem;
+
+  --weight-regular:     400;
+  --weight-medium:      500;
+  --weight-semibold:    600;
+  --weight-bold:        700;
+
+  --leading-tight:      1.25;
+  --leading-normal:     1.5;
+  --leading-relaxed:    1.625;
+
+  /* ── Spacing ────────────────────────────────────────────────────────── */
+  --space-0:   0;
+  --space-1:   0.25rem;
+  --space-2:   0.5rem;
+  --space-3:   0.75rem;
+  --space-4:   1rem;
+  --space-5:   1.25rem;
+  --space-6:   1.5rem;
+  --space-8:   2rem;
+  --space-10:  2.5rem;
+  --space-12:  3rem;
+  --space-16:  4rem;
+
+  /* ── Border Radius ──────────────────────────────────────────────────── */
+  --radius-sm:  4px;
+  --radius-md:  6px;
+  --radius-lg:  8px;
+  --radius-xl:  12px;
+  --radius-2xl: 16px;
+  --radius-full: 9999px;
+
+  /* ── Shadows ────────────────────────────────────────────────────────── */
+  --shadow-xs:   0 1px 2px rgba(0,0,0,0.05);
+  --shadow-sm:   0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md:   0 4px 6px -1px rgba(0,0,0,0.08), 0 2px 4px -2px rgba(0,0,0,0.04);
+  --shadow-lg:   0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.04);
+  --shadow-xl:   0 20px 25px -5px rgba(0,0,0,0.08), 0 8px 10px -6px rgba(0,0,0,0.04);
+
+  /* ── Layout ─────────────────────────────────────────────────────────── */
+  --sidebar-width:      260px;
+  --sidebar-collapsed:  64px;
+  --header-height:      56px;
+  --content-max-width:  1440px;
+
+  /* ── Transitions ────────────────────────────────────────────────────── */
+  --transition-fast:    150ms ease;
+  --transition-normal:  200ms ease;
+  --transition-slow:    300ms ease;
+
+  /* ── Z-Index ────────────────────────────────────────────────────────── */
+  --z-dropdown:  100;
+  --z-sticky:    200;
+  --z-overlay:   300;
+  --z-modal:     400;
+  --z-toast:     500;
+
+  /* ── Aliases (short names used across CSS modules & templates) ───────── */
+  --primary:         var(--color-primary);
+  --primary-hover:   var(--color-primary-hover);
+  --primary-light:   var(--color-primary-light);
+  --primary-lighter: var(--color-primary-bg);
+  --success:         var(--color-success);
+  --success-light:   var(--color-success-light);
+  --danger:          var(--color-danger);
+  --danger-light:    var(--color-danger-light);
+  --warning:         var(--color-warning);
+  --warning-light:   var(--color-warning-light);
+  --info:            var(--color-info);
+
+  --bg-body:      var(--color-bg);
+  --bg-card:      var(--color-surface);
+  --bg-muted:     var(--color-surface-2);
+  --border:       var(--color-border);
+  --border-subtle:var(--color-border-light);
+
+  /* ── Neutral gray scale ─────────────────────────────────────────────── */
+  --gray-50:   #f8f9fb;
+  --gray-100:  #f0f2f5;
+  --gray-200:  #e2e6ea;
+  --gray-300:  #cbd2d9;
+  --gray-400:  #9aa0a6;
+  --gray-500:  #6b7280;
+  --gray-600:  #5f6368;
+  --gray-700:  #3c4043;
+  --gray-800:  #26282b;
+  --gray-900:  #1a1d21;
+
+  /* ── Form controls ──────────────────────────────────────────────────── */
+  --input-height: 38px;
+
+  /* ── Text color aliases ─────────────────────────────────────────────── */
+  --text-primary:   var(--color-text);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted:     var(--color-text-muted);
+  --text-inverse:   #ffffff;
+  --text-link:      var(--color-primary);
+  --color-danger-hover: #b3271c;
+  --transition-base: var(--transition-normal);
+
+  /* ── Font-size aliases (--font-* used as sizes in some modules) ──────── */
+  --font-xs:   var(--text-xs);
+  --font-sm:   var(--text-sm);
+  --font-base: var(--text-base);
+  --font-lg:   var(--text-lg);
+  --font-xl:   var(--text-xl);
+  --font-2xl:  var(--text-2xl);
+  --font-3xl:  var(--text-3xl);
+  --font-4xl:  2.5rem;
+
+  /* ── Font-weight aliases ────────────────────────────────────────────── */
+  --font-normal:   var(--weight-regular);
+  --font-medium:   var(--weight-medium);
+  --font-semibold: var(--weight-semibold);
+  --font-bold:     var(--weight-bold);
+
+  /* ── Background tint aliases & misc (used in templates) ─────────────── */
+  --success-bg:  var(--color-success-bg);
+  --warning-bg:  var(--color-warning-bg);
+  --danger-bg:   var(--color-danger-bg);
+  --info-bg:     var(--color-info-light);
+  --duration-300: 300ms;
+  --ease-default: ease;
+}

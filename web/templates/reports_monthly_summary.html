@@ -68,39 +68,41 @@
 </style>
 
 {# ── Page header (no-print) ───────────────────────────────────────────────── #}
-<section class="page-head no-print">
+<div class="page-header no-print">
   <div>
-    <p class="eyebrow">Reports</p>
+    <p class="subtitle">Reports / Monthly Summary</p>
     <h1>Monthly Attendance Summary</h1>
   </div>
-  <div class="head-actions">
-    <button class="btn" type="button" onclick="window.print()">Print</button>
-    <button class="btn" type="button" onclick="downloadPDF()">Download PDF</button>
+  <div class="page-actions">
+    <button class="btn btn-secondary" type="button" onclick="window.print()">Print</button>
+    <button class="btn btn-primary" type="button" onclick="downloadPDF()">Download PDF</button>
   </div>
-</section>
+</div>
 
 {# ── Month / year picker (no-print) ──────────────────────────────────────── #}
-<section class="panel no-print">
-  <form method="get" action="/reports/monthly-summary" class="form" style="max-width:none">
-    <div class="filter-bar-flex" style="gap:14px;align-items:flex-end;flex-wrap:wrap">
-      <label style="width:90px">Year (BS)
-        <input type="number" name="bs_year" value="{{ bs_year }}" min="2060" max="2100">
-      </label>
-      <label style="width:180px">Month (BS)
-        <select name="bs_month">
+<div class="card no-print" style="margin-bottom:var(--space-6)">
+  <div class="card-body">
+    <form method="get" action="/reports/monthly-summary" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="margin-bottom:0;min-width:90px">
+        <label class="form-label" for="rpt-summary-year">Year (BS)</label>
+        <input type="number" class="form-input" id="rpt-summary-year" name="bs_year" value="{{ bs_year }}" min="2060" max="2100">
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:180px">
+        <label class="form-label" for="rpt-summary-month">Month (BS)</label>
+        <select class="form-select" id="rpt-summary-month" name="bs_month">
           {% for i in range(1, 13) %}
           <option value="{{ i }}" {% if bs_month == i %}selected{% endif %}>
-            {{ i }} &ndash; {{ nepali_months[i] }}
+            {{ i }} – {{ nepali_months[i] }}
           </option>
           {% endfor %}
         </select>
-      </label>
-      <div class="filter-actions" style="padding-top:4px">
-        <button class="btn primary" type="submit">Search</button>
       </div>
-    </div>
-  </form>
-</section>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-primary btn-sm" type="submit">Search</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 {% if error %}
 <section class="panel"><p class="bad-text">{{ error }}</p></section>
@@ -113,9 +115,17 @@
 
   {# ── Print-only header ─────────────────────────────────────────────────── #}
   <div class="print-header">
-    <div style="font-size:14pt;font-weight:bold">{{ COMPANY_NAME }}</div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      {% if company and company.logo_url %}
+      <img src="{{ company.logo_url }}" alt="Logo" style="max-height:48px;max-width:180px;object-fit:contain">
+      {% endif %}
+      <div>
+        <div style="font-size:14pt;font-weight:bold">{{ company.company_name if company else COMPANY_NAME }}</div>
+        {% if company and company.address %}<div style="font-size:9pt;color:#555">{{ company.address }}</div>{% endif %}
+      </div>
+    </div>
     <div style="font-size:11pt;font-weight:bold;margin-top:2px">
-      Monthly Attendance Summary &mdash; {{ month_name }} {{ bs_year }} BS
+      Monthly Attendance Summary — {{ month_name }} {{ bs_year }} BS
     </div>
     <div style="font-size:8pt;color:#555;margin-top:2px">
       {{ from_ad }} to {{ to_ad }}
@@ -175,8 +185,10 @@
   <div class="no-print" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
     <input data-table-filter="summary-table"
            placeholder="Search employee&hellip;"
+           aria-label="Search employees in summary"
            style="flex:1;min-width:200px;max-width:340px">
     <select data-table-filter="summary-table" data-filter-col="3"
+            aria-label="Filter by department"
             style="min-width:180px">
       <option value="">All Departments</option>
       {% set seen_depts = [] %}
@@ -197,16 +209,16 @@
     <table class="table summary-table" id="summary-table">
       <thead>
         <tr>
-          <th style="width:36px">#</th>
-          <th>Employee Name</th>
-          <th>ID</th>
-          <th>Department</th>
-          <th style="text-align:center">Working<br>Days</th>
-          <th style="text-align:center">Present</th>
-          <th style="text-align:center">Absent</th>
-          <th style="text-align:center">On Leave</th>
-          <th>Leave Details</th>
-          <th style="text-align:center">Present %</th>
+          <th scope="col" style="width:36px">#</th>
+          <th scope="col">Employee Name</th>
+          <th scope="col">ID</th>
+          <th scope="col">Department</th>
+          <th scope="col" style="text-align:center">Working<br>Days</th>
+          <th scope="col" style="text-align:center">Present</th>
+          <th scope="col" style="text-align:center">Absent</th>
+          <th scope="col" style="text-align:center">On Leave</th>
+          <th scope="col">Leave Details</th>
+          <th scope="col" style="text-align:center">Present %</th>
         </tr>
       </thead>
       <tbody>

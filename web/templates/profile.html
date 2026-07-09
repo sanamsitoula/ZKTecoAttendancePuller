@@ -1,126 +1,98 @@
 {% extends 'base.html' %}
+{% from 'components/ui.html' import badge %}
+
+{% block title %}My Profile — ZKTeco Attendance{% endblock %}
+
 {% block content %}
-
-<style>
-.profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 860px; }
-@media (max-width: 680px) { .profile-grid { grid-template-columns: 1fr; } }
-.info-row { margin-bottom: 14px; }
-.info-row .lbl { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
-.info-row .val { font-size: 15px; }
-.role-badge {
-  display: inline-block; padding: 2px 10px; border-radius: 12px;
-  font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
-}
-.role-admin   { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
-.role-manager { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
-.role-viewer  { background: #f9fafb; color: #374151; border: 1px solid #e5e7eb; }
-.source-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
-.source-db   { background: #e0f2fe; color: #0369a1; }
-.source-json { background: #fef9c3; color: #854d0e; }
-</style>
-
-<section class="page-head">
+<div class="page-header">
   <div>
-    <p class="eyebrow">Account</p>
+    <p class="subtitle">Account</p>
     <h1>My Profile</h1>
   </div>
-</section>
+</div>
 
-<div class="profile-grid">
-
-  <!-- ── Account info ──────────────────────────────────────────────────────── -->
-  <section class="panel">
-    <div class="panel-head"><h2>Account Info</h2></div>
-    <div style="padding: 16px 20px">
-
-      <div class="info-row">
-        <div class="lbl">Username</div>
-        <div class="val" style="font-weight:700">{{ current_user.username }}</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-6);max-width:900px">
+  {# ── Account Info ──────────────────────────────────────────────────── #}
+  <div class="card">
+    <div class="card-header">
+      <h2>Account Info</h2>
+    </div>
+    <div class="card-body">
+      <div class="form-group" style="margin-bottom:var(--space-4)">
+        <span class="form-hint">Username</span>
+        <strong>{{ current_user.username }}</strong>
       </div>
-
-      <div class="info-row">
-        <div class="lbl">Display Name</div>
-        <div class="val">{{ current_user.display_name or current_user.username }}</div>
+      <div class="form-group" style="margin-bottom:var(--space-4)">
+        <span class="form-hint">Display Name</span>
+        <strong>{{ current_user.display_name or current_user.username }}</strong>
       </div>
-
-      <div class="info-row">
-        <div class="lbl">Role</div>
-        <div class="val">
-          <span class="role-badge role-{{ current_user.role }}">{{ current_user.role }}</span>
-        </div>
+      <div class="form-group" style="margin-bottom:var(--space-4)">
+        <span class="form-hint">Role</span>
+        <div>{{ badge(current_user.role, 'success' if current_user.role == 'admin' else 'info' if current_user.role == 'manager' else 'neutral') }}</div>
       </div>
-
-      <div class="info-row">
-        <div class="lbl">Account Source</div>
-        <div class="val">
-          <span class="source-badge source-{{ current_user.source or 'json' }}">
-            {{ 'Database' if current_user.source == 'db' else 'Legacy (users.json)' }}
-          </span>
-        </div>
+      <div class="form-group" style="margin-bottom:var(--space-4)">
+        <span class="form-hint">Account Source</span>
+        <div>{{ badge('Database' if current_user.source == 'db' else 'Legacy', 'info' if current_user.source == 'db' else 'warning') }}</div>
       </div>
 
       {% if last_login_at %}
-      <div class="info-row">
-        <div class="lbl">Last Login</div>
-        <div class="val">{{ last_login_at | fmt_dt }}</div>
+      <div class="form-group" style="margin-bottom:var(--space-4)">
+        <span class="form-hint">Last Login</span>
+        <div>{{ last_login_at | fmt_dt }}</div>
         {% if last_login_ip %}
-        <div style="font-size:12px;color:#6b7280;margin-top:2px">from {{ last_login_ip }}</div>
+        <span class="form-hint">from {{ last_login_ip }}</span>
         {% endif %}
       </div>
       {% endif %}
 
       {% if linked %}
-      <hr style="margin: 14px 0; border: none; border-top: 1px solid #e5e7eb">
-      <div class="info-row">
-        <div class="lbl">Linked Employee</div>
-        <div class="val" style="font-weight:600">{{ linked.name }}</div>
-        {% if linked.designation %}
-        <div style="font-size:12px;color:#4b5563">{{ linked.designation }}</div>
-        {% endif %}
-        <div style="font-size:12px;color:#6b7280;margin-top:2px">
+      <hr style="border:none;border-top:1px solid var(--color-border-light);margin:var(--space-4) 0">
+      <div class="form-group">
+        <span class="form-hint">Linked Employee</span>
+        <strong>{{ linked.name }}</strong>
+        <div class="text-sm text-muted" style="margin-top:var(--space-1)">
           ATT.ID: <strong>{{ linked.global_user_id or '—' }}</strong>
-          {% if linked.department_name %}&nbsp;&bull;&nbsp;{{ linked.department_name }}{% endif %}
-          {% if linked.section_name %}&nbsp;/&nbsp;{{ linked.section_name }}{% endif %}
+          {% if linked.department_name %} &bull; {{ linked.department_name }}{% endif %}
+          {% if linked.section_name %} / {{ linked.section_name }}{% endif %}
         </div>
-        {% if linked.email %}
-        <div style="font-size:12px;color:#6b7280">{{ linked.email }}</div>
-        {% endif %}
-        {% if linked.phone %}
-        <div style="font-size:12px;color:#6b7280">{{ linked.phone }}</div>
-        {% endif %}
+        {% if linked.email %}<div class="text-sm text-muted">{{ linked.email }}</div>{% endif %}
+        {% if linked.phone %}<div class="text-sm text-muted">{{ linked.phone }}</div>{% endif %}
       </div>
       {% endif %}
-
     </div>
-  </section>
+  </div>
 
-  <!-- ── Change password ───────────────────────────────────────────────────── -->
-  <section class="panel">
-    <div class="panel-head"><h2>Change Password</h2></div>
-    {% if current_user.source == 'db' %}
-    <form method="post" action="/profile/change-password" class="form" style="padding: 16px 20px">
-      <label>Current Password
-        <input type="password" name="current_password" required autocomplete="current-password">
-      </label>
-      <label>New Password <small class="muted">(min 6 characters)</small>
-        <input type="password" name="new_password" required minlength="6" autocomplete="new-password">
-      </label>
-      <label>Confirm New Password
-        <input type="password" name="confirm_password" required autocomplete="new-password">
-      </label>
-      <div style="margin-top: 8px">
-        <button class="btn primary" type="submit">Update Password</button>
-      </div>
-    </form>
-    {% else %}
-    <div style="padding: 16px 20px; color: #6b7280; font-size: 13px">
-      Password management is only available for database accounts.<br>
-      Your account is sourced from <code>users.json</code>.
-      Ask an administrator to migrate your account to the database.
+  {# ── Change Password ───────────────────────────────────────────────── #}
+  <div class="card">
+    <div class="card-header">
+      <h2>Change Password</h2>
     </div>
-    {% endif %}
-  </section>
-
+    <div class="card-body">
+      {% if current_user.source == 'db' %}
+      <form method="post" action="/profile/change-password">
+        <div class="form-group" style="margin-bottom:var(--space-4)">
+          <label class="form-label" for="current_password">Current Password</label>
+          <input class="form-input" type="password" id="current_password" name="current_password" required autocomplete="current-password">
+        </div>
+        <div class="form-group" style="margin-bottom:var(--space-4)">
+          <label class="form-label" for="new_password">New Password</label>
+          <input class="form-input" type="password" id="new_password" name="new_password" required minlength="6" autocomplete="new-password">
+          <span class="form-hint">Minimum 6 characters</span>
+        </div>
+        <div class="form-group" style="margin-bottom:var(--space-4)">
+          <label class="form-label" for="confirm_password">Confirm New Password</label>
+          <input class="form-input" type="password" id="confirm_password" name="confirm_password" required autocomplete="new-password">
+        </div>
+        <button class="btn btn-primary" type="submit">Update Password</button>
+      </form>
+      {% else %}
+      <p class="text-sm text-muted">
+        Password management is only available for database accounts.
+        Your account is sourced from <code>users.json</code>.
+        Ask an administrator to migrate your account to the database.
+      </p>
+      {% endif %}
+    </div>
+  </div>
 </div>
-
 {% endblock %}

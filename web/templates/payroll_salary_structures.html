@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Salary Structures — Payroll{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="subtitle">Payroll</p>
+    <h1>Salary Structures</h1>
+  </div>
+  <div class="page-actions">
+    <span class="text-sm text-muted">{{ configured }} of {{ total }} configured</span>
+    <a class="btn btn-secondary btn-sm" href="/payroll">Back to Payroll</a>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:var(--space-4)">
+  <div class="card-body">
+    <form method="get" action="/payroll/salary-structures" style="display:flex;gap:var(--space-2)">
+      <input type="text" class="form-control" name="q" value="{{ q }}" placeholder="Search by name or employee code…" style="max-width:340px">
+      <button class="btn btn-secondary btn-sm" type="submit">Search</button>
+      {% if q %}<a class="btn btn-secondary btn-sm" href="/payroll/salary-structures">Clear</a>{% endif %}
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Employee</th><th>Dept</th><th>Basic</th><th>Allowances</th>
+          <th>Daily Hrs</th><th>OT ×</th><th>Marital</th><th>Other Ded.</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>
+            <form method="post" action="/payroll/salary-structures" id="f{{ r.global_user_id }}">
+              <input type="hidden" name="global_user_id" value="{{ r.global_user_id }}">
+              <input type="hidden" name="q" value="{{ q }}">
+              <strong>{{ r.name or '—' }}</strong><br><span class="text-xs text-muted">{{ r.emp_code }}</span>
+          </td>
+          <td class="text-xs">{{ r.department or '—' }}</td>
+          <td><input class="form-control" style="width:110px" type="number" step="0.01" name="basic_salary" value="{{ '%.2f'|format(r.basic_salary|float) if r.basic_salary is not none else '' }}" form="f{{ r.global_user_id }}"></td>
+          <td><input class="form-control" style="width:100px" type="number" step="0.01" name="allowances" value="{{ '%.2f'|format(r.allowances|float) if r.allowances is not none else '0' }}" form="f{{ r.global_user_id }}"></td>
+          <td><input class="form-control" style="width:64px" type="number" step="0.5" name="daily_hours" value="{{ r.daily_hours if r.daily_hours is not none else 8 }}" form="f{{ r.global_user_id }}"></td>
+          <td><input class="form-control" style="width:64px" type="number" step="0.1" name="ot_multiplier" value="{{ r.ot_multiplier if r.ot_multiplier is not none else '1.5' }}" form="f{{ r.global_user_id }}"></td>
+          <td>
+            <select class="form-select" name="marital" style="width:100px" form="f{{ r.global_user_id }}">
+              <option value="single" {{ 'selected' if (r.marital or 'single')=='single' }}>Single</option>
+              <option value="married" {{ 'selected' if r.marital=='married' }}>Married</option>
+            </select>
+          </td>
+          <td><input class="form-control" style="width:100px" type="number" step="0.01" name="other_deductions" value="{{ '%.2f'|format(r.other_deductions|float) if r.other_deductions is not none else '0' }}" form="f{{ r.global_user_id }}"></td>
+          <td><button class="btn btn-primary btn-sm" type="submit" form="f{{ r.global_user_id }}">Save</button></form></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-center text-muted" style="padding:var(--space-8)">No employees found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

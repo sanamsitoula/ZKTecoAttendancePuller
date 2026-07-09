@@ -1,217 +1,301 @@
 {% extends 'base.html' %}
 {% block content %}
 
-<section class="page-head">
+<div class="page-header">
   <div>
-    <p class="eyebrow">Settings</p>
-    <h1>Organisation &amp; Shifts</h1>
+    <p class="subtitle">Administration</p>
+    <h1>Settings</h1>
   </div>
-</section>
+</div>
 
 {# ── Tabs ────────────────────────────────────────────────────────────────────── #}
-<div class="settings-tabs" id="settings-tabs">
-  <button class="tab-btn active" data-tab="org" type="button">Org Hierarchy</button>
-  <button class="tab-btn"        data-tab="shifts" type="button">Shifts &amp; Shift Rules</button>
-  <button class="tab-btn"        data-tab="emp-org" type="button">Employee Org</button>
+<div class="settings-tabs" id="settings-tabs" role="tablist" aria-label="Settings tabs">
+  <button class="tab-btn active" data-tab="company" type="button" role="tab" aria-selected="true" aria-controls="tab-company" id="tab-btn-company">Company Setup</button>
+  <button class="tab-btn" data-tab="org" type="button" role="tab" aria-selected="false" aria-controls="tab-org" id="tab-btn-org">Org Hierarchy</button>
+  <button class="tab-btn" data-tab="shifts" type="button" role="tab" aria-selected="false" aria-controls="tab-shifts" id="tab-btn-shifts">Shifts &amp; Rules</button>
+  <button class="tab-btn" data-tab="emp-org" type="button" role="tab" aria-selected="false" aria-controls="tab-emp-org" id="tab-btn-emp-org">Employee Org</button>
+  <button class="tab-btn" data-tab="devices" type="button" role="tab" aria-selected="false" aria-controls="tab-devices" id="tab-btn-devices">Devices</button>
+  <button class="tab-btn" data-tab="bulk-enroll" type="button" role="tab" aria-selected="false" aria-controls="tab-bulk-enroll" id="tab-btn-bulk-enroll">Bulk Enroll</button>
+  <button class="tab-btn" data-tab="migrate" type="button" role="tab" aria-selected="false" aria-controls="tab-migrate" id="tab-btn-migrate">Migrate</button>
+  <button class="tab-btn" data-tab="schedule" type="button" role="tab" aria-selected="false" aria-controls="tab-schedule" id="tab-btn-schedule">Schedule</button>
+</div>
+
+{# ════════════════════════════════════════════════════════════════════════════
+   TAB 0 — Company Setup
+   ════════════════════════════════════════════════════════════════════════════ #}
+<div class="tab-pane active" id="tab-company" role="tabpanel" aria-labelledby="tab-btn-company">
+  <div class="card">
+    <div class="card-header">
+      <h2>Company Information</h2>
+      <span class="text-sm text-muted">Logo, name, and contact details shown on reports</span>
+    </div>
+    <div class="card-body">
+      <form method="post" action="/settings/company" style="max-width:640px;display:flex;flex-direction:column;gap:var(--space-4)">
+        <div class="form-group">
+          <label class="form-label" for="company_name">Company Name <span class="required">*</span></label>
+          <input type="text" class="form-input" id="company_name" name="company_name"
+                 value="{{ company.company_name if company else '' }}" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="logo_url">Logo URL</label>
+          <input type="url" class="form-input" id="logo_url" name="logo_url"
+                 value="{{ company.logo_url if company else '' }}"
+                 placeholder="https://example.com/logo.png">
+          <span class="form-hint">Direct URL to your company logo image. Used in sidebar and report headers.</span>
+        </div>
+        {% if company and company.logo_url %}
+        <div class="form-group">
+          <label class="form-label">Logo Preview</label>
+          <div style="padding:12px;background:var(--color-bg);border:1px solid var(--color-border);border-radius:var(--radius-md);display:inline-block">
+            <img src="{{ company.logo_url }}" alt="Logo" style="max-height:48px;max-width:200px;object-fit:contain">
+          </div>
+        </div>
+        {% endif %}
+        <div class="form-group">
+          <label class="form-label" for="address">Address</label>
+          <input type="text" class="form-input" id="address" name="address"
+                 value="{{ company.address if company else '' }}"
+                 placeholder="e.g. Sanothimi, Bhaktapur, Nepal">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4)">
+          <div class="form-group">
+            <label class="form-label" for="phone">Phone</label>
+            <input type="text" class="form-input" id="phone" name="phone"
+                   value="{{ company.phone if company else '' }}"
+                   placeholder="+977-XXXXXXXX">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="email">Email</label>
+            <input type="email" class="form-input" id="email" name="email"
+                   value="{{ company.email if company else '' }}"
+                   placeholder="info@company.com">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4)">
+          <div class="form-group">
+            <label class="form-label" for="website">Website</label>
+            <input type="url" class="form-input" id="website" name="website"
+                   value="{{ company.website if company else '' }}"
+                   placeholder="https://company.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="pan_number">PAN Number</label>
+            <input type="text" class="form-input" id="pan_number" name="pan_number"
+                   value="{{ company.pan_number if company else '' }}"
+                   placeholder="PAN number">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="fiscal_year_bs">Fiscal Year (BS)</label>
+          <input type="text" class="form-input" id="fiscal_year_bs" name="fiscal_year_bs"
+                 value="{{ company.fiscal_year_bs if company else '' }}"
+                 placeholder="e.g. 2082/83" style="max-width:200px">
+        </div>
+        <div>
+          <button type="submit" class="btn btn-primary">Save Company Settings</button>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 
 {# ════════════════════════════════════════════════════════════════════════════
    TAB 1 — Org Hierarchy
    ════════════════════════════════════════════════════════════════════════════ #}
-<div class="tab-pane active" id="tab-org">
+<div class="tab-pane" id="tab-org" role="tabpanel" aria-labelledby="tab-btn-org">
 
-{# ── Directorates ───────────────────────────────────────────────────────────── #}
-<section class="panel" id="sec-directorates">
-  <div class="panel-head">
-    <h2>Directorates</h2>
-    <span class="muted">{{ directorates | length }} total</span>
-  </div>
-
-  <div class="table-wrap" style="margin-bottom:14px">
-    <table class="table">
-      <thead><tr><th>#</th><th>Name</th><th style="width:80px">Action</th></tr></thead>
-      <tbody>
-        {% for dr in directorates %}
-        <tr>
-          <td>{{ loop.index }}</td>
-          <td>{{ dr.name }}</td>
-          <td>
-            <form method="post" action="/settings/directorates/{{ dr.id }}/delete"
-                  onsubmit="return confirm('Delete directorate {{ dr.name }}?')">
-              <button class="btn small danger" type="submit">Delete</button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="3" class="empty">No directorates yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <form method="post" action="/settings/directorates/add" class="form">
-    <div class="filter-bar-flex" style="gap:10px;align-items:flex-end">
-      <label style="flex:1;max-width:280px">New Directorate Name
-        <input type="text" name="name" placeholder="e.g. Finance Directorate" required>
-      </label>
-      <button class="btn primary" type="submit">Add Directorate</button>
+  {# ── Directorates ──────────────────────────────────────────────────── #}
+  <div class="card" style="margin-bottom:var(--space-6)">
+    <div class="card-header">
+      <h2>Directorates</h2>
+      <span class="text-sm text-muted">{{ directorates | length }} total</span>
     </div>
-  </form>
-</section>
-
-{# ── Departments ─────────────────────────────────────────────────────────────── #}
-<section class="panel" id="sec-departments">
-  <div class="panel-head">
-    <h2>Departments</h2>
-    <span class="muted">{{ departments | length }} total</span>
-  </div>
-
-  <div class="table-wrap" style="margin-bottom:14px">
-    <table class="table">
-      <thead><tr><th>#</th><th>Name</th><th>Directorate</th><th style="width:80px">Action</th></tr></thead>
-      <tbody>
-        {% for d in departments %}
-        <tr>
-          <td>{{ loop.index }}</td>
-          <td>{{ d.name }}</td>
-          <td>{{ d.directorate_name or '—' }}</td>
-          <td>
-            <form method="post" action="/settings/departments/{{ d.id }}/delete"
-                  onsubmit="return confirm('Delete department {{ d.name }}?')">
-              <button class="btn small danger" type="submit">Delete</button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="4" class="empty">No departments yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <form method="post" action="/settings/departments/add" class="form">
-    <div class="filter-bar-flex" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
-      <label style="flex:1;max-width:240px">New Department Name
-        <input type="text" name="name" placeholder="e.g. Administration" required>
-      </label>
-      <label style="flex:1;max-width:220px">Directorate (optional)
-        <select name="directorate_id">
-          <option value="">-- none --</option>
+    <div class="table-wrap" style="border:none;border-radius:0">
+      <table class="table">
+        <thead><tr><th style="width:50px">#</th><th>Name</th><th style="width:100px">Action</th></tr></thead>
+        <tbody>
           {% for dr in directorates %}
-          <option value="{{ dr.id }}">{{ dr.name }}</option>
+          <tr>
+            <td class="text-sm text-muted">{{ loop.index }}</td>
+            <td><strong>{{ dr.name }}</strong></td>
+            <td>
+              <form method="post" action="/settings/directorates/{{ dr.id }}/delete" style="display:inline"
+                    onsubmit="return confirm('Delete directorate {{ dr.name }}?')">
+                <button class="btn btn-sm btn-ghost" style="color:var(--color-danger)" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="empty">No directorates yet.</td></tr>
           {% endfor %}
-        </select>
-      </label>
-      <button class="btn primary" type="submit">Add Department</button>
+        </tbody>
+      </table>
     </div>
-  </form>
-</section>
-
-{# ── Sections ─────────────────────────────────────────────────────────────────── #}
-<section class="panel" id="sec-sections">
-  <div class="panel-head">
-    <h2>Sections</h2>
-    <span class="muted">{{ sections | length }} total</span>
+    <div style="padding:var(--space-4) var(--space-5);border-top:1px solid var(--color-border-light)">
+      <form method="post" action="/settings/directorates/add" style="display:flex;gap:var(--space-3);align-items:flex-end">
+        <div class="form-group" style="margin-bottom:0;flex:1;max-width:280px">
+          <label class="form-label" for="dir-name">New Directorate Name</label>
+          <input type="text" class="form-input" id="dir-name" name="name" placeholder="e.g. Finance Directorate" required>
+        </div>
+        <button class="btn btn-primary btn-sm" type="submit">Add Directorate</button>
+      </form>
+    </div>
   </div>
 
-  <div class="table-wrap" style="margin-bottom:14px">
-    <table class="table">
-      <thead><tr><th>#</th><th>Name</th><th>Department</th><th>Directorate</th><th style="width:80px">Action</th></tr></thead>
-      <tbody>
-        {% for s in sections %}
-        <tr>
-          <td>{{ loop.index }}</td>
-          <td>{{ s.name }}</td>
-          <td>{{ s.department_name or '—' }}</td>
-          <td>{{ s.directorate_name or '—' }}</td>
-          <td>
-            <form method="post" action="/settings/sections/{{ s.id }}/delete"
-                  onsubmit="return confirm('Delete section {{ s.name }}?')">
-              <button class="btn small danger" type="submit">Delete</button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="5" class="empty">No sections yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <form method="post" action="/settings/sections/add" class="form" id="sec-add-form">
-    <div class="filter-bar-flex" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
-      <label style="flex:1;max-width:220px">New Section Name
-        <input type="text" name="name" placeholder="e.g. Accounts Section" required>
-      </label>
-      <label style="width:180px">Filter by Directorate
-        <select id="sec-dir-filter" onchange="secFilterDept(this.value)">
-          <option value="">-- all directorates --</option>
-          {% for dr in directorates %}
-          <option value="{{ dr.id }}">{{ dr.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label style="flex:1;max-width:220px">Department <span style="color:red">*</span>
-        <select name="department_id" id="sec-dept-select" required>
-          <option value="">-- select department --</option>
+  {# ── Departments ────────────────────────────────────────────────────── #}
+  <div class="card" style="margin-bottom:var(--space-6)">
+    <div class="card-header">
+      <h2>Departments</h2>
+      <span class="text-sm text-muted">{{ departments | length }} total</span>
+    </div>
+    <div class="table-wrap" style="border:none;border-radius:0">
+      <table class="table">
+        <thead><tr><th style="width:50px">#</th><th>Name</th><th>Directorate</th><th style="width:100px">Action</th></tr></thead>
+        <tbody>
           {% for d in departments %}
-          <option value="{{ d.id }}" data-dir="{{ d.directorate_id or '' }}">{{ d.name }}</option>
+          <tr>
+            <td class="text-sm text-muted">{{ loop.index }}</td>
+            <td><strong>{{ d.name }}</strong></td>
+            <td class="text-sm">{{ d.directorate_name or '—' }}</td>
+            <td>
+              <form method="post" action="/settings/departments/{{ d.id }}/delete" style="display:inline"
+                    onsubmit="return confirm('Delete department {{ d.name }}?')">
+                <button class="btn btn-sm btn-ghost" style="color:var(--color-danger)" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="empty">No departments yet.</td></tr>
           {% endfor %}
-        </select>
-      </label>
-      <button class="btn primary" type="submit">Add Section</button>
+        </tbody>
+      </table>
     </div>
-  </form>
-</section>
-
-{# ── Units ───────────────────────────────────────────────────────────────────── #}
-<section class="panel" id="sec-units">
-  <div class="panel-head">
-    <h2>Units</h2>
-    <span class="muted">{{ units | length }} total</span>
+    <div style="padding:var(--space-4) var(--space-5);border-top:1px solid var(--color-border-light)">
+      <form method="post" action="/settings/departments/add" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+        <div class="form-group" style="margin-bottom:0;flex:1;max-width:240px">
+          <label class="form-label" for="dept-name">New Department Name</label>
+          <input type="text" class="form-input" id="dept-name" name="name" placeholder="e.g. Administration" required>
+        </div>
+        <div class="form-group" style="margin-bottom:0;max-width:220px">
+          <label class="form-label" for="dept-directorate">Directorate (optional)</label>
+          <select class="form-select" id="dept-directorate" name="directorate_id">
+            <option value="">— None —</option>
+            {% for dr in directorates %}
+            <option value="{{ dr.id }}">{{ dr.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button class="btn btn-primary btn-sm" type="submit">Add Department</button>
+      </form>
+    </div>
   </div>
 
-  <div class="table-wrap" style="margin-bottom:14px">
-    <table class="table">
-      <thead><tr><th>#</th><th>Name</th><th>Section</th><th>Department</th><th style="width:80px">Action</th></tr></thead>
-      <tbody>
-        {% for u in units %}
-        <tr>
-          <td>{{ loop.index }}</td>
-          <td>{{ u.name }}</td>
-          <td>{{ u.section_name or '—' }}</td>
-          <td>{{ u.department_name or '—' }}</td>
-          <td>
-            <form method="post" action="/settings/units/{{ u.id }}/delete"
-                  onsubmit="return confirm('Delete unit {{ u.name }}?')">
-              <button class="btn small danger" type="submit">Delete</button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="5" class="empty">No units yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <form method="post" action="/settings/units/add" class="form">
-    <div class="filter-bar-flex" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
-      <label style="flex:1;max-width:220px">New Unit Name
-        <input type="text" name="name" placeholder="e.g. Revenue Unit" required>
-      </label>
-      <label style="flex:1;max-width:220px">Section <span style="color:red">*</span>
-        <select name="section_id" required>
-          <option value="">-- select section --</option>
+  {# ── Sections ───────────────────────────────────────────────────────── #}
+  <div class="card" style="margin-bottom:var(--space-6)">
+    <div class="card-header">
+      <h2>Sections</h2>
+      <span class="text-sm text-muted">{{ sections | length }} total</span>
+    </div>
+    <div class="table-wrap" style="border:none;border-radius:0">
+      <table class="table">
+        <thead><tr><th style="width:50px">#</th><th>Name</th><th>Department</th><th>Directorate</th><th style="width:100px">Action</th></tr></thead>
+        <tbody>
           {% for s in sections %}
-          <option value="{{ s.id }}">{{ s.name }}{% if s.department_name %} ({{ s.department_name }}){% endif %}</option>
+          <tr>
+            <td class="text-sm text-muted">{{ loop.index }}</td>
+            <td><strong>{{ s.name }}</strong></td>
+            <td class="text-sm">{{ s.department_name or '—' }}</td>
+            <td class="text-sm">{{ s.directorate_name or '—' }}</td>
+            <td>
+              <form method="post" action="/settings/sections/{{ s.id }}/delete" style="display:inline"
+                    onsubmit="return confirm('Delete section {{ s.name }}?')">
+                <button class="btn btn-sm btn-ghost" style="color:var(--color-danger)" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="empty">No sections yet.</td></tr>
           {% endfor %}
-        </select>
-      </label>
-      <button class="btn primary" type="submit">Add Unit</button>
+        </tbody>
+      </table>
     </div>
-  </form>
-</section>
+    <div style="padding:var(--space-4) var(--space-5);border-top:1px solid var(--color-border-light)">
+      <form method="post" action="/settings/sections/add" id="sec-add-form" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+        <div class="form-group" style="margin-bottom:0;flex:1;max-width:220px">
+          <label class="form-label" for="sec-name">New Section Name</label>
+          <input type="text" class="form-input" id="sec-name" name="name" placeholder="e.g. Accounts Section" required>
+        </div>
+        <div class="form-group" style="margin-bottom:0;max-width:180px">
+          <label class="form-label" for="sec-dir-filter">Filter by Directorate</label>
+          <select class="form-select" id="sec-dir-filter" onchange="secFilterDept(this.value)">
+            <option value="">— All —</option>
+            {% for dr in directorates %}
+            <option value="{{ dr.id }}">{{ dr.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;flex:1;max-width:220px">
+          <label class="form-label">Department <span class="required">*</span></label>
+          <select class="form-select" name="department_id" id="sec-dept-select" required>
+            <option value="">— Select —</option>
+            {% for d in departments %}
+            <option value="{{ d.id }}" data-dir="{{ d.directorate_id or '' }}">{{ d.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button class="btn btn-primary btn-sm" type="submit">Add Section</button>
+      </form>
+    </div>
+  </div>
+
+  {# ── Units ──────────────────────────────────────────────────────────── #}
+  <div class="card" style="margin-bottom:var(--space-6)">
+    <div class="card-header">
+      <h2>Units</h2>
+      <span class="text-sm text-muted">{{ units | length }} total</span>
+    </div>
+    <div class="table-wrap" style="border:none;border-radius:0">
+      <table class="table">
+        <thead><tr><th style="width:50px">#</th><th>Name</th><th>Section</th><th>Department</th><th style="width:100px">Action</th></tr></thead>
+        <tbody>
+          {% for u in units %}
+          <tr>
+            <td class="text-sm text-muted">{{ loop.index }}</td>
+            <td><strong>{{ u.name }}</strong></td>
+            <td class="text-sm">{{ u.section_name or '—' }}</td>
+            <td class="text-sm">{{ u.department_name or '—' }}</td>
+            <td>
+              <form method="post" action="/settings/units/{{ u.id }}/delete" style="display:inline"
+                    onsubmit="return confirm('Delete unit {{ u.name }}?')">
+                <button class="btn btn-sm btn-ghost" style="color:var(--color-danger)" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="empty">No units yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="padding:var(--space-4) var(--space-5);border-top:1px solid var(--color-border-light)">
+      <form method="post" action="/settings/units/add" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+        <div class="form-group" style="margin-bottom:0;flex:1;max-width:220px">
+          <label class="form-label" for="unit-name">New Unit Name</label>
+          <input type="text" class="form-input" id="unit-name" name="name" placeholder="e.g. Revenue Unit" required>
+        </div>
+        <div class="form-group" style="margin-bottom:0;flex:1;max-width:220px">
+          <label class="form-label" for="unit-section">Section <span class="required">*</span></label>
+          <select class="form-select" id="unit-section" name="section_id" required>
+            <option value="">— Select —</option>
+            {% for s in sections %}
+            <option value="{{ s.id }}">{{ s.name }}{% if s.department_name %} ({{ s.department_name }}){% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button class="btn btn-primary btn-sm" type="submit">Add Unit</button>
+      </form>
+    </div>
+  </div>
 
 </div>{# /tab-org #}
 
@@ -219,245 +303,259 @@
 {# ════════════════════════════════════════════════════════════════════════════
    TAB 2 — Shifts & Shift Rules
    ════════════════════════════════════════════════════════════════════════════ #}
-<div class="tab-pane" id="tab-shifts" style="display:none">
+<div class="tab-pane" id="tab-shifts" role="tabpanel" aria-labelledby="tab-btn-shifts">
 
-{# ── Shifts ──────────────────────────────────────────────────────────────────── #}
-<section class="panel" id="sec-shifts">
-  <div class="panel-head">
-    <h2>Shifts</h2>
-    <span class="muted">{{ shifts | length }} defined</span>
-  </div>
-
-  <div class="table-wrap" style="margin-bottom:14px">
-    <table class="table">
-      <thead>
-        <tr><th>#</th><th>Name</th><th>Start</th><th>End</th><th>Duration</th><th style="width:80px">Action</th></tr>
-      </thead>
-      <tbody>
-        {% for s in shifts %}
-        {% set sm = s.start_time[:2]|int * 60 + s.start_time[3:5]|int %}
-        {% set em = s.end_time[:2]|int  * 60 + s.end_time[3:5]|int  %}
-        <tr>
-          <td>{{ loop.index }}</td>
-          <td><strong>{{ s.name }}</strong></td>
-          <td>{{ s.start_time[:5] }}</td>
-          <td>{{ s.end_time[:5] }}</td>
-          <td>{{ ((em - sm) // 60) }}h {{ ((em - sm) % 60) }}m</td>
-          <td>
-            <form method="post" action="/settings/shifts/{{ s.id }}/delete"
-                  onsubmit="return confirm('Delete shift {{ s.name }}?')">
-              <button class="btn small danger" type="submit">Delete</button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="6" class="empty">No shifts defined yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <form method="post" action="/settings/shifts/add" class="form">
-    <div class="filter-bar-flex" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
-      <label style="flex:1;max-width:220px">Shift Name
-        <input type="text" name="name" placeholder="e.g. General Shift" required>
-      </label>
-      <label style="width:120px">Start Time
-        <input type="time" name="start_time" value="10:00" required>
-      </label>
-      <label style="width:120px">End Time
-        <input type="time" name="end_time" value="17:00" required>
-      </label>
-      <button class="btn primary" type="submit">Add Shift</button>
+  {# ── Shifts ──────────────────────────────────────────────────────────── #}
+  <div class="card" style="margin-bottom:var(--space-6)">
+    <div class="card-header">
+      <h2>Shifts</h2>
+      <span class="text-sm text-muted">{{ shifts | length }} defined</span>
     </div>
-  </form>
-</section>
-
-{# ── Shift Rules ─────────────────────────────────────────────────────────────── #}
-<section class="panel" id="sec-shift-rules">
-  <div class="panel-head">
-    <h2>Shift Rules</h2>
-    <span class="muted">Priority: Employee &gt; Unit &gt; Section &gt; Department &gt; Directorate</span>
+    <div class="table-wrap" style="border:none;border-radius:0">
+      <table class="table">
+        <thead>
+          <tr><th style="width:50px">#</th><th>Name</th><th>Start</th><th>End</th><th>Duration</th><th style="width:100px">Action</th></tr>
+        </thead>
+        <tbody>
+          {% for s in shifts %}
+          {% set sm = s.start_time[:2]|int * 60 + s.start_time[3:5]|int %}
+          {% set em = s.end_time[:2]|int  * 60 + s.end_time[3:5]|int  %}
+          <tr>
+            <td class="text-sm text-muted">{{ loop.index }}</td>
+            <td><strong>{{ s.name }}</strong></td>
+            <td><code style="font-size:var(--text-xs)">{{ s.start_time[:5] }}</code></td>
+            <td><code style="font-size:var(--text-xs)">{{ s.end_time[:5] }}</code></td>
+            <td><span class="badge badge-info">{{ ((em - sm) // 60) }}h {{ ((em - sm) % 60) }}m</span></td>
+            <td>
+              <form method="post" action="/settings/shifts/{{ s.id }}/delete" style="display:inline"
+                    onsubmit="return confirm('Delete shift {{ s.name }}?')">
+                <button class="btn btn-sm btn-ghost" style="color:var(--color-danger)" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="empty">No shifts defined yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="padding:var(--space-4) var(--space-5);border-top:1px solid var(--color-border-light)">
+      <form method="post" action="/settings/shifts/add" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+        <div class="form-group" style="margin-bottom:0;flex:1;max-width:220px">
+          <label class="form-label" for="shift-name">Shift Name</label>
+          <input type="text" class="form-input" id="shift-name" name="name" placeholder="e.g. General Shift" required>
+        </div>
+        <div class="form-group" style="margin-bottom:0;max-width:140px">
+          <label class="form-label" for="shift-start">Start Time</label>
+          <input type="time" class="form-input" id="shift-start" name="start_time" value="10:00" required>
+        </div>
+        <div class="form-group" style="margin-bottom:0;max-width:140px">
+          <label class="form-label" for="shift-end">End Time</label>
+          <input type="time" class="form-input" id="shift-end" name="end_time" value="17:00" required>
+        </div>
+        <button class="btn btn-primary btn-sm" type="submit">Add Shift</button>
+      </form>
+    </div>
   </div>
 
-  <div class="table-wrap" style="margin-bottom:20px">
-    <input data-table-filter="shift-rules-table" placeholder="Filter rules…"
-           style="margin-bottom:8px;padding:5px 10px;width:260px;font-size:13px">
-    <table class="table" id="shift-rules-table">
-      <thead>
-        <tr>
-          <th>#</th><th>Target</th><th>Shift</th>
-          <th>From (AD)</th><th>To (AD)</th><th style="width:80px">Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in shift_rules %}
-        <tr>
-          <td>{{ loop.index }}</td>
-          <td>
-            {% if r.employee_name %}
-              <span class="status success" style="font-size:11px">Employee</span> {{ r.employee_name }}
-            {% elif r.unit_name %}
-              <span class="status info" style="font-size:11px">Unit</span> {{ r.unit_name }}
-            {% elif r.section_name %}
-              <span class="status info" style="font-size:11px">Section</span> {{ r.section_name }}
-            {% elif r.department_name %}
-              <span class="status info" style="font-size:11px">Dept</span> {{ r.department_name }}
-            {% elif r.directorate_name %}
-              <span class="status info" style="font-size:11px">Dir</span> {{ r.directorate_name }}
-            {% else %}
-              <span class="muted">—</span>
-            {% endif %}
-          </td>
-          <td>
-            <strong>{{ r.shift_name }}</strong>
-            <span class="muted" style="font-size:11px">{{ r.start_time[:5] }}&ndash;{{ r.end_time[:5] }}</span>
-          </td>
-          <td>{{ r.from_date }}</td>
-          <td>{{ r.to_date or '—' }}</td>
-          <td>
-            <form method="post" action="/settings/shift-rules/{{ r.id }}/delete"
-                  onsubmit="return confirm('Delete this shift rule?')">
-              <button class="btn small danger" type="submit">Delete</button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="6" class="empty">No shift rules yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  {# ── Shift Rules ──────────────────────────────────────────────────────── #}
+  <div class="card" style="margin-bottom:var(--space-6)">
+    <div class="card-header">
+      <h2>Shift Rules</h2>
+      <span class="text-sm text-muted">Priority: Employee > Unit > Section > Department > Directorate</span>
+    </div>
+    <div class="table-wrap" style="border:none;border-radius:0">
+      <div style="padding:var(--space-3) var(--space-5)">
+        <input type="text" class="form-input" data-table-filter="shift-rules-table" placeholder="Filter rules…"
+               aria-label="Filter shift rules"
+               style="max-width:260px;font-size:var(--text-sm);padding:6px 10px">
+      </div>
+      <table class="table" id="shift-rules-table">
+        <thead>
+          <tr>
+            <th style="width:50px">#</th><th>Target</th><th>Shift</th>
+            <th>From (AD)</th><th>To (AD)</th><th style="width:100px">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in shift_rules %}
+          <tr>
+            <td class="text-sm text-muted">{{ loop.index }}</td>
+            <td>
+              {% if r.employee_name %}
+                <span class="badge badge-success" style="font-size:10px">Employee</span> {{ r.employee_name }}
+              {% elif r.unit_name %}
+                <span class="badge badge-info" style="font-size:10px">Unit</span> {{ r.unit_name }}
+              {% elif r.section_name %}
+                <span class="badge badge-info" style="font-size:10px">Section</span> {{ r.section_name }}
+              {% elif r.department_name %}
+                <span class="badge badge-info" style="font-size:10px">Dept</span> {{ r.department_name }}
+              {% elif r.directorate_name %}
+                <span class="badge badge-info" style="font-size:10px">Dir</span> {{ r.directorate_name }}
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              <strong>{{ r.shift_name }}</strong>
+              <span class="text-muted text-sm">{{ r.start_time[:5] }}&ndash;{{ r.end_time[:5] }}</span>
+            </td>
+            <td class="text-sm">{{ r.from_date }}</td>
+            <td class="text-sm">{{ r.to_date or '—' }}</td>
+            <td>
+              <form method="post" action="/settings/shift-rules/{{ r.id }}/delete" style="display:inline"
+                    onsubmit="return confirm('Delete this shift rule?')">
+                <button class="btn btn-sm btn-ghost" style="color:var(--color-danger)" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="empty">No shift rules yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 
-  <div class="add-rule-card">
-    <h3 style="margin:0 0 16px;font-size:14px;font-weight:700;border-bottom:1px solid #e2e8f0;padding-bottom:8px">
-      Add New Shift Rule
-    </h3>
-    <form method="post" action="/settings/shift-rules/add" id="rule-form">
-      <div class="rule-form-grid">
-
-        <div class="rule-form-col">
-          <label>Shift <span style="color:red">*</span>
-            <select name="shift_id" required style="margin-top:4px">
-              <option value="">— select shift —</option>
+  {# ── Add Shift Rule Form ─────────────────────────────────────────────── #}
+  <div class="card">
+    <div class="card-header">
+      <h2>Add New Shift Rule</h2>
+    </div>
+    <div class="card-body">
+      <form method="post" action="/settings/shift-rules/add" id="rule-form" style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-6)">
+        {# Left column: Shift + Dates #}
+        <div style="display:flex;flex-direction:column;gap:var(--space-4)">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" for="rule-shift">Shift <span class="required">*</span></label>
+            <select class="form-select" id="rule-shift" name="shift_id" required>
+              <option value="">— Select Shift —</option>
               {% for s in shifts %}
               <option value="{{ s.id }}">{{ s.name }} ({{ s.start_time[:5] }}–{{ s.end_time[:5] }})</option>
               {% endfor %}
             </select>
-          </label>
-
-          <label style="margin-top:14px">From Date (BS) <span style="color:red">*</span>
-            <input class="bsdp" data-ad-target="rule_from_ad" placeholder="Pick BS date" style="margin-top:4px">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">From Date (BS) <span class="required">*</span></label>
+            <input class="form-input bsdp" data-ad-target="rule_from_ad" placeholder="Pick BS date">
             <input type="hidden" name="from_date" id="rule_from_ad">
-          </label>
-
-          <label style="margin-top:14px">To Date (BS) <small class="muted">(optional)</small>
-            <input class="bsdp" data-ad-target="rule_to_ad" placeholder="Pick BS date" style="margin-top:4px">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">To Date (BS) <span class="form-hint">(optional)</span></label>
+            <input class="form-input bsdp" data-ad-target="rule_to_ad" placeholder="Pick BS date">
             <input type="hidden" name="to_date" id="rule_to_ad">
-          </label>
+          </div>
         </div>
 
-        <div class="rule-form-col">
-          <label style="display:block;margin-bottom:8px">Target Type</label>
-          <div class="target-type-pills">
-            {% for tv, tl in [('employee','Employee'),('department','Department'),
-                               ('section','Section'),('unit','Unit'),('directorate','Directorate')] %}
-            <label class="pill-radio">
-              <input type="radio" name="target_type" value="{{ tv }}"
-                     {% if tv == 'employee' %}checked{% endif %}
-                     onchange="ruleTargetChange(this.value)">
-              <span>{{ tl }}</span>
-            </label>
-            {% endfor %}
-          </div>
-
-          <div id="rule-emp-wrap" style="margin-top:12px">
-            <div class="emp-tags-picker">
-              <div id="rule-emp-tags" class="emp-tags-display" onclick="document.getElementById('rule-emp-search').focus()">
-                <span id="rule-emp-placeholder" style="color:#94a3b8;font-size:12px;padding:2px 4px">Click or type to select employees…</span>
-              </div>
-              <input type="text" id="rule-emp-search" placeholder="Search by name, ID, or department…"
-                     oninput="ruleEmpFilter(this.value)" onfocus="ruleEmpDropOpen()"
-                     autocomplete="off" style="border:none;border-top:1px solid #e2e8f0;padding:8px 10px;width:100%;font-size:13px;outline:none;background:#fff">
-              <div id="rule-emp-dropdown" class="emp-tags-dropdown" style="display:none">
-                {% for emp in employees %}
-                <div class="rule-emp-opt" tabindex="0"
-                     data-id="{{ emp.id }}"
-                     data-name="{{ emp.name or '(no name)' }}"
-                     data-search="{{ (emp.name or '')|lower }} {{ emp.company_id or '' }} {{ (emp.department_name or '')|lower }}"
-                     onclick="ruleEmpToggle(this)">
-                  <span class="emp-opt-check" id="rule-emp-ck-{{ emp.id }}">&#x25A1;</span>
-                  <span>{{ emp.name or '(no name)' }}
-                    {% if emp.company_id %}<span class="muted" style="font-size:11px">&nbsp;{{ emp.company_id }}</span>{% endif %}
-                    {% if emp.department_name %}<span style="color:#64748b;font-size:11px">&nbsp;—&nbsp;{{ emp.department_name }}</span>{% endif %}
-                  </span>
-                </div>
-                {% else %}
-                <div style="padding:12px;color:#94a3b8;font-size:13px">No employees in global_users yet.</div>
-                {% endfor %}
-              </div>
-            </div>
-            <div id="rule-emp-hidden" style="display:none">
-              {% for emp in employees %}
-              <input type="checkbox" name="global_user_id[]" value="{{ emp.id }}" id="rule-emp-cb-{{ emp.id }}">
+        {# Right column: Target Type #}
+        <div style="display:flex;flex-direction:column;gap:var(--space-4)">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">Target Type</label>
+            <div style="display:flex;gap:var(--space-2);flex-wrap:wrap">
+              {% for tv, tl in [('employee','Employee'),('department','Department'),
+                                 ('section','Section'),('unit','Unit'),('directorate','Directorate')] %}
+              <label style="display:flex;align-items:center;gap:4px;padding:6px 12px;border:1px solid var(--color-border);border-radius:var(--radius-md);cursor:pointer;font-size:var(--text-sm);transition:all 0.15s">
+                <input type="radio" name="target_type" value="{{ tv }}"
+                       {% if tv == 'employee' %}checked{% endif %}
+                       onchange="ruleTargetChange(this.value)" style="accent-color:var(--color-primary)">
+                {{ tl }}
+              </label>
               {% endfor %}
             </div>
           </div>
 
-          <div id="rule-dept-wrap" style="display:none;margin-top:12px">
-            <label>Department <span style="color:red">*</span>
-              <select name="department_id" id="rule-dept-select" style="margin-top:4px">
-                <option value="">— select department —</option>
+          <div id="rule-emp-wrap">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label">Employees</label>
+              <div class="emp-tags-picker" style="border:1px solid var(--color-border);border-radius:var(--radius-md);overflow:hidden">
+                <div id="rule-emp-tags" class="emp-tags-display" onclick="document.getElementById('rule-emp-search').focus()"
+                     style="display:flex;flex-wrap:wrap;gap:4px;padding:8px;min-height:38px">
+                  <span id="rule-emp-placeholder" style="color:var(--color-text-muted);font-size:var(--text-sm)">Click or type to select employees…</span>
+                </div>
+                <input type="text" id="rule-emp-search" placeholder="Search by name, ID, or department…"
+                       oninput="ruleEmpFilter(this.value)" onfocus="ruleEmpDropOpen()"
+                       autocomplete="off" style="border:none;border-top:1px solid var(--color-border-light);padding:8px 10px;width:100%;font-size:var(--text-sm);outline:none;background:var(--color-surface)">
+                <div id="rule-emp-dropdown" class="emp-tags-dropdown" style="display:none;max-height:200px;overflow-y:auto;border-top:1px solid var(--color-border-light)">
+                  {% for emp in employees %}
+                  <div class="rule-emp-opt" tabindex="0"
+                       data-id="{{ emp.id }}"
+                       data-name="{{ emp.name or '(no name)' }}"
+                       data-search="{{ (emp.name or '')|lower }} {{ emp.company_id or '' }} {{ (emp.department_name or '')|lower }}"
+                       onclick="ruleEmpToggle(this)"
+                       style="display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;font-size:var(--text-sm);transition:background 0.1s"
+                       onmouseover="this.style.background='var(--color-bg)'" onmouseout="this.style.background=''">
+                    <span class="emp-opt-check" id="rule-emp-ck-{{ emp.id }}" style="font-size:14px">&#x25A1;</span>
+                    <span>{{ emp.name or '(no name)' }}
+                      {% if emp.company_id %}<span class="text-muted" style="font-size:11px">&nbsp;{{ emp.company_id }}</span>{% endif %}
+                      {% if emp.department_name %}<span class="text-muted" style="font-size:11px">&nbsp;— {{ emp.department_name }}</span>{% endif %}
+                    </span>
+                  </div>
+                  {% else %}
+                  <div style="padding:12px;color:var(--color-text-muted);font-size:var(--text-sm)">No employees in global_users yet.</div>
+                  {% endfor %}
+                </div>
+              </div>
+              <div id="rule-emp-hidden" style="display:none">
+                {% for emp in employees %}
+                <input type="checkbox" name="global_user_id[]" value="{{ emp.id }}" id="rule-emp-cb-{{ emp.id }}">
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+
+          <div id="rule-dept-wrap" style="display:none">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label">Department <span class="required">*</span></label>
+              <select class="form-select" name="department_id" id="rule-dept-select">
+                <option value="">— Select —</option>
                 {% for d in departments %}
                 <option value="{{ d.id }}">{{ d.name }}{% if d.directorate_name %} ({{ d.directorate_name }}){% endif %}</option>
                 {% endfor %}
               </select>
-            </label>
+            </div>
           </div>
-
-          <div id="rule-sec-wrap" style="display:none;margin-top:12px">
-            <label>Section <span style="color:red">*</span>
-              <select name="section_id" id="rule-sec-select" style="margin-top:4px">
-                <option value="">— select section —</option>
+          <div id="rule-sec-wrap" style="display:none">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label">Section <span class="required">*</span></label>
+              <select class="form-select" name="section_id" id="rule-sec-select">
+                <option value="">— Select —</option>
                 {% for s in sections %}
                 <option value="{{ s.id }}">{{ s.name }}{% if s.department_name %} ({{ s.department_name }}){% endif %}</option>
                 {% endfor %}
               </select>
-            </label>
+            </div>
           </div>
-
-          <div id="rule-unit-wrap" style="display:none;margin-top:12px">
-            <label>Unit <span style="color:red">*</span>
-              <select name="unit_id" id="rule-unit-select" style="margin-top:4px">
-                <option value="">— select unit —</option>
+          <div id="rule-unit-wrap" style="display:none">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label">Unit <span class="required">*</span></label>
+              <select class="form-select" name="unit_id" id="rule-unit-select">
+                <option value="">— Select —</option>
                 {% for u in units %}
                 <option value="{{ u.id }}">{{ u.name }}{% if u.section_name %} ({{ u.section_name }}){% endif %}</option>
                 {% endfor %}
               </select>
-            </label>
+            </div>
           </div>
-
-          <div id="rule-dir-wrap" style="display:none;margin-top:12px">
-            <label>Directorate <span style="color:red">*</span>
-              <select name="directorate_id" id="rule-dir-select" style="margin-top:4px">
-                <option value="">— select directorate —</option>
+          <div id="rule-dir-wrap" style="display:none">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label">Directorate <span class="required">*</span></label>
+              <select class="form-select" name="directorate_id" id="rule-dir-select">
+                <option value="">— Select —</option>
                 {% for dr in directorates %}
                 <option value="{{ dr.id }}">{{ dr.name }}</option>
                 {% endfor %}
               </select>
-            </label>
+            </div>
           </div>
-
         </div>
-      </div>
 
-      <div style="margin-top:18px;padding-top:14px;border-top:1px solid #e2e8f0;display:flex;gap:10px;align-items:center">
-        <button class="btn primary" type="submit">Add Shift Rule</button>
-        <span id="rule-emp-count-badge" class="muted" style="font-size:13px"></span>
-      </div>
-    </form>
+        <div style="grid-column:1/-1;border-top:1px solid var(--color-border-light);padding-top:var(--space-4);display:flex;gap:var(--space-3);align-items:center">
+          <button class="btn btn-primary" type="submit">Add Shift Rule</button>
+          <span id="rule-emp-count-badge" class="text-sm text-muted"></span>
+        </div>
+      </form>
+    </div>
   </div>
-</section>
 
 </div>{# /tab-shifts #}
 
@@ -465,97 +563,344 @@
 {# ════════════════════════════════════════════════════════════════════════════
    TAB 3 — Employee Org Assignment
    ════════════════════════════════════════════════════════════════════════════ #}
-<div class="tab-pane" id="tab-emp-org" style="display:none">
-
-<section class="panel" id="sec-emp-org">
-  <div class="panel-head">
-    <h2>Employee Org Assignment</h2>
-    <span class="muted">Assign department, section and unit per employee</span>
+<div class="tab-pane" id="tab-emp-org" role="tabpanel" aria-labelledby="tab-btn-emp-org">
+  <div class="card">
+    <div class="card-header">
+      <h2>Employee Org Assignment</h2>
+      <span class="text-sm text-muted">Assign department, section and unit per employee</span>
+    </div>
+    <div style="padding:var(--space-3) var(--space-5);border-bottom:1px solid var(--color-border-light)">
+      <input type="text" class="form-input" data-table-filter="emp-org-table" placeholder="Search employees…"
+             style="max-width:260px;font-size:var(--text-sm);padding:6px 10px">
+    </div>
+    <div class="table-wrap" style="border:none;border-radius:0">
+      <table class="table" id="emp-org-table">
+        <thead>
+          <tr>
+            <th style="width:50px">#</th><th>Employee</th><th>Emp ID</th><th>Att. ID</th>
+            <th>Department</th><th>Section</th><th>Unit</th>
+            <th style="width:70px">Save</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for emp in employees %}
+          <tr>
+            <td class="text-sm text-muted">{{ loop.index }}</td>
+            <td><strong>{{ emp.name or '(no name)' }}</strong></td>
+            <td class="text-sm">{{ emp.company_id or '—' }}</td>
+            <td><code style="font-size:var(--text-xs)">{{ emp.global_user_id or '—' }}</code></td>
+            <td colspan="4">
+              <form method="post" action="/settings/employees/{{ emp.id }}/org"
+                    style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                <select class="form-select" name="department_id" style="min-width:140px;padding:4px 8px;font-size:var(--text-sm)">
+                  <option value="">— dept —</option>
+                  {% for d in departments %}
+                  <option value="{{ d.id }}" {% if emp.department_id == d.id %}selected{% endif %}>{{ d.name }}</option>
+                  {% endfor %}
+                </select>
+                <select class="form-select" name="section_id" style="min-width:130px;padding:4px 8px;font-size:var(--text-sm)">
+                  <option value="">— section —</option>
+                  {% for s in sections %}
+                  <option value="{{ s.id }}" {% if emp.section_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+                  {% endfor %}
+                </select>
+                <select class="form-select" name="unit_id" style="min-width:120px;padding:4px 8px;font-size:var(--text-sm)">
+                  <option value="">— unit —</option>
+                  {% for u in units %}
+                  <option value="{{ u.id }}" {% if emp.unit_id == u.id %}selected{% endif %}>{{ u.name }}</option>
+                  {% endfor %}
+                </select>
+                <button class="btn btn-sm btn-primary" type="submit">Save</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8" class="empty">No employees in global_users yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
-
-  <div style="margin-bottom:12px">
-    <input data-table-filter="emp-org-table" placeholder="Search employees…"
-           style="padding:6px 12px;width:260px;font-size:13px;border:1px solid #cbd5e1;border-radius:6px">
-  </div>
-
-  <div class="table-wrap">
-    <table class="table" id="emp-org-table">
-      <thead>
-        <tr>
-          <th>#</th><th>Employee</th><th>Emp ID</th><th>Att. ID</th>
-          <th>Department</th><th>Section</th><th>Unit</th>
-          <th style="width:60px">Save</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for emp in employees %}
-        <tr>
-          <td>{{ loop.index }}</td>
-          <td>{{ emp.name or '(no name)' }}</td>
-          <td>{{ emp.company_id or '—' }}</td>
-          <td><code style="font-size:11px">{{ emp.global_user_id or '—' }}</code></td>
-          <td colspan="4">
-            <form method="post" action="/settings/employees/{{ emp.id }}/org"
-                  style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-              <select name="department_id" style="min-width:140px">
-                <option value="">-- dept --</option>
-                {% for d in departments %}
-                <option value="{{ d.id }}" {% if emp.department_id == d.id %}selected{% endif %}>{{ d.name }}</option>
-                {% endfor %}
-              </select>
-              <select name="section_id" style="min-width:130px">
-                <option value="">-- section --</option>
-                {% for s in sections %}
-                <option value="{{ s.id }}" {% if emp.section_id == s.id %}selected{% endif %}>{{ s.name }}</option>
-                {% endfor %}
-              </select>
-              <select name="unit_id" style="min-width:120px">
-                <option value="">-- unit --</option>
-                {% for u in units %}
-                <option value="{{ u.id }}" {% if emp.unit_id == u.id %}selected{% endif %}>{{ u.name }}</option>
-                {% endfor %}
-              </select>
-              <button class="btn small" type="submit">Save</button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="8" class="empty">No employees in global_users yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-
 </div>{# /tab-emp-org #}
+
+{# ════════════════════════════════════════════════════════════════════════════
+   TAB 4 — Devices
+   ════════════════════════════════════════════════════════════════════════════ #}
+<div class="tab-pane" id="tab-devices" role="tabpanel" aria-labelledby="tab-btn-devices">
+  <div class="card">
+    <div class="card-header">
+      <h2>Device Management</h2>
+      <a href="/devices/add" class="btn btn-primary btn-sm">+ Add Device</a>
+    </div>
+    <div class="table-wrap" style="border:none;border-radius:0">
+      <table class="table">
+        <thead>
+          <tr><th>Name</th><th>IP Address</th><th>Port</th><th>Model</th><th>Status</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          {% for d in devices_list %}
+          <tr>
+            <td><strong>{{ d.name }}</strong></td>
+            <td><code style="font-size:var(--text-xs)">{{ d.ip_address }}</code></td>
+            <td>{{ d.port }}</td>
+            <td class="text-sm">{{ d.model or '—' }}</td>
+            <td>
+              {% if d.is_active %}
+                <span class="badge badge-success">Active</span>
+              {% else %}
+                <span class="badge badge-danger">Inactive</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="actions">
+                <a class="btn btn-sm btn-ghost" href="/devices/{{ d.id }}/edit">Edit</a>
+                <a class="btn btn-sm btn-ghost" href="/?device_id={{ d.id }}">Pull</a>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="empty">No devices configured. <a href="/devices/add">Add one</a>.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{# ════════════════════════════════════════════════════════════════════════════
+   TAB 5 — Bulk Enroll
+   ════════════════════════════════════════════════════════════════════════════ #}
+<div class="tab-pane" id="tab-bulk-enroll" role="tabpanel" aria-labelledby="tab-btn-bulk-enroll">
+  <div class="card">
+    <div class="card-header"><h2>Bulk Enroll Users to Device</h2></div>
+    <div class="card-body">
+      <p class="text-sm text-muted" style="margin-bottom:var(--space-4)">
+        Push global users to a device. Select a target device and which users to enroll.
+        Leave user IDs blank to enroll all global users.
+      </p>
+      <form method="post" action="/bulk-enroll" style="display:flex;flex-direction:column;gap:var(--space-4);max-width:480px">
+        <div class="form-group">
+          <label class="form-label" for="bulk-device">Target Device <span class="required">*</span></label>
+          <select class="form-select" id="bulk-device" name="device_id" required>
+            <option value="">— Select Device —</option>
+            {% for d in devices_list %}
+            <option value="{{ d.id }}">{{ d.name }} ({{ d.ip_address }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="bulk-user-ids">User IDs (comma-separated)</label>
+          <input class="form-input" id="bulk-user-ids" name="user_ids" placeholder="e.g. 1,2,3 — leave blank for all users">
+          <span class="form-hint">Global user IDs to push. If empty, all global users are enrolled.</span>
+        </div>
+        <div>
+          <button class="btn btn-primary" type="submit">Enroll Users</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# ════════════════════════════════════════════════════════════════════════════
+   TAB 6 — Migrate
+   ════════════════════════════════════════════════════════════════════════════ #}
+<div class="tab-pane" id="tab-migrate" role="tabpanel" aria-labelledby="tab-btn-migrate">
+  <div class="card" style="margin-bottom:var(--space-6)">
+    <div class="card-header"><h2>Migrate Users Between Devices</h2></div>
+    <div class="card-body">
+      <p class="text-sm text-muted" style="margin-bottom:var(--space-4)">
+        Copy user records from one device to another. Select source device, load users, then pick target device.
+      </p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-6)">
+        <div class="card" style="border:1px solid var(--color-border)">
+          <div class="card-header"><h2 style="font-size:var(--text-sm)">Step 1 — Source Device</h2></div>
+          <div class="card-body">
+            <form method="get" action="/settings" style="display:flex;flex-direction:column;gap:var(--space-3)">
+              <input type="hidden" name="tab" value="migrate">
+              <div class="form-group" style="margin-bottom:0">
+                <select class="form-select" name="source_id" required>
+                  <option value="">— Select Source —</option>
+                  {% for d in devices_list %}
+                  <option value="{{ d.id }}" {{ 'selected' if source_id == d.id }}>{{ d.name }} ({{ d.ip_address }})</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <button class="btn btn-primary btn-sm" type="submit">Load Users</button>
+            </form>
+          </div>
+        </div>
+        <div class="card" style="border:1px solid var(--color-border)">
+          <div class="card-header"><h2 style="font-size:var(--text-sm)">Step 2 — Target Device</h2></div>
+          <div class="card-body">
+            {% if source_users is not none %}
+            <form method="post" action="/settings/migrate" id="migrate-form" style="display:flex;flex-direction:column;gap:var(--space-3)">
+              <input type="hidden" name="source_device_id" value="{{ source_device.id }}">
+              <div class="form-group" style="margin-bottom:0">
+                <select class="form-select" name="target_device_id" required>
+                  <option value="">— Select Target —</option>
+                  {% for d in devices_list %}
+                  {% if d.id != source_device.id %}
+                  <option value="{{ d.id }}">{{ d.name }} ({{ d.ip_address }})</option>
+                  {% endif %}
+                  {% endfor %}
+                </select>
+              </div>
+              <button class="btn btn-primary btn-sm" type="submit" id="migrate-btn" disabled>
+                Migrate Selected (0)
+              </button>
+            </form>
+            {% else %}
+            <p class="text-sm text-muted">Load users from the source device first.</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if migrate_error %}
+  <div class="card" style="margin-bottom:var(--space-6);border-color:var(--color-danger-light)">
+    <div class="card-body" style="color:var(--color-danger)">{{ migrate_error }}</div>
+  </div>
+  {% endif %}
+
+  {% if source_users is not none %}
+  <div class="card">
+    <div class="card-header">
+      <h2>Users on {{ source_device.name }}</h2>
+      <span class="text-sm text-muted">{{ source_users|length }} users</span>
+    </div>
+    <div style="padding:var(--space-3) var(--space-5);border-bottom:1px solid var(--color-border-light);display:flex;gap:var(--space-3);align-items:center">
+      <span class="text-sm text-muted" id="migrate-count">0 selected</span>
+      <button class="btn btn-sm btn-ghost" type="button" onclick="selectAllMigrate(true)">Select All</button>
+      <button class="btn btn-sm btn-ghost" type="button" onclick="selectAllMigrate(false)">Clear</button>
+    </div>
+    <div class="table-wrap" style="border:none;border-radius:0">
+      <table class="table">
+        <thead>
+          <tr>
+            <th style="width:40px"><input type="checkbox" id="mig-all" onchange="toggleMigAll(this)"></th>
+            <th>UID</th><th>User ID</th><th>Name</th><th>Card</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in source_users %}
+          <tr>
+            <td><input type="checkbox" name="uids" value="{{ u.uid }}" form="migrate-form" class="mig-cb" onchange="updateMigrateBar()"></td>
+            <td class="text-sm">{{ u.uid }}</td>
+            <td><code style="font-size:var(--text-xs)">{{ u.user_id }}</code></td>
+            <td><strong>{{ u.name or '—' }}</strong></td>
+            <td class="text-sm">{{ u.card or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="empty">No users found on this device.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{# ════════════════════════════════════════════════════════════════════════════
+   TAB 7 — Schedule
+   ════════════════════════════════════════════════════════════════════════════ #}
+<div class="tab-pane" id="tab-schedule" role="tabpanel" aria-labelledby="tab-btn-schedule">
+  <div class="card">
+    <div class="card-header"><h2>Pull Schedule</h2></div>
+    <div class="card-body">
+      <p class="text-sm text-muted" style="margin-bottom:var(--space-4)">
+        Configure when attendance data is automatically pulled from devices.
+      </p>
+      <form method="post" action="/settings/schedule" style="display:flex;flex-direction:column;gap:var(--space-4);max-width:480px">
+        <div class="form-group">
+          <label class="form-label" for="pull-times">Pull Times (comma-separated HH:MM)</label>
+          <input class="form-input" id="pull-times" name="pull_times" value="{{ pull_times_str }}" placeholder="e.g. 09:00,13:00,17:30">
+          <span class="form-hint">Times in NPT when attendance is pulled from all devices.</span>
+        </div>
+        <div>
+          <button class="btn btn-primary" type="submit">Save Schedule</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 
 <script>
 /* ── Tab switching ──────────────────────────────────────────────────── */
 (function () {
-  var active = 'org';
-  // Check URL hash on load to restore tab
+  var active = 'company';
+  var validTabs = ['company', 'org', 'shifts', 'emp-org', 'devices', 'bulk-enroll', 'migrate', 'schedule'];
   var hash = window.location.hash.replace('#', '');
-  if (hash === 'shifts' || hash === 'emp-org') active = hash;
+  if (validTabs.indexOf(hash) >= 0) active = hash;
 
   function switchTab(name) {
     active = name;
     document.querySelectorAll('.tab-btn').forEach(function (b) {
-      b.classList.toggle('active', b.dataset.tab === name);
+      var isActive = b.dataset.tab === name;
+      b.classList.toggle('active', isActive);
+      b.setAttribute('aria-selected', isActive);
+      if (isActive) b.setAttribute('tabindex', '0');
+      else b.setAttribute('tabindex', '-1');
     });
     document.querySelectorAll('.tab-pane').forEach(function (p) {
-      p.style.display = p.id === 'tab-' + name ? '' : 'none';
+      var isActive = p.id === 'tab-' + name;
+      p.classList.toggle('active', isActive);
+      p.style.display = isActive ? '' : 'none';
     });
     history.replaceState(null, '', '#' + name);
+    var activeBtn = document.querySelector('.tab-btn[data-tab="' + name + '"]');
+    if (activeBtn) activeBtn.focus();
   }
 
   document.querySelectorAll('.tab-btn').forEach(function (b) {
     b.addEventListener('click', function () { switchTab(b.dataset.tab); });
+    b.addEventListener('keydown', function (e) {
+      var tabs = Array.from(document.querySelectorAll('.tab-btn'));
+      var idx = tabs.indexOf(b);
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        var next = tabs[(idx + 1) % tabs.length];
+        switchTab(next.dataset.tab);
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        var prev = tabs[(idx - 1 + tabs.length) % tabs.length];
+        switchTab(prev.dataset.tab);
+      }
+    });
   });
 
-  // If redirected from a settings action, check flash then stay on right tab
   switchTab(active);
 })();
+
+/* ── Migrate bar ───────────────────────────────────────────────────── */
+function updateMigrateBar() {
+  var checked = document.querySelectorAll('.mig-cb:checked').length;
+  var countEl = document.getElementById('migrate-count');
+  if (countEl) countEl.textContent = checked + ' selected';
+  var btn = document.getElementById('migrate-btn');
+  if (btn) {
+    btn.disabled = checked === 0;
+    btn.textContent = 'Migrate Selected (' + checked + ')';
+  }
+  var all = document.querySelectorAll('.mig-cb').length;
+  var allCb = document.getElementById('mig-all');
+  if (allCb) {
+    allCb.indeterminate = checked > 0 && checked < all;
+    allCb.checked = checked === all && all > 0;
+  }
+}
+function toggleMigAll(cb) {
+  document.querySelectorAll('.mig-cb').forEach(function(el) { el.checked = cb.checked; });
+  updateMigrateBar();
+}
+function selectAllMigrate(val) {
+  document.querySelectorAll('.mig-cb').forEach(function(el) { el.checked = val; });
+  var allCb = document.getElementById('mig-all');
+  if (allCb) allCb.checked = val;
+  updateMigrateBar();
+}
 
 /* ── Target type toggle ─────────────────────────────────────────────── */
 function ruleTargetChange(v) {
@@ -582,7 +927,8 @@ function ruleTargetChange(v) {
     Object.keys(selected).forEach(function (id) {
       var tag = document.createElement('span');
       tag.className = 'emp-tag';
-      tag.innerHTML = selected[id] + ' <button type="button" onclick="ruleEmpRemove(\'' + id + '\')">&times;</button>';
+      tag.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:4px 8px;background:var(--color-primary-light);color:var(--color-primary);border-radius:var(--radius-md);font-size:var(--text-xs);font-weight:500';
+      tag.innerHTML = selected[id] + ' <button type="button" onclick="ruleEmpRemove(\'' + id + '\')" style="background:none;border:none;cursor:pointer;font-size:14px;line-height:1;color:var(--color-primary)">&times;</button>';
       tagsEl.insertBefore(tag, ph);
     });
   }
@@ -595,12 +941,12 @@ function ruleTargetChange(v) {
     if (selected[id]) {
       delete selected[id];
       if (cb) cb.checked = false;
-      if (ck) ck.textContent = '□';
+      if (ck) ck.textContent = '\u25A1';
       el.classList.remove('selected');
     } else {
       selected[id] = name;
       if (cb) cb.checked = true;
-      if (ck) ck.textContent = '☑';
+      if (ck) ck.textContent = '\u2611';
       el.classList.add('selected');
     }
     updateTags();
@@ -612,7 +958,7 @@ function ruleTargetChange(v) {
     var ck = document.getElementById('rule-emp-ck-' + id);
     var opt = document.querySelector('.rule-emp-opt[data-id="' + id + '"]');
     if (cb) cb.checked = false;
-    if (ck) ck.textContent = '□';
+    if (ck) ck.textContent = '\u25A1';
     if (opt) opt.classList.remove('selected');
     updateTags();
   };

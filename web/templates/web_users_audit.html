@@ -20,8 +20,8 @@
 <section class="panel no-print" style="margin-bottom:12px">
   <form method="get" action="/web-users/audit-log" class="form" style="max-width:none">
     <div class="filter-bar" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
-      <label style="min-width:200px">Filter by User
-        <select name="uid" onchange="this.form.submit()">
+      <label for="audit-uid" style="min-width:200px">Filter by User
+        <select id="audit-uid" name="uid" onchange="this.form.submit()">
           <option value="">— All users —</option>
           {% for u in users %}
           <option value="{{ u.id }}" {{ 'selected' if filter_uid == u.id }}>
@@ -32,7 +32,7 @@
       </label>
       {% if filter_uid %}
       <div style="padding-top:18px">
-        <a class="btn ghost" href="/web-users/audit-log">Clear Filter</a>
+        <a class="btn btn-ghost" href="/web-users/audit-log" aria-label="Clear user filter">Clear Filter</a>
       </div>
       {% endif %}
     </div>
@@ -40,7 +40,7 @@
 </section>
 
 <section class="panel">
-  <div class="panel-head">
+  <div class="card-header">
     <h2>{{ logs | length }} event{{ 's' if logs | length != 1 }}
       {% if filter_uid %}<span style="font-weight:400;color:#6b7280"> for selected user</span>{% endif %}
     </h2>
@@ -49,12 +49,12 @@
     <table class="table" style="font-size:13px">
       <thead>
         <tr>
-          <th style="width:160px">Time (NPT)</th>
-          <th>Username</th>
-          <th>Action</th>
-          <th>IP Address</th>
-          <th>User Agent</th>
-          <th>Details</th>
+          <th scope="col" style="width:160px">Time (NPT)</th>
+          <th scope="col">Username</th>
+          <th scope="col">Action</th>
+          <th scope="col">IP Address</th>
+          <th scope="col">User Agent</th>
+          <th scope="col">Details</th>
         </tr>
       </thead>
       <tbody>

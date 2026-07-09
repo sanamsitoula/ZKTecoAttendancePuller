@@ -57,72 +57,89 @@ thead .day-holiday { background: #fca5a5 !important; }
 }
 </style>
 
-<section class="page-head no-print">
+<div class="page-header no-print">
   <div>
-    <p class="eyebrow">Reports</p>
+    <p class="subtitle">Reports / Hajiri</p>
     <h1>Hajiri Vivaran — हाजिरी विवरण</h1>
   </div>
-  <div class="head-actions">
-    <button class="btn" onclick="window.print()">Print (A3 Landscape)</button>
-    <a class="btn" href="/reports/monthly">Monthly Detail</a>
+  <div class="page-actions">
+    <button class="btn btn-secondary" onclick="window.print()">Print (A3 Landscape)</button>
+    <a class="btn btn-primary" href="/reports/monthly">Monthly Detail</a>
   </div>
-</section>
+</div>
 
 {% if error %}
-<section class="panel"><p class="bad-text">{{ error }}</p></section>
+<div class="card" style="margin-bottom:var(--space-6);border-color:var(--color-danger-light)">
+  <div class="card-body" style="color:var(--color-danger)">{{ error }}</div>
+</div>
 {% else %}
 
-{# ── Filter bar ── #}
-<section class="panel no-print" style="padding:14px 18px">
-  <form method="get" action="/reports/hajiri" class="filter-bar">
-    <label style="flex:1;min-width:80px">Year (BS)
-      <input type="number" name="bs_year" value="{{ sel_bs_year }}" min="2070" max="2100">
-    </label>
-    <label style="min-width:160px">Month (BS)
-      <select name="bs_month">
-        {% set months=['','Baisakh','Jestha','Ashadh','Shrawan','Bhadra','Ashwin','Kartik','Mangsir','Poush','Magh','Falgun','Chaitra'] %}
-        {% for i in range(1,13) %}
-        <option value="{{ i }}" {{ 'selected' if sel_bs_month==i }}>{{ i }} — {{ months[i] }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label style="min-width:160px">Department
-      <select name="department_id">
-        <option value="">All departments</option>
-        {% for d in departments %}
-        <option value="{{ d.id }}" {{ 'selected' if f_dept==d.id|string }}>{{ d.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label style="min-width:150px">Section
-      <select name="section_id">
-        <option value="">All sections</option>
-        {% for s in sections %}
-        <option value="{{ s.id }}" {{ 'selected' if f_sec==s.id|string }}>{{ s.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label style="min-width:130px">Type
-      <select name="emp_type">
-        <option value="" {{ 'selected' if not f_emp_type }}>All types</option>
-        <option value="PERMANENT"  {{ 'selected' if f_emp_type=='PERMANENT'  }}>Permanent</option>
-        <option value="CONTRACT"   {{ 'selected' if f_emp_type=='CONTRACT'   }}>Contract</option>
-        <option value="DAILY_WAGES"{{ 'selected' if f_emp_type=='DAILY_WAGES'}}>Daily Wages</option>
-      </select>
-    </label>
-    <label style="flex:1;min-width:140px">Search
-      <input type="text" name="search" value="{{ f_search }}" placeholder="Name or ID…">
-    </label>
-    <div style="display:flex;gap:6px;align-items:flex-end">
-      <button class="btn primary" type="submit">Filter</button>
-      <a class="btn" href="/reports/hajiri?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}">Reset</a>
-    </div>
-  </form>
-</section>
+<div class="card no-print" style="margin-bottom:var(--space-6)">
+  <div class="card-body">
+    <form method="get" action="/reports/hajiri" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="margin-bottom:0;min-width:90px">
+        <label class="form-label" for="haj-year">Year (BS)</label>
+        <input type="number" class="form-input" id="haj-year" name="bs_year" value="{{ sel_bs_year }}" min="2070" max="2100">
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:160px">
+        <label class="form-label" for="haj-month">Month (BS)</label>
+        <select class="form-select" id="haj-month" name="bs_month">
+          {% set months=['','Baisakh','Jestha','Ashadh','Shrawan','Bhadra','Ashwin','Kartik','Mangsir','Poush','Magh','Falgun','Chaitra'] %}
+          {% for i in range(1,13) %}
+          <option value="{{ i }}" {{ 'selected' if sel_bs_month==i }}>{{ i }} — {{ months[i] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:160px">
+        <label class="form-label" for="haj-dept">Department</label>
+        <select class="form-select" id="haj-dept" name="department_id">
+          <option value="">All departments</option>
+          {% for d in departments %}
+          <option value="{{ d.id }}" {{ 'selected' if f_dept==d.id|string }}>{{ d.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:150px">
+        <label class="form-label" for="haj-section">Section</label>
+        <select class="form-select" id="haj-section" name="section_id">
+          <option value="">All sections</option>
+          {% for s in sections %}
+          <option value="{{ s.id }}" {{ 'selected' if f_sec==s.id|string }}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:130px">
+        <label class="form-label" for="haj-type">Type</label>
+        <select class="form-select" id="haj-type" name="emp_type">
+          <option value="" {{ 'selected' if not f_emp_type }}>All types</option>
+          <option value="PERMANENT"  {{ 'selected' if f_emp_type=='PERMANENT'  }}>Permanent</option>
+          <option value="CONTRACT"   {{ 'selected' if f_emp_type=='CONTRACT'   }}>Contract</option>
+          <option value="DAILY_WAGES"{{ 'selected' if f_emp_type=='DAILY_WAGES'}}>Daily Wages</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0;flex:1;min-width:140px">
+        <label class="form-label" for="haj-search">Search</label>
+        <input type="text" class="form-input" id="haj-search" name="search" value="{{ f_search }}" placeholder="Name or ID…">
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-primary btn-sm" type="submit">Filter</button>
+        <a class="btn btn-ghost btn-sm" href="/reports/hajiri?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}">Reset</a>
+      </div>
+    </form>
+  </div>
+</div>
 
 {# ── Print header ── #}
 <div style="text-align:center;margin-bottom:8px">
-  <div style="font-size:14pt;font-weight:700">{{ COMPANY_NAME }}</div>
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+    {% if company and company.logo_url %}
+    <img src="{{ company.logo_url }}" alt="Logo" style="max-height:48px;max-width:180px;object-fit:contain">
+    {% endif %}
+    <div>
+      <div style="font-size:14pt;font-weight:700">{{ company.company_name if company else COMPANY_NAME }}</div>
+      {% if company and company.address %}<div style="font-size:9pt;color:#475569">{{ company.address }}</div>{% endif %}
+    </div>
+  </div>
   <div style="font-size:11pt;font-weight:700">हाजिरी विवरण — {{ month_name }} {{ bs_year }} BS</div>
   <div style="font-size:9pt;color:#475569">{{ from_ad }} to {{ to_ad }} &nbsp;|&nbsp; {{ employees|length }} employee(s) &nbsp;|&nbsp; {{ total_days }} days</div>
 </div>
@@ -152,21 +169,21 @@ thead .day-holiday { background: #fca5a5 !important; }
 <table class="hajiri-table">
   <thead>
     <tr>
-      <th class="col-serial">#</th>
-      <th class="col-name" style="min-width:140px;text-align:left">Employee</th>
-      <th style="width:55px">Dept</th>
+      <th scope="col" class="col-serial">#</th>
+      <th scope="col" class="col-name" style="min-width:140px;text-align:left">Employee</th>
+      <th scope="col" style="width:55px">Dept</th>
       {% for day in day_list %}
       <th class="col-day {% if day.is_weekend %}day-weekend{% elif day.is_holiday %}day-holiday{% endif %}"
           title="{{ day.date }}">{{ day.day_num }}</th>
       {% endfor %}
-      <th class="col-sum" title="Present days">उप.</th>
-      <th class="col-sum" title="Saturday">शनि</th>
-      <th class="col-sum" title="Public/Festival Holiday">बिदा</th>
-      <th class="col-sum" title="Home Leave (घर बिदा)">घ.बि.</th>
-      <th class="col-sum" title="Sick Leave (बिरामी बिदा)">बि.बि.</th>
-      <th class="col-sum" title="Other leave">अ.बि.</th>
-      <th class="col-sum" title="Absent">अनु.</th>
-      <th class="col-sum ot-col" title="OT hours">OT</th>
+      <th scope="col" class="col-sum" title="Present days">उप.</th>
+      <th scope="col" class="col-sum" title="Saturday">शनि</th>
+      <th scope="col" class="col-sum" title="Public/Festival Holiday">बिदा</th>
+      <th scope="col" class="col-sum" title="Home Leave (घर बिदा)">घ.बि.</th>
+      <th scope="col" class="col-sum" title="Sick Leave (बिरामी बिदा)">बि.बि.</th>
+      <th scope="col" class="col-sum" title="Other leave">अ.बि.</th>
+      <th scope="col" class="col-sum" title="Absent">अनु.</th>
+      <th scope="col" class="col-sum ot-col" title="OT hours">OT</th>
     </tr>
   </thead>
   <tbody>

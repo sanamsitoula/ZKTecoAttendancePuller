@@ -3,6 +3,7 @@
 db_config.json
 devices.json
 users.json
+auto_attend_config.json
 
 # Python
 __pycache__/
@@ -30,3 +31,5 @@ reports/
 # Database backups — contain employee PII; store outside the repo
 db_backup/
 *.sql.backup
+# Added by code-review-graph
+.code-review-graph/

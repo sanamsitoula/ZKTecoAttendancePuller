@@ -503,6 +503,206 @@ def get_connection():
     return psycopg2.connect(**load_db_config())
 
 
+_PHASE10_SQL = """
+-- Phase 10: kaaj (field visit), per-day remarks, manual attendance source
+
+ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS source      VARCHAR(20) DEFAULT 'device';
+ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS manual_note TEXT;
+
+CREATE TABLE IF NOT EXISTS kaaj_records (
+    id              SERIAL PRIMARY KEY,
+    global_user_id  INTEGER NOT NULL REFERENCES global_users(id) ON DELETE CASCADE,
+    ad_date         DATE NOT NULL,
+    bs_date         VARCHAR(10),
+    is_paid         BOOLEAN NOT NULL DEFAULT TRUE,
+    reason          TEXT,
+    approved_by     VARCHAR(100),
+    created_by      INTEGER,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (global_user_id, ad_date)
+);
+CREATE INDEX IF NOT EXISTS idx_kaaj_user_date ON kaaj_records (global_user_id, ad_date);
+CREATE INDEX IF NOT EXISTS idx_kaaj_date      ON kaaj_records (ad_date);
+
+CREATE TABLE IF NOT EXISTS attendance_day_remarks (
+    id              SERIAL PRIMARY KEY,
+    global_user_id  INTEGER NOT NULL REFERENCES global_users(id) ON DELETE CASCADE,
+    ad_date         DATE NOT NULL,
+    bs_date         VARCHAR(10),
+    remark_text     TEXT NOT NULL,
+    created_by      INTEGER,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (global_user_id, ad_date)
+);
+CREATE INDEX IF NOT EXISTS idx_day_remark_user_date ON attendance_day_remarks (global_user_id, ad_date);
+
+-- Seed Kaaj as a leave type if not present
+INSERT INTO leave_types (name, code, days_per_year, max_accumulate, carry_forward, is_paid,
+                         description, display_code, color_code, sort_order)
+VALUES ('Kaaj (Field Duty)', 'KAAJ_PAID',   0, 0, FALSE, TRUE,  'Official field visit – paid',   'का',  '#0369a1', 9)
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO leave_types (name, code, days_per_year, max_accumulate, carry_forward, is_paid,
+                         description, display_code, color_code, sort_order)
+VALUES ('Kaaj (Unpaid)',     'KAAJ_UNPAID', 0, 0, FALSE, FALSE, 'Official field visit – unpaid', 'काX', '#64748b', 10)
+ON CONFLICT (code) DO NOTHING;
+"""
+
+
+_PHASE11_SQL = """
+-- Phase 11: Enhanced global_users fields and company_settings table
+
+-- Add new fields to global_users for HR perspective
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS usertype          VARCHAR(20) DEFAULT 'PERMANENT';
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS appointment_date DATE;
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS dob               DATE;
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS gender            VARCHAR(10);
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS profilepic_url    VARCHAR(500);
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS documents         JSONB;
+
+-- Create company_settings table
+CREATE TABLE IF NOT EXISTS company_settings (
+    id              SERIAL PRIMARY KEY,
+    company_name    VARCHAR(200) NOT NULL DEFAULT 'Janak Education',
+    logo_url        VARCHAR(500),
+    address         TEXT,
+    phone           VARCHAR(50),
+    email           VARCHAR(200),
+    website         VARCHAR(200),
+    pan_number      VARCHAR(50),
+    fiscal_year_bs  VARCHAR(10),
+    created_by      INTEGER,
+    updated_by      INTEGER,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Insert default company settings if not exists
+INSERT INTO company_settings (company_name, address, phone, email, website)
+VALUES ('Janak Education', 'Kathmandu, Nepal', '+977-XXXXXXXX', 'info@janakeducation.edu.np', 'https://janakeducation.edu.np')
+ON CONFLICT DO NOTHING;
+"""
+
+
+_PHASE12_AUTO_ATTEND_SQL = """
+-- Phase 12: auto_attend_rules table
+
+CREATE TABLE IF NOT EXISTS auto_attend_rules (
+    id                      SERIAL PRIMARY KEY,
+    user_id                 VARCHAR(50)  NOT NULL,
+    device_ids              INTEGER[]    NOT NULL DEFAULT '{1,2}',
+    is_active               BOOLEAN      NOT NULL DEFAULT TRUE,
+
+    -- Check-in window
+    checkin_start           TIME NOT NULL DEFAULT '08:57:00',
+    checkin_end             TIME NOT NULL DEFAULT '08:59:49',
+    checkin_days            INTEGER[] NOT NULL DEFAULT '{1,2,3,4,5}',
+
+    -- Check-out window
+    checkout_start          TIME NOT NULL DEFAULT '17:19:00',
+    checkout_end            TIME NOT NULL DEFAULT '17:27:00',
+    checkout_days           INTEGER[] NOT NULL DEFAULT '{1,2,3,4,5}',
+
+    -- Source tag for attendance_logs
+    source_tag              VARCHAR(20) NOT NULL DEFAULT 'auto_attend',
+
+    -- Timezone
+    timezone                VARCHAR(50) NOT NULL DEFAULT 'Asia/Kathmandu',
+
+    -- Schedule (when the service fires the job)
+    schedule_hour           SMALLINT NOT NULL DEFAULT 8,
+    schedule_minute         SMALLINT NOT NULL DEFAULT 56,
+    checkout_schedule_hour  SMALLINT NOT NULL DEFAULT 17,
+    checkout_schedule_minute SMALLINT NOT NULL DEFAULT 18,
+
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_auto_attend_user ON auto_attend_rules (user_id, is_active);
+
+-- Seed default rule for user 258 on devices 1,2 if no rules exist
+INSERT INTO auto_attend_rules (user_id, device_ids)
+SELECT '258', '{1,2}'
+WHERE NOT EXISTS (SELECT 1 FROM auto_attend_rules LIMIT 1);
+"""
+
+
+_PHASE13_PAYROLL_SQL = """
+-- Phase 13: Payroll, overtime & tax
+
+CREATE TABLE IF NOT EXISTS payroll_salary_structures (
+    id             SERIAL PRIMARY KEY,
+    global_user_id INTEGER NOT NULL REFERENCES global_users(id) ON DELETE CASCADE,
+    basic_salary   NUMERIC(12,2) NOT NULL DEFAULT 0,
+    allowances     NUMERIC(12,2) NOT NULL DEFAULT 0,
+    daily_hours    NUMERIC(4,1)  NOT NULL DEFAULT 8,
+    ot_multiplier  NUMERIC(4,2)  NOT NULL DEFAULT 1.5,
+    marital        VARCHAR(10)   NOT NULL DEFAULT 'single',
+    other_deductions NUMERIC(12,2) NOT NULL DEFAULT 0,
+    effective_bs   VARCHAR(10)   DEFAULT '',
+    is_active      BOOLEAN       NOT NULL DEFAULT TRUE,
+    updated_at     TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    UNIQUE (global_user_id)
+);
+
+CREATE TABLE IF NOT EXISTS payroll_runs (
+    id           SERIAL PRIMARY KEY,
+    bs_year      INTEGER NOT NULL,
+    bs_month     INTEGER NOT NULL,
+    period_index INTEGER NOT NULL DEFAULT 1,
+    working_days INTEGER NOT NULL DEFAULT 30,
+    status       VARCHAR(20) NOT NULL DEFAULT 'draft',
+    note         TEXT,
+    created_by   VARCHAR(100),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (bs_year, bs_month)
+);
+
+CREATE TABLE IF NOT EXISTS payroll_items (
+    id               SERIAL PRIMARY KEY,
+    run_id           INTEGER NOT NULL REFERENCES payroll_runs(id) ON DELETE CASCADE,
+    global_user_id   INTEGER NOT NULL REFERENCES global_users(id) ON DELETE CASCADE,
+    present_days     NUMERIC(5,1) NOT NULL DEFAULT 0,
+    ot_hours         NUMERIC(6,2) NOT NULL DEFAULT 0,
+    ot_manual        BOOLEAN      NOT NULL DEFAULT FALSE,
+    earned_basic     NUMERIC(12,2) NOT NULL DEFAULT 0,
+    earned_allowance NUMERIC(12,2) NOT NULL DEFAULT 0,
+    ot_pay           NUMERIC(12,2) NOT NULL DEFAULT 0,
+    other_earnings   NUMERIC(12,2) NOT NULL DEFAULT 0,
+    gross            NUMERIC(12,2) NOT NULL DEFAULT 0,
+    taxable_this     NUMERIC(12,2) NOT NULL DEFAULT 0,
+    taxable_ytd      NUMERIC(12,2) NOT NULL DEFAULT 0,
+    tax              NUMERIC(12,2) NOT NULL DEFAULT 0,
+    other_deductions NUMERIC(12,2) NOT NULL DEFAULT 0,
+    net_pay          NUMERIC(12,2) NOT NULL DEFAULT 0,
+    detail           JSONB,
+    UNIQUE (run_id, global_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_payroll_items_run  ON payroll_items (run_id);
+CREATE INDEX IF NOT EXISTS idx_payroll_items_user ON payroll_items (global_user_id);
+"""
+
+
+_PHASE14_HOLIDAY_OT_SQL = """
+-- Phase 14: holiday-overtime premium rules (scoped by employee / dept / section)
+CREATE TABLE IF NOT EXISTS payroll_holiday_ot_rules (
+    id             SERIAL PRIMARY KEY,
+    global_user_id INTEGER REFERENCES global_users(id) ON DELETE CASCADE,
+    department_id  INTEGER REFERENCES departments(id)  ON DELETE CASCADE,
+    section_id     INTEGER REFERENCES sections(id)     ON DELETE CASCADE,
+    multiplier     NUMERIC(4,2) NOT NULL DEFAULT 1.5,
+    is_active      BOOLEAN NOT NULL DEFAULT TRUE,
+    note           TEXT,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_hot_rules_user ON payroll_holiday_ot_rules (global_user_id);
+CREATE INDEX IF NOT EXISTS idx_hot_rules_dept ON payroll_holiday_ot_rules (department_id);
+CREATE INDEX IF NOT EXISTS idx_hot_rules_sec  ON payroll_holiday_ot_rules (section_id);
+"""
+
+
 def init_schema(conn) -> None:
     # Phase 1: core DDL
     with conn.cursor() as cur:
@@ -579,6 +779,46 @@ def init_schema(conn) -> None:
     except Exception as e:
         conn.rollback()
         logger.warning("Phase 9 (web_users) migration skipped: %s", e)
+    # Phase 10: kaaj records, day remarks, manual attendance source column
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE10_SQL)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 10 migration skipped: %s", e)
+    # Phase 11: enhanced global_users fields and company_settings
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE11_SQL)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 11 migration skipped: %s", e)
+    # Phase 12: auto_attend_rules table
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE12_AUTO_ATTEND_SQL)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 12 (auto_attend_rules) migration skipped: %s", e)
+    # Phase 13: payroll, overtime & tax
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE13_PAYROLL_SQL)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 13 (payroll) migration skipped: %s", e)
+    # Phase 14: holiday-overtime premium rules
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE14_HOLIDAY_OT_SQL)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 14 (holiday OT) migration skipped: %s", e)
     logger.info("Database schema initialized.")
 
 
@@ -921,9 +1161,16 @@ def list_global_users(conn, search: str | None = None,
                       directorate_id: int | None = None,
                       department_id: int | None = None,
                       section_id: int | None = None,
-                      unit_id: int | None = None):
+                      unit_id: int | None = None,
+                      emp_status: str | None = None,
+                      include_deleted: bool = False):
     where = []
     params = []
+    if not include_deleted:
+        where.append("gu.emp_status IS DISTINCT FROM 'DELETED'")
+    if emp_status:
+        where.append("gu.emp_status = %s")
+        params.append(emp_status)
     if search:
         where.append("""(
             gu.name ILIKE %s OR gu.global_user_id ILIKE %s OR gu.employee_id ILIKE %s
@@ -949,6 +1196,7 @@ def list_global_users(conn, search: str | None = None,
         SELECT
             gu.id, gu.global_user_id, gu.employee_id, gu.name,
             gu.privilege, gu.card, gu.bank_number, gu.email, gu.phone,
+            gu.emp_status, gu.emp_type, gu.join_date, gu.designation,
             gu.shift_id, sh.name AS shift_name,
             to_char(sh.start_time,'HH24:MI') AS shift_start,
             to_char(sh.end_time,  'HH24:MI') AS shift_end,
@@ -1040,6 +1288,16 @@ def update_global_user(conn, db_id: int, data: dict, app_user_id: int = 0) -> No
             section_id       = %s,
             unit_id          = %s,
             shift_id         = %s,
+            emp_type         = %s,
+            emp_status       = %s,
+            join_date        = %s,
+            level_grade      = %s,
+            designation      = %s,
+            usertype         = %s,
+            appointment_date = %s,
+            dob              = %s,
+            gender           = %s,
+            profilepic_url   = %s,
             updated_at       = NOW(),
             updated_bs       = %s,
             updated_by       = %s
@@ -1059,6 +1317,16 @@ def update_global_user(conn, db_id: int, data: dict, app_user_id: int = 0) -> No
             data.get('section_id') or None,
             data.get('unit_id') or None,
             data.get('shift_id') or None,
+            data.get('emp_type') or 'PERMANENT',
+            data.get('emp_status') or 'ACTIVE',
+            data.get('join_date') or None,
+            data.get('level_grade') or None,
+            data.get('designation') or None,
+            data.get('usertype') or 'PERMANENT',
+            data.get('appointment_date') or None,
+            data.get('dob') or None,
+            data.get('gender') or None,
+            data.get('profilepic_url') or None,
             _today_bs(),
             app_user_id or None,
             db_id,
@@ -1149,18 +1417,25 @@ def get_employees_for_device(conn, device_id: int) -> list:
         return [dict(r) for r in cur.fetchall()]
 
 
-def get_employees_for_report(conn) -> list:
+def get_employees_for_report(conn, emp_status: str | None = None) -> list:
     """
     Return employees grouped by global identity for the monthly report picker.
     Employees linked to global_users are merged into one entry (all devices combined).
     Unlinked employees are grouped by normalised name.
     Each item: {key, display_name, company_id, global_id, devices:[{device_id,device_name,user_id}]}
     """
-    sql = """
+    where = []
+    params = []
+    if emp_status:
+        where.append("gu.emp_status = %s")
+        params.append(emp_status)
+    w = f"WHERE {' AND '.join(where)}" if where else ""
+    sql = f"""
         SELECT
             COALESCE(gu.name, e.name, e.user_id) AS display_name,
             gu.id                                  AS global_id,
             gu.global_user_id                      AS company_id,
+            gu.emp_status,
             dept.id                                AS department_id,
             dept.name                              AS department_name,
             dir.id                                 AS directorate_id,
@@ -1179,6 +1454,7 @@ def get_employees_for_report(conn) -> list:
         LEFT JOIN directorates dir ON dept.directorate_id = dir.id
         LEFT JOIN sections    sect ON gu.section_id      = sect.id
         LEFT JOIN units       unt  ON gu.unit_id         = unt.id
+        {w}
         ORDER BY
             CASE WHEN gu.global_user_id ~ '^[0-9]+$'
                  THEN gu.global_user_id::INTEGER ELSE NULL END NULLS LAST,
@@ -1238,7 +1514,8 @@ def get_employee_daily_attendance_multi(conn, device_user_pairs: list,
         SELECT
             al.timestamp AT TIME ZONE 'Asia/Kathmandu' AS ts_npt,
             DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') AS work_date,
-            d.name AS device_name
+            d.name AS device_name,
+            COALESCE(al.source, 'device') AS source
         FROM attendance_logs al
         JOIN devices d ON al.device_id = d.id
         WHERE ({placeholders})
@@ -1270,13 +1547,16 @@ def get_employee_daily_attendance_multi(conn, device_user_pairs: list,
         if not deduped:
             continue
 
+        has_manual = any(p.get('source') == 'manual' for p in deduped)
         result.append({
             'work_date':  work_date,
             'first_punch': deduped[0]['ts_npt'],
             'last_punch':  deduped[-1]['ts_npt'],
+            'has_manual':  has_manual,
             'all_punch_times': [p['ts_npt'].time() for p in deduped],
             'all_punches_with_device': [
-                {'time': p['ts_npt'].time(), 'device_name': p['device_name']}
+                {'time': p['ts_npt'].time(), 'device_name': p['device_name'],
+                 'source': p.get('source', 'device')}
                 for p in deduped
             ],
         })
@@ -1493,6 +1773,7 @@ def get_shift_calendar(conn, global_user_id: int, from_ad: str, to_ad: str) -> d
     """
     Returns {date_obj: {name, start_min, end_min}} for the date range.
     Priority: employee (5) > unit (4) > section (3) > department (2) > directorate (1).
+    Fallback: employee's default shift from global_users.shift_id.
     """
     if not global_user_id:
         return {}
@@ -1500,7 +1781,7 @@ def get_shift_calendar(conn, global_user_id: int, from_ad: str, to_ad: str) -> d
     sql = """
         WITH emp_org AS (
             SELECT gu.department_id, gu.section_id, gu.unit_id,
-                   d.directorate_id
+                   d.directorate_id, gu.shift_id AS emp_shift_id
             FROM global_users gu
             LEFT JOIN departments d ON d.id = gu.department_id
             WHERE gu.id = %(uid)s
@@ -1534,12 +1815,20 @@ def get_shift_calendar(conn, global_user_id: int, from_ad: str, to_ad: str) -> d
             FROM shift_rules sr JOIN shifts sh ON sh.id = sr.shift_id
             JOIN emp_org eo ON eo.directorate_id IS NOT NULL AND eo.directorate_id = sr.directorate_id
             WHERE sr.from_date <= %(to_ad)s AND (sr.to_date IS NULL OR sr.to_date >= %(from_ad)s)
+        ),
+        emp_default_shift AS (
+            SELECT sh.start_time, sh.end_time, sh.name,
+                   %(from_ad)s::date AS from_date, NULL::date AS to_date, 0 AS prio
+            FROM emp_org eo
+            JOIN shifts sh ON sh.id = eo.emp_shift_id
+            WHERE eo.emp_shift_id IS NOT NULL
         )
         SELECT * FROM emp_rules
         UNION ALL SELECT * FROM unit_rules
         UNION ALL SELECT * FROM sec_rules
         UNION ALL SELECT * FROM dept_rules
         UNION ALL SELECT * FROM dir_rules
+        UNION ALL SELECT * FROM emp_default_shift
         ORDER BY prio DESC, from_date DESC
     """
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -1846,7 +2135,8 @@ def get_leaves_for_date(conn, date_ad: str) -> list:
         SELECT la.global_user_id, la.days, la.reason,
                gu.name AS employee_name, gu.global_user_id AS company_id,
                d.name  AS department_name,
-               lt.name AS leave_type_name, lt.code
+               lt.name AS leave_type_name, lt.code,
+               lt.color_code, lt.display_code
         FROM leave_applications la
         JOIN global_users gu ON gu.id = la.global_user_id
         JOIN leave_types  lt ON lt.id = la.leave_type_id
@@ -1865,17 +2155,21 @@ def create_leave_application(conn, global_user_id: int, leave_type_id: int,
                               days: float, reason: str = '',
                               applied_bs: str = '',
                               status: str = 'pending',
-                              app_user_id: int = 0) -> int:
+                              app_user_id: int = 0,
+                              is_half_day: bool = False,
+                              half_day_part: str = '') -> int:
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO leave_applications
                 (global_user_id, leave_type_id, from_bs, to_bs, from_ad, to_ad,
-                 days, reason, applied_bs, applied_ad, status, created_by, updated_by)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, %s, %s, %s)
+                 days, reason, applied_bs, applied_ad, status, created_by, updated_by,
+                 is_half_day, half_day_part)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, %s, %s, %s, %s, %s)
             RETURNING id
         """, (global_user_id, leave_type_id, from_bs, to_bs, from_ad, to_ad,
               float(days), reason or '', applied_bs or '', status,
-              app_user_id or None, app_user_id or None))
+              app_user_id or None, app_user_id or None,
+              bool(is_half_day), half_day_part or None))
         row = cur.fetchone()
     conn.commit()
     if status == 'approved':
@@ -2488,7 +2782,10 @@ def settle_attendance_daily(conn, global_user_id: int,
             display_code = 'X'
 
         ot_min = late_in_min = early_out_min = 0
-        if not is_weekend and not is_holiday and punch:
+        if punch and work_min > 0 and (is_weekend or is_holiday):
+            # All hours worked on a weekly-off or holiday are overtime.
+            ot_min = work_min
+        elif punch and not is_weekend and not is_holiday:
             if ci_min is not None and ci_min > si_min + grace:
                 late_in_min = ci_min - si_min
             if co_min is not None:
@@ -2512,7 +2809,7 @@ def settle_attendance_daily(conn, global_user_id: int,
             (global_user_id, work_date, status_code, display_code,
              first_in, last_out, work_minutes, ot_minutes,
              late_in_minutes, early_out_min, source, computed_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'device', NOW())
+        VALUES %s
         ON CONFLICT (global_user_id, work_date) DO UPDATE SET
             status_code     = EXCLUDED.status_code,
             display_code    = EXCLUDED.display_code,
@@ -2525,8 +2822,11 @@ def settle_attendance_daily(conn, global_user_id: int,
             computed_at     = NOW()
         WHERE attendance_daily.source != 'manual'
     """
+    # execute_values needs a single %s in the SQL; per-row literals go in template.
+    _template = "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'device', NOW())"
     with conn.cursor() as cur:
-        psycopg2.extras.execute_values(cur, upsert_sql, rows, page_size=100)
+        psycopg2.extras.execute_values(cur, upsert_sql, rows,
+                                       template=_template, page_size=100)
     return len(rows)
 
 
@@ -2828,13 +3128,20 @@ def get_web_user_by_id(conn, user_id: int) -> 'dict | None':
         SELECT wu.id, wu.global_user_id, wu.username, wu.password_hash,
                wu.display_name, wu.role, wu.is_active, wu.last_login_at,
                wu.last_login_ip, wu.must_change_pwd, wu.created_at,
-               gu.name AS gu_name, gu.global_user_id AS att_id,
+               gu.id AS gu_db_id, gu.name, gu.global_user_id AS att_id,
+               gu.employee_id, gu.email, gu.phone, gu.bank_number,
+               gu.designation, gu.emp_type, gu.emp_status, gu.join_date,
+               gu.department_id, gu.section_id, gu.unit_id, gu.shift_id,
+               sh.name AS shift_name,
+               gu.level_grade, gu.appointment_date, gu.dob, gu.gender,
                d.name AS department_name, s.name AS section_name,
-               gu.email, gu.phone, gu.designation, gu.emp_type, gu.emp_status
+               u.name AS unit_name
         FROM   web_users wu
         LEFT JOIN global_users gu ON gu.id = wu.global_user_id
         LEFT JOIN departments  d  ON d.id  = gu.department_id
         LEFT JOIN sections     s  ON s.id  = gu.section_id
+        LEFT JOIN units        u  ON u.id  = gu.unit_id
+        LEFT JOIN shifts       sh ON sh.id = gu.shift_id
         WHERE  wu.id = %s
     """
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -2849,6 +3156,7 @@ def get_all_web_users(conn) -> list:
                wu.last_login_at, wu.last_login_ip, wu.must_change_pwd,
                wu.created_at, wu.global_user_id,
                gu.name AS gu_name, gu.global_user_id AS att_id,
+               gu.designation, gu.emp_type, gu.emp_status,
                d.name AS department_name
         FROM   web_users wu
         LEFT JOIN global_users gu ON gu.id = wu.global_user_id
@@ -2937,3 +3245,721 @@ def get_web_audit_logs(conn, web_user_id=None, limit: int = 200) -> list:
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(sql, (web_user_id, web_user_id, limit))
         return [dict(r) for r in cur.fetchall()]
+
+
+# ─── Company Settings ───────────────────────────────────────────────────────────
+
+def get_company_settings(conn) -> dict:
+    """Get company settings - returns a dict, empty dict if none found."""
+    sql = "SELECT * FROM company_settings ORDER BY id DESC LIMIT 1"
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql)
+        r = cur.fetchone()
+        return dict(r) if r else {}
+
+
+def update_company_settings(conn, updated_by: int, **fields) -> int:
+    """Update company settings. Returns the ID of the updated/created record."""
+    allowed = {'company_name', 'logo_url', 'address', 'phone', 'email',
+                'website', 'pan_number', 'fiscal_year_bs'}
+
+    # Check if any record exists
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM company_settings ORDER BY id DESC LIMIT 1")
+        existing = cur.fetchone()
+
+    if existing:
+        # Update existing
+        parts, vals = [], []
+        for k, v in fields.items():
+            if k in allowed and v is not None:
+                parts.append(f"{k} = %s")
+                vals.append(v)
+        if not parts:
+            return existing[0]
+        parts.extend(["updated_at = NOW()", "updated_by = %s"])
+        vals.extend([updated_by, existing[0]])
+        sql = f"UPDATE company_settings SET {', '.join(parts)} WHERE id = %s"
+        with conn.cursor() as cur:
+            cur.execute(sql, vals)
+        conn.commit()
+        return existing[0]
+    else:
+        # Insert new
+        cols, vals, placeholders = [], [], []
+        for k, v in fields.items():
+            if k in allowed and v is not None:
+                cols.append(k)
+                vals.append(v)
+                placeholders.append("%s")
+        cols.extend(['created_by', 'updated_by'])
+        vals.extend([updated_by, updated_by])
+        placeholders.extend(['%s', '%s'])
+        sql = f"INSERT INTO company_settings ({', '.join(cols)}) VALUES ({', '.join(placeholders)}) RETURNING id"
+        with conn.cursor() as cur:
+            cur.execute(sql, vals)
+        conn.commit()
+        return cur.fetchone()[0]
+
+
+# ─── Leave with type info ─────────────────────────────────────────────────────
+
+def get_leaves_with_type_for_month(conn, global_user_id: int,
+                                   from_ad: str, to_ad: str) -> dict:
+    """Returns {date_str: {leave_type_name, code, color_code, is_paid, display_code, is_half_day}}
+    for all approved leaves overlapping the given date range for one employee."""
+    sql = """
+        SELECT la.from_ad, la.to_ad,
+               COALESCE(la.is_half_day, FALSE) AS is_half_day,
+               COALESCE(la.half_day_part, '') AS half_day_part,
+               lt.name AS leave_type_name, lt.code,
+               COALESCE(lt.color_code, '#6366f1') AS color_code,
+               lt.is_paid, COALESCE(lt.display_code, '') AS display_code
+        FROM leave_applications la
+        JOIN leave_types lt ON lt.id = la.leave_type_id
+        WHERE la.global_user_id = %s
+          AND la.status = 'approved'
+          AND la.from_ad <= %s
+          AND la.to_ad   >= %s
+    """
+    from datetime import date as _d, timedelta as _td
+    result: dict = {}
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (global_user_id, to_ad, from_ad))
+        rows = cur.fetchall()
+    for r in rows:
+        fd = r['from_ad'] if isinstance(r['from_ad'], _d) else _d.fromisoformat(str(r['from_ad']))
+        td = r['to_ad']   if isinstance(r['to_ad'],   _d) else _d.fromisoformat(str(r['to_ad']))
+        info = {
+            'leave_type_name': r['leave_type_name'],
+            'code':            r['code'],
+            'color_code':      r['color_code'],
+            'is_paid':         r['is_paid'],
+            'display_code':    r['display_code'],
+            'is_half_day':     bool(r['is_half_day']),
+            'half_day_part':   r['half_day_part'],
+        }
+        while fd <= td:
+            result[fd.isoformat()] = info
+            fd += _td(days=1)
+    return result
+
+
+def get_leaves_with_type_batch(conn, from_ad: str, to_ad: str) -> dict:
+    """Batch version. Returns {global_user_id: {date_str: leave_info}}."""
+    sql = """
+        SELECT la.global_user_id, la.from_ad, la.to_ad,
+               COALESCE(la.is_half_day, FALSE) AS is_half_day,
+               COALESCE(la.half_day_part, '') AS half_day_part,
+               lt.name AS leave_type_name, lt.code,
+               COALESCE(lt.color_code, '#6366f1') AS color_code,
+               lt.is_paid, COALESCE(lt.display_code, '') AS display_code
+        FROM leave_applications la
+        JOIN leave_types lt ON lt.id = la.leave_type_id
+        WHERE la.status = 'approved'
+          AND la.from_ad <= %s
+          AND la.to_ad   >= %s
+    """
+    from datetime import date as _d, timedelta as _td
+    result: dict = {}
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (to_ad, from_ad))
+        rows = cur.fetchall()
+    for r in rows:
+        gid = r['global_user_id']
+        fd = r['from_ad'] if isinstance(r['from_ad'], _d) else _d.fromisoformat(str(r['from_ad']))
+        td = r['to_ad']   if isinstance(r['to_ad'],   _d) else _d.fromisoformat(str(r['to_ad']))
+        info = {
+            'leave_type_name': r['leave_type_name'],
+            'code':            r['code'],
+            'color_code':      r['color_code'],
+            'is_paid':         r['is_paid'],
+            'display_code':    r['display_code'],
+            'is_half_day':     bool(r['is_half_day']),
+            'half_day_part':   r['half_day_part'],
+        }
+        if gid not in result:
+            result[gid] = {}
+        while fd <= td:
+            result[gid][fd.isoformat()] = info
+            fd += _td(days=1)
+    return result
+
+
+# ─── Kaaj records ─────────────────────────────────────────────────────────────
+
+def get_kaaj_records(conn, global_user_id=None, from_ad=None, to_ad=None,
+                     limit: int = 500) -> list:
+    conds = []
+    params: list = []
+    if global_user_id:
+        conds.append("kr.global_user_id = %s"); params.append(global_user_id)
+    if from_ad:
+        conds.append("kr.ad_date >= %s"); params.append(from_ad)
+    if to_ad:
+        conds.append("kr.ad_date <= %s"); params.append(to_ad)
+    where = ("WHERE " + " AND ".join(conds)) if conds else ""
+    sql = f"""
+        SELECT kr.*, gu.name AS emp_name,
+               COALESCE(gu.global_user_id, '') AS company_id,
+               d.name AS department_name
+        FROM kaaj_records kr
+        JOIN global_users gu ON gu.id = kr.global_user_id
+        LEFT JOIN departments d ON d.id = gu.department_id
+        {where}
+        ORDER BY kr.ad_date DESC, gu.name
+        LIMIT %s
+    """
+    params.append(limit)
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, params)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_kaaj_for_dates(conn, global_user_ids: list,
+                       from_ad: str, to_ad: str) -> dict:
+    """Returns {global_user_id: {date_str: {is_paid, reason}}}."""
+    if not global_user_ids:
+        return {}
+    sql = """
+        SELECT global_user_id, ad_date, is_paid, reason
+        FROM kaaj_records
+        WHERE global_user_id = ANY(%s)
+          AND ad_date BETWEEN %s AND %s
+    """
+    result: dict = {}
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (global_user_ids, from_ad, to_ad))
+        for r in cur.fetchall():
+            gid = r['global_user_id']
+            ds  = r['ad_date'].isoformat() if hasattr(r['ad_date'], 'isoformat') else str(r['ad_date'])
+            result.setdefault(gid, {})[ds] = {'is_paid': r['is_paid'], 'reason': r['reason']}
+    return result
+
+
+def create_kaaj_record(conn, global_user_id: int, ad_date: str, bs_date: str,
+                       is_paid: bool, reason: str, approved_by: str,
+                       created_by: int) -> int:
+    sql = """
+        INSERT INTO kaaj_records
+            (global_user_id, ad_date, bs_date, is_paid, reason, approved_by, created_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (global_user_id, ad_date) DO UPDATE SET
+            is_paid     = EXCLUDED.is_paid,
+            reason      = EXCLUDED.reason,
+            approved_by = EXCLUDED.approved_by,
+            updated_at  = NOW()
+        RETURNING id
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (global_user_id, ad_date, bs_date, is_paid,
+                          reason or None, approved_by or None, created_by or None))
+        return cur.fetchone()[0]
+
+
+def update_kaaj_record(conn, record_id: int, is_paid: bool,
+                       reason: str, approved_by: str) -> None:
+    sql = """
+        UPDATE kaaj_records
+           SET is_paid = %s, reason = %s, approved_by = %s, updated_at = NOW()
+         WHERE id = %s
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (is_paid, reason or None, approved_by or None, record_id))
+
+
+def delete_kaaj_record(conn, record_id: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM kaaj_records WHERE id = %s", (record_id,))
+
+
+# ─── Day remarks ──────────────────────────────────────────────────────────────
+
+def get_day_remarks(conn, global_user_id: int, from_ad: str, to_ad: str) -> dict:
+    """Returns {date_str: remark_text}."""
+    sql = """
+        SELECT ad_date, remark_text
+        FROM attendance_day_remarks
+        WHERE global_user_id = %s AND ad_date BETWEEN %s AND %s
+    """
+    result: dict = {}
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (global_user_id, from_ad, to_ad))
+        for r in cur.fetchall():
+            ds = r['ad_date'].isoformat() if hasattr(r['ad_date'], 'isoformat') else str(r['ad_date'])
+            result[ds] = r['remark_text']
+    return result
+
+
+def get_day_remarks_batch(conn, global_user_ids: list,
+                          from_ad: str, to_ad: str) -> dict:
+    """Returns {global_user_id: {date_str: remark_text}}."""
+    if not global_user_ids:
+        return {}
+    sql = """
+        SELECT global_user_id, ad_date, remark_text
+        FROM attendance_day_remarks
+        WHERE global_user_id = ANY(%s) AND ad_date BETWEEN %s AND %s
+    """
+    result: dict = {}
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (global_user_ids, from_ad, to_ad))
+        for r in cur.fetchall():
+            gid = r['global_user_id']
+            ds  = r['ad_date'].isoformat() if hasattr(r['ad_date'], 'isoformat') else str(r['ad_date'])
+            result.setdefault(gid, {})[ds] = r['remark_text']
+    return result
+
+
+def upsert_day_remark(conn, global_user_id: int, ad_date: str, bs_date: str,
+                      remark_text: str, created_by: int) -> int:
+    sql = """
+        INSERT INTO attendance_day_remarks
+            (global_user_id, ad_date, bs_date, remark_text, created_by)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (global_user_id, ad_date) DO UPDATE SET
+            remark_text = EXCLUDED.remark_text,
+            bs_date     = COALESCE(EXCLUDED.bs_date, attendance_day_remarks.bs_date)
+        RETURNING id
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (global_user_id, ad_date, bs_date or None,
+                          remark_text, created_by or None))
+        return cur.fetchone()[0]
+
+
+def delete_day_remark(conn, remark_id: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM attendance_day_remarks WHERE id = %s", (remark_id,))
+
+
+# ─── Manual attendance ────────────────────────────────────────────────────────
+
+def add_manual_attendance_entry(conn, global_user_id: int,
+                                 ad_date: str, bs_date: str,
+                                 in_time_str: str, out_time_str: str,
+                                 manual_note: str, created_by: int) -> list:
+    """Insert manual punch(es) into attendance_logs. Returns list of inserted IDs."""
+    import zoneinfo as _zi
+    from datetime import datetime as _dt, date as _ddate
+
+    NPT = _zi.ZoneInfo('Asia/Kathmandu')
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("""
+            SELECT e.device_id, e.uid, e.user_id, e.name
+            FROM employees e
+            WHERE e.global_user_id = %s
+            ORDER BY e.id
+            LIMIT 1
+        """, (global_user_id,))
+        emp = cur.fetchone()
+    if not emp:
+        raise ValueError(f"No device link for global_user_id={global_user_id}")
+
+    device_id = emp['device_id']
+    uid       = emp['uid']
+    user_id   = emp['user_id']
+    name      = emp['name']
+    ad        = _ddate.fromisoformat(ad_date)
+
+    def _build_ts(time_str: str) -> _dt:
+        h, m = (int(x) for x in time_str.split(':')[:2])
+        return _dt(ad.year, ad.month, ad.day, h, m, 0, tzinfo=NPT)
+
+    inserted = []
+    note_txt = (manual_note or '').strip() or None
+    if in_time_str:
+        ts = _build_ts(in_time_str)
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO attendance_logs
+                    (device_id, uid, user_id, name, timestamp, bs_date, source, manual_note, punch)
+                VALUES (%s, %s, %s, %s, %s, %s, 'manual', %s, 0)
+                ON CONFLICT (device_id, uid, timestamp) DO NOTHING
+                RETURNING id
+            """, (device_id, uid, user_id, name, ts, bs_date or '', note_txt))
+            row = cur.fetchone()
+            if row:
+                inserted.append(row[0])
+    if out_time_str:
+        ts = _build_ts(out_time_str)
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO attendance_logs
+                    (device_id, uid, user_id, name, timestamp, bs_date, source, manual_note, punch)
+                VALUES (%s, %s, %s, %s, %s, %s, 'manual', %s, 1)
+                ON CONFLICT (device_id, uid, timestamp) DO NOTHING
+                RETURNING id
+            """, (device_id, uid, user_id, name, ts, bs_date or '', note_txt))
+            row = cur.fetchone()
+            if row:
+                inserted.append(row[0])
+    return inserted
+
+
+def get_manual_attendance(conn, global_user_id=None,
+                          from_ad=None, to_ad=None, limit: int = 500) -> list:
+    conds = ["al.source = 'manual'"]
+    params: list = []
+    if global_user_id:
+        conds.append("e.global_user_id = %s"); params.append(global_user_id)
+    if from_ad:
+        conds.append("(al.timestamp AT TIME ZONE 'Asia/Kathmandu')::date >= %s"); params.append(from_ad)
+    if to_ad:
+        conds.append("(al.timestamp AT TIME ZONE 'Asia/Kathmandu')::date <= %s"); params.append(to_ad)
+    where = "WHERE " + " AND ".join(conds)
+    sql = f"""
+        SELECT al.id, al.timestamp AT TIME ZONE 'Asia/Kathmandu' AS ts_npt,
+               al.user_id, al.name, al.bs_date, al.manual_note, al.punch,
+               d.name AS device_name,
+               gu.name AS emp_name, gu.global_user_id AS company_id,
+               e.global_user_id AS global_id
+        FROM attendance_logs al
+        JOIN devices d ON d.id = al.device_id
+        JOIN employees e ON e.device_id = al.device_id AND e.uid = al.uid
+        JOIN global_users gu ON gu.id = e.global_user_id
+        {where}
+        ORDER BY al.timestamp DESC
+        LIMIT %s
+    """
+    params.append(limit)
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, params)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def delete_manual_attendance(conn, entry_id: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM attendance_logs WHERE id = %s AND source = 'manual'", (entry_id,))
+
+
+# ─── Opening balance management ───────────────────────────────────────────────
+
+def get_leave_opening_balances(conn, bs_year: int) -> list:
+    """Get all employees x leave_types with opening balances for a year."""
+    sql = """
+        SELECT gu.id AS global_user_id, gu.name, gu.global_user_id AS company_id,
+               d.name AS department_name,
+               lt.id AS leave_type_id, lt.name AS leave_type_name, lt.code,
+               COALESCE(lt.sort_order, 99) AS sort_order,
+               COALESCE(lb.opening_balance, 0) AS opening_balance,
+               COALESCE(lb.days_earned, 0)     AS days_earned,
+               COALESCE(lb.days_taken, 0)      AS days_taken,
+               COALESCE(lb.carried_forward, 0) AS carried_forward,
+               lb.id AS balance_id
+        FROM global_users gu
+        CROSS JOIN leave_types lt
+        LEFT JOIN leave_balances lb
+               ON lb.global_user_id = gu.id
+              AND lb.leave_type_id  = lt.id
+              AND lb.bs_year        = %s
+        LEFT JOIN departments d ON d.id = gu.department_id
+        WHERE (gu.emp_status IS NULL OR gu.emp_status = 'ACTIVE')
+          AND lt.code NOT IN ('KAAJ_PAID', 'KAAJ_UNPAID')
+        ORDER BY gu.name, lt.sort_order, lt.name
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, (bs_year,))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def upsert_leave_opening_balance(conn, global_user_id: int, leave_type_id: int,
+                                  bs_year: int, opening_balance: float,
+                                  days_earned: float) -> None:
+    sql = """
+        INSERT INTO leave_balances
+            (global_user_id, leave_type_id, bs_year, opening_balance, days_earned, days_taken)
+        VALUES (%s, %s, %s, %s, %s, 0)
+        ON CONFLICT (global_user_id, leave_type_id, bs_year) DO UPDATE SET
+            opening_balance = EXCLUDED.opening_balance,
+            days_earned     = EXCLUDED.days_earned
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (global_user_id, leave_type_id, bs_year,
+                          opening_balance, days_earned))
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Payroll: salary structures, runs, items  (Phase 13)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def get_salary_structure(conn, global_user_id: int):
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("SELECT * FROM payroll_salary_structures WHERE global_user_id=%s",
+                    (global_user_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def get_all_salary_structures(conn) -> list:
+    """Every global_user with their salary structure (LEFT JOIN -- nulls if unset)."""
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("""
+            SELECT gu.id AS global_user_id, gu.global_user_id AS emp_code, gu.name,
+                   d.name AS department,
+                   s.basic_salary, s.allowances, s.daily_hours, s.ot_multiplier,
+                   s.marital, s.other_deductions, s.is_active, s.effective_bs
+            FROM global_users gu
+            LEFT JOIN payroll_salary_structures s ON s.global_user_id = gu.id
+            LEFT JOIN departments d ON d.id = gu.department_id
+            ORDER BY gu.name NULLS LAST, gu.global_user_id
+        """)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def upsert_salary_structure(conn, global_user_id: int, basic_salary, allowances,
+                            daily_hours, ot_multiplier, marital,
+                            other_deductions=0, effective_bs="") -> None:
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO payroll_salary_structures
+                (global_user_id, basic_salary, allowances, daily_hours,
+                 ot_multiplier, marital, other_deductions, effective_bs, updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s, NOW())
+            ON CONFLICT (global_user_id) DO UPDATE SET
+                basic_salary     = EXCLUDED.basic_salary,
+                allowances       = EXCLUDED.allowances,
+                daily_hours      = EXCLUDED.daily_hours,
+                ot_multiplier    = EXCLUDED.ot_multiplier,
+                marital          = EXCLUDED.marital,
+                other_deductions = EXCLUDED.other_deductions,
+                effective_bs     = EXCLUDED.effective_bs,
+                updated_at       = NOW()
+        """, (global_user_id, basic_salary, allowances, daily_hours,
+              ot_multiplier, marital, other_deductions, effective_bs))
+    conn.commit()
+
+
+def get_payroll_run(conn, run_id: int):
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("SELECT * FROM payroll_runs WHERE id=%s", (run_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def get_payroll_run_by_period(conn, bs_year: int, bs_month: int):
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("SELECT * FROM payroll_runs WHERE bs_year=%s AND bs_month=%s",
+                    (bs_year, bs_month))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def list_payroll_runs(conn) -> list:
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("""
+            SELECT r.*,
+                   COUNT(i.id)          AS item_count,
+                   COALESCE(SUM(i.gross),0)   AS total_gross,
+                   COALESCE(SUM(i.tax),0)     AS total_tax,
+                   COALESCE(SUM(i.net_pay),0) AS total_net
+            FROM payroll_runs r
+            LEFT JOIN payroll_items i ON i.run_id = r.id
+            GROUP BY r.id
+            ORDER BY r.bs_year DESC, r.bs_month DESC
+        """)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def create_payroll_run(conn, bs_year, bs_month, period_index, working_days,
+                       created_by="") -> int:
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO payroll_runs (bs_year, bs_month, period_index, working_days, created_by)
+            VALUES (%s,%s,%s,%s,%s)
+            ON CONFLICT (bs_year, bs_month) DO UPDATE SET
+                period_index = EXCLUDED.period_index,
+                working_days = EXCLUDED.working_days
+            RETURNING id
+        """, (bs_year, bs_month, period_index, working_days, created_by))
+        run_id = cur.fetchone()[0]
+    conn.commit()
+    return run_id
+
+
+def clear_payroll_items(conn, run_id: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM payroll_items WHERE run_id=%s", (run_id,))
+    conn.commit()
+
+
+def insert_payroll_item(conn, run_id, global_user_id, data: dict) -> None:
+    import json
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO payroll_items
+                (run_id, global_user_id, present_days, ot_hours, ot_manual,
+                 earned_basic, earned_allowance, ot_pay, other_earnings, gross,
+                 taxable_this, taxable_ytd, tax, other_deductions, net_pay, detail)
+            VALUES (%(run_id)s,%(gu)s,%(present_days)s,%(ot_hours)s,%(ot_manual)s,
+                    %(earned_basic)s,%(earned_allowance)s,%(ot_pay)s,%(other_earnings)s,%(gross)s,
+                    %(taxable_this)s,%(taxable_ytd)s,%(tax)s,%(other_deductions)s,%(net_pay)s,%(detail)s)
+            ON CONFLICT (run_id, global_user_id) DO UPDATE SET
+                present_days=EXCLUDED.present_days, ot_hours=EXCLUDED.ot_hours,
+                ot_manual=EXCLUDED.ot_manual, earned_basic=EXCLUDED.earned_basic,
+                earned_allowance=EXCLUDED.earned_allowance, ot_pay=EXCLUDED.ot_pay,
+                other_earnings=EXCLUDED.other_earnings, gross=EXCLUDED.gross,
+                taxable_this=EXCLUDED.taxable_this, taxable_ytd=EXCLUDED.taxable_ytd,
+                tax=EXCLUDED.tax, other_deductions=EXCLUDED.other_deductions,
+                net_pay=EXCLUDED.net_pay, detail=EXCLUDED.detail
+        """, {"run_id": run_id, "gu": global_user_id, **data,
+              "detail": json.dumps(data.get("detail")) if data.get("detail") is not None else None})
+    conn.commit()
+
+
+def get_payroll_items(conn, run_id: int) -> list:
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("""
+            SELECT i.*, gu.name, gu.global_user_id AS emp_code, d.name AS department
+            FROM payroll_items i
+            JOIN global_users gu ON gu.id = i.global_user_id
+            LEFT JOIN departments d ON d.id = gu.department_id
+            WHERE i.run_id = %s
+            ORDER BY gu.name NULLS LAST
+        """, (run_id,))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_payroll_item(conn, run_id: int, global_user_id: int):
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("""
+            SELECT i.*, gu.name, gu.global_user_id AS emp_code, d.name AS department
+            FROM payroll_items i
+            JOIN global_users gu ON gu.id = i.global_user_id
+            LEFT JOIN departments d ON d.id = gu.department_id
+            WHERE i.run_id=%s AND i.global_user_id=%s
+        """, (run_id, global_user_id))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def get_ytd_tax_totals(conn, global_user_id: int, bs_year: int, before_period_index: int) -> dict:
+    """Sum taxable income & tax already withheld earlier in the same fiscal year."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT COALESCE(SUM(i.taxable_this),0), COALESCE(SUM(i.tax),0)
+            FROM payroll_items i
+            JOIN payroll_runs r ON r.id = i.run_id
+            WHERE i.global_user_id = %s
+              AND r.period_index < %s
+              AND ( (r.bs_year = %s) OR (r.bs_year = %s AND r.bs_month >= 4)
+                    OR (r.bs_year = %s AND r.bs_month <= 3) )
+        """, (global_user_id, before_period_index, bs_year, bs_year, bs_year + 1))
+        row = cur.fetchone()
+        return {"taxable_before": row[0] or 0, "tax_paid_before": row[1] or 0}
+
+
+def get_month_ot_hours(conn, global_user_id: int, start_ad: str, end_ad: str) -> float:
+    """Sum attendance_daily OT minutes for a user across an AD date range -> hours."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT COALESCE(SUM(ot_minutes),0)
+            FROM attendance_daily
+            WHERE global_user_id=%s AND work_date >= %s AND work_date <= %s
+        """, (global_user_id, start_ad, end_ad))
+        mins = cur.fetchone()[0] or 0
+        return round(mins / 60.0, 2)
+
+
+def get_month_present_days(conn, global_user_id: int, start_ad: str, end_ad: str):
+    """Count present days from attendance_daily; None if no rows for the period."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT COUNT(*) FROM attendance_daily
+            WHERE global_user_id=%s AND work_date >= %s AND work_date <= %s
+              AND COALESCE(work_minutes,0) > 0
+        """, (global_user_id, start_ad, end_ad))
+        present = cur.fetchone()[0]
+        cur.execute("""
+            SELECT COUNT(*) FROM attendance_daily
+            WHERE global_user_id=%s AND work_date >= %s AND work_date <= %s
+        """, (global_user_id, start_ad, end_ad))
+        any_rows = cur.fetchone()[0]
+        return present if any_rows > 0 else None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Holiday overtime: split & premium rules  (Phase 14)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# attendance_daily.status_code values that represent a weekly-off / holiday.
+_HOLIDAY_STATUS_CODES = ('SAT', 'PH', 'FH', 'NH', 'OH')
+
+
+def get_month_ot_split(conn, global_user_id: int, start_ad: str, end_ad: str) -> dict:
+    """Split a user's OT minutes for a period into regular vs holiday overtime.
+
+    Holiday OT = OT recorded on a weekly-off or holiday day (worked on a day off).
+    Regular OT = OT on a normal working day.
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT
+                COALESCE(SUM(CASE WHEN status_code = ANY(%s) THEN ot_minutes ELSE 0 END), 0) AS holiday_ot,
+                COALESCE(SUM(CASE WHEN status_code = ANY(%s) THEN 0 ELSE ot_minutes END), 0) AS regular_ot
+            FROM attendance_daily
+            WHERE global_user_id = %s AND work_date >= %s AND work_date <= %s
+        """, (list(_HOLIDAY_STATUS_CODES), list(_HOLIDAY_STATUS_CODES),
+              global_user_id, start_ad, end_ad))
+        row = cur.fetchone()
+        holiday_min = row[0] or 0
+        regular_min = row[1] or 0
+    return {
+        "regular_ot_hours": round(regular_min / 60.0, 2),
+        "holiday_ot_hours": round(holiday_min / 60.0, 2),
+    }
+
+
+def get_holiday_ot_multiplier(conn, global_user_id: int):
+    """Return the holiday-OT premium multiplier for an employee, or None if not eligible.
+
+    An employee is eligible if an active rule matches them directly, or matches
+    their department or section. The highest matching multiplier wins.
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT MAX(r.multiplier)
+            FROM payroll_holiday_ot_rules r
+            JOIN global_users gu ON gu.id = %s
+            WHERE r.is_active
+              AND ( r.global_user_id = gu.id
+                    OR (r.department_id IS NOT NULL AND r.department_id = gu.department_id)
+                    OR (r.section_id   IS NOT NULL AND r.section_id   = gu.section_id) )
+        """, (global_user_id,))
+        row = cur.fetchone()
+        return row[0] if row and row[0] is not None else None
+
+
+def get_holiday_ot_rules(conn) -> list:
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("""
+            SELECT r.*, gu.name AS emp_name, gu.global_user_id AS emp_code,
+                   d.name AS dept_name, s.name AS section_name
+            FROM payroll_holiday_ot_rules r
+            LEFT JOIN global_users gu ON gu.id = r.global_user_id
+            LEFT JOIN departments d   ON d.id  = r.department_id
+            LEFT JOIN sections s      ON s.id  = r.section_id
+            ORDER BY r.is_active DESC, r.id DESC
+        """)
+        return [dict(x) for x in cur.fetchall()]
+
+
+def add_holiday_ot_rule(conn, global_user_id=None, department_id=None,
+                        section_id=None, multiplier=1.5, note="") -> int:
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO payroll_holiday_ot_rules
+                (global_user_id, department_id, section_id, multiplier, note)
+            VALUES (%s,%s,%s,%s,%s) RETURNING id
+        """, (global_user_id or None, department_id or None, section_id or None,
+              multiplier, note))
+        rid = cur.fetchone()[0]
+    conn.commit()
+    return rid
+
+
+def delete_holiday_ot_rule(conn, rule_id: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM payroll_holiday_ot_rules WHERE id=%s", (rule_id,))
+    conn.commit()

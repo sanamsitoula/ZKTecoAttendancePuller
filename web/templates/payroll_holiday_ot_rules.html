@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Holiday Overtime Rules — Payroll{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="subtitle">Payroll</p>
+    <h1>Holiday Overtime Rules</h1>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-secondary btn-sm" href="/payroll">Back to Payroll</a>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:var(--space-5)">
+  <div class="card-body">
+    <p class="text-sm text-muted" style="margin-bottom:var(--space-4)">
+      Hours worked on a weekly-off or holiday are treated as overtime. Employees
+      matched by a rule below are paid that overtime at the rule's multiplier
+      (e.g. 1.5×). Everyone else is paid holiday overtime at their normal OT rate.
+      A rule may target a single employee, a whole department, or a section.
+    </p>
+    <form method="post" action="/payroll/holiday-ot-rules" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--space-3);align-items:end">
+      <div class="form-group" style="margin:0">
+        <label class="form-label" for="scope">Scope</label>
+        <select class="form-select" id="scope" name="scope" onchange="ottoggle()">
+          <option value="employee">Employee</option>
+          <option value="department">Department</option>
+          <option value="section">Section</option>
+        </select>
+      </div>
+      <div class="form-group scope-employee" style="margin:0">
+        <label class="form-label" for="global_user_id">Employee</label>
+        <select class="form-select" id="global_user_id" name="global_user_id">
+          <option value="">— select —</option>
+          {% for u in users %}<option value="{{ u.id }}">{{ u.name or u.global_user_id }} ({{ u.global_user_id }})</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-group scope-department" style="margin:0;display:none">
+        <label class="form-label" for="department_id">Department</label>
+        <select class="form-select" id="department_id" name="department_id">
+          <option value="">— select —</option>
+          {% for d in departments %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-group scope-section" style="margin:0;display:none">
+        <label class="form-label" for="section_id">Section</label>
+        <select class="form-select" id="section_id" name="section_id">
+          <option value="">— select —</option>
+          {% for s in sections %}<option value="{{ s.id }}">{{ s.name }}{% if s.department_name %} — {{ s.department_name }}{% endif %}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="margin:0">
+        <label class="form-label" for="multiplier">Multiplier</label>
+        <input class="form-control" id="multiplier" type="number" step="0.1" name="multiplier" value="1.5">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label class="form-label" for="note">Note</label>
+        <input class="form-control" id="note" type="text" name="note" placeholder="optional">
+      </div>
+      <button class="btn btn-primary" type="submit">Add Rule</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2>Active Rules</h2></div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Scope</th><th>Target</th><th class="text-right">Multiplier</th><th>Note</th><th></th></tr></thead>
+      <tbody>
+        {% for r in rules %}
+        <tr>
+          <td>
+            {% if r.global_user_id %}<span class="badge badge-info">Employee</span>
+            {% elif r.department_id %}<span class="badge badge-neutral">Department</span>
+            {% else %}<span class="badge badge-neutral">Section</span>{% endif %}
+          </td>
+          <td>{{ r.emp_name or r.dept_name or r.section_name or '—' }}{% if r.emp_code %} <span class="text-xs text-muted">({{ r.emp_code }})</span>{% endif %}</td>
+          <td class="text-right"><strong>{{ r.multiplier }}×</strong></td>
+          <td class="text-xs text-muted">{{ r.note or '' }}</td>
+          <td class="text-right">
+            <form method="post" action="/payroll/holiday-ot-rules/{{ r.id }}/delete" style="margin:0">
+              <button class="btn btn-secondary btn-sm" type="submit">Remove</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted" style="padding:var(--space-8)">No rules yet. Without a rule, holiday overtime is paid at the employee's normal OT rate.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  function ottoggle() {
+    const v = document.getElementById('scope').value;
+    document.querySelectorAll('.scope-employee,.scope-department,.scope-section').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('.scope-' + v).forEach(el => el.style.display = '');
+  }
+  ottoggle();
+</script>
+{% endblock %}

@@ -88,44 +88,47 @@
 </style>
 
 {# ── Page header ──────────────────────────────────────────────────────────── #}
-<section class="page-head no-print">
+<div class="page-header no-print">
   <div>
-    <p class="eyebrow">Reports</p>
+    <p class="subtitle">Reports / Daily</p>
     <h1>Daily Attendance Report</h1>
   </div>
-  <div class="head-actions" style="display:flex;gap:8px;flex-wrap:wrap">
-    <button class="btn" onclick="window.print()">Print</button>
-    <button class="btn" onclick="dlPDF()">Download PDF</button>
-    <a class="btn primary"
+  <div class="page-actions">
+    <button class="btn btn-secondary" onclick="window.print()">Print</button>
+    <button class="btn btn-secondary" onclick="dlPDF()">Download PDF</button>
+    <a class="btn btn-primary"
        href="/reports/daily/excel?date_ad={{ sel_date_ad }}&date_bs={{ sel_date_bs }}&name_q={{ name_q | urlencode }}&dept_q={{ dept_q | urlencode }}">
       Export Excel
     </a>
   </div>
-</section>
+</div>
 
 {# ── Filters ──────────────────────────────────────────────────────────────── #}
-<section class="panel no-print" style="margin-bottom:14px">
-  <form method="get" action="/reports/daily">
-    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
-      <label style="min-width:160px">Date (BS)
-        <input class="bsdp" name="date_bs" value="{{ sel_date_bs }}"
+<div class="card no-print" style="margin-bottom:var(--space-6)">
+  <div class="card-body">
+    <form method="get" action="/reports/daily" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="margin-bottom:0;min-width:160px">
+        <label class="form-label" for="rpt-daily-date">Date (BS)</label>
+        <input class="form-input bsdp" id="rpt-daily-date" name="date_bs" value="{{ sel_date_bs }}"
                data-ad-target="date_ad_h" autocomplete="off" placeholder="YYYY-MM-DD">
         <input type="hidden" name="date_ad" id="date_ad_h" value="{{ sel_date_ad }}">
-        {% if sel_date_ad %}<small class="muted">AD: {{ sel_date_ad }}</small>{% endif %}
-      </label>
-      <label style="min-width:150px">Search Name
-        <input name="name_q" value="{{ name_q or '' }}" placeholder="Employee name...">
-      </label>
-      <label style="min-width:150px">Department
-        <input name="dept_q" value="{{ dept_q or '' }}" placeholder="Department...">
-      </label>
-      <div style="padding-top:18px;display:flex;gap:8px">
-        <button class="btn primary" type="submit">View</button>
-        <a class="btn ghost" href="/reports/daily">Reset</a>
+        {% if sel_date_ad %}<span class="form-hint">AD: {{ sel_date_ad }}</span>{% endif %}
       </div>
-    </div>
-  </form>
-</section>
+      <div class="form-group" style="margin-bottom:0;min-width:150px;flex:1">
+        <label class="form-label" for="rpt-daily-name">Search Name</label>
+        <input class="form-input" id="rpt-daily-name" name="name_q" value="{{ name_q or '' }}" placeholder="Employee name...">
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:150px;flex:1">
+        <label class="form-label" for="rpt-daily-dept">Department</label>
+        <input class="form-input" id="rpt-daily-dept" name="dept_q" value="{{ dept_q or '' }}" placeholder="Department...">
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-primary btn-sm" type="submit">View</button>
+        <a class="btn btn-ghost btn-sm" href="/reports/daily">Reset</a>
+      </div>
+    </form>
+  </div>
+</div>
 
 {% if error %}
 <div class="panel no-print" style="color:#b91c1c;padding:12px 16px">{{ error }}</div>
@@ -135,8 +138,22 @@
 <div id="rpt-content" class="rpt-wrap">
 <div class="print-hdr" style="text-align:center;border-bottom:2px solid #1769e0;padding-bottom:4px;margin-bottom:8px">
   <div id="print-time" style="float:right;font-size:7pt;color:#666"></div>
-  <div style="font-size:13pt;font-weight:bold">{{ COMPANY_NAME }}</div>
-  {% if COMPANY_ADDRESS %}<div style="font-size:8pt;color:#555">{{ COMPANY_ADDRESS }}</div>{% endif %}
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+    {% if company and company.logo_url %}
+    <img src="{{ company.logo_url }}" alt="Logo" style="max-height:48px;max-width:180px;object-fit:contain">
+    {% endif %}
+    <div>
+      <div style="font-size:13pt;font-weight:bold">{{ company.company_name if company else COMPANY_NAME }}</div>
+      {% if company and company.address %}<div style="font-size:8pt;color:#555">{{ company.address }}</div>{% endif %}
+      {% if company and (company.email or company.website) %}
+      <div style="font-size:8pt;color:#555">
+        {% if company.email %}Email: {{ company.email }}{% endif %}
+        {% if company.email and company.website %} &middot; {% endif %}
+        {% if company.website %}{{ company.website }}{% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
   <div style="font-size:10pt;font-weight:bold;margin-top:2px">Daily Attendance Report</div>
   <div style="font-size:8pt;color:#444;margin-top:1px">{{ sel_date_bs }} BS &nbsp;/&nbsp; {{ sel_date_ad }} AD</div>
 </div>
@@ -185,6 +202,7 @@
   {# client-side row filter for current page #}
   <div class="page-search no-print">
     <input type="text" id="row-filter" placeholder="Filter this page — press Enter to search all pages"
+           aria-label="Filter present employees"
            onkeydown="if(event.key==='Enter'){searchAll(this.value)}">
   </div>
 
@@ -192,15 +210,15 @@
     <table class="table" id="present-tbl" style="font-size:13px">
       <thead>
         <tr>
-          <th style="width:36px">#</th>
-          <th>Name</th>
-          <th style="width:70px">Att. ID</th>
-          <th>Department</th>
-          <th>Section</th>
-          <th style="width:68px">Check-In</th>
-          <th style="width:68px">Check-Out</th>
-          <th style="width:58px">Hours</th>
-          <th style="width:76px" class="no-print">Punches</th>
+          <th scope="col" style="width:36px">#</th>
+          <th scope="col">Name</th>
+          <th scope="col" style="width:70px">Att. ID</th>
+          <th scope="col">Department</th>
+          <th scope="col">Section</th>
+          <th scope="col" style="width:68px">Check-In</th>
+          <th scope="col" style="width:68px">Check-Out</th>
+          <th scope="col" style="width:58px">Hours</th>
+          <th scope="col" style="width:76px" class="no-print">Punches</th>
         </tr>
       </thead>
       <tbody>
@@ -273,9 +291,9 @@
     <table class="table" style="font-size:13px">
       <thead>
         <tr>
-          <th style="width:36px">#</th><th>Name</th>
-          <th style="width:70px">Att. ID</th>
-          <th>Department</th><th>Leave Type</th><th>Reason</th>
+          <th scope="col" style="width:36px">#</th><th scope="col">Name</th>
+          <th scope="col" style="width:70px">Att. ID</th>
+          <th scope="col">Department</th><th scope="col">Leave Type</th><th scope="col">Reason</th>
         </tr>
       </thead>
       <tbody>
@@ -285,7 +303,15 @@
           <td><strong>{{ emp.employee_name }}</strong></td>
           <td>{{ emp.company_id or '-' }}</td>
           <td>{{ emp.department_name or '-' }}</td>
-          <td>{{ emp.leave_type_name or '-' }}</td>
+          <td>
+            {% if emp.leave_type_name %}
+            <span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:600;
+                         background:{{ (emp.color_code or '#6366f1') + '22' }};
+                         color:{{ emp.color_code or '#6366f1' }}">
+              {% if emp.display_code %}{{ emp.display_code }} — {% endif %}{{ emp.leave_type_name }}
+            </span>
+            {% else %}-{% endif %}
+          </td>
           <td>{{ emp.reason or '-' }}</td>
         </tr>
         {% endfor %}
@@ -303,9 +329,9 @@
     <table class="table" style="font-size:13px">
       <thead>
         <tr>
-          <th style="width:36px">#</th><th>Name</th>
-          <th style="width:70px">Att. ID</th>
-          <th>Department</th><th>Section</th>
+          <th scope="col" style="width:36px">#</th><th scope="col">Name</th>
+          <th scope="col" style="width:70px">Att. ID</th>
+          <th scope="col">Department</th><th scope="col">Section</th>
         </tr>
       </thead>
       <tbody>
@@ -334,11 +360,11 @@
     <table class="table" style="font-size:13px">
       <thead>
         <tr>
-          <th>Department</th>
-          <th style="width:80px;text-align:center">Present</th>
-          <th style="width:80px;text-align:center">On Leave</th>
-          <th style="width:80px;text-align:center">Absent</th>
-          <th style="width:80px;text-align:center">Total</th>
+          <th scope="col">Department</th>
+          <th scope="col" style="width:80px;text-align:center">Present</th>
+          <th scope="col" style="width:80px;text-align:center">On Leave</th>
+          <th scope="col" style="width:80px;text-align:center">Absent</th>
+          <th scope="col" style="width:80px;text-align:center">Total</th>
         </tr>
       </thead>
       <tbody>
@@ -369,14 +395,14 @@
 </div>{# end #rpt-content #}
 
 {# ── Punch modal ──────────────────────────────────────────────────────────── #}
-<div id="pm-overlay">
+<div id="pm-overlay" role="dialog" aria-modal="true" aria-labelledby="pm-title">
   <div id="pm-box">
     <h3 id="pm-title">Punch Detail</h3>
     <table>
       <thead><tr><th>#</th><th>Time (NPT)</th><th>BS Time</th><th>Type</th></tr></thead>
       <tbody id="pm-body"></tbody>
     </table>
-    <button class="btn ghost" onclick="closePM()" style="margin-top:14px">Close</button>
+    <button class="btn btn-ghost" aria-label="Close punch detail modal" onclick="closePM()" style="margin-top:14px">Close</button>
   </div>
 </div>
 
@@ -437,6 +463,9 @@ function showPunches(idx){
 function closePM(){ document.getElementById('pm-overlay').classList.remove('open'); }
 document.getElementById('pm-overlay').addEventListener('click',function(e){
   if(e.target===this) closePM();
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closePM();
 });
 </script>
 {% endblock %}

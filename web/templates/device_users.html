@@ -8,9 +8,9 @@
       <p class="muted">{{ device.ip_address }}:{{ device.port }} · {{ device.model or 'unknown model' }}</p>
     </div>
     <div class="head-actions">
-      <a class="btn" href="/devices/{{ device.id }}/backup" download>Download Backup</a>
-      <a class="btn ghost" href="/devices/{{ device.id }}/sync">Open sync</a>
-      <a class="btn ghost" href="/">Back</a>
+      <a class="btn" href="/devices/{{ device.id }}/backup" download aria-label="Download backup file for {{ device.name }}">Download Backup</a>
+      <a class="btn btn-ghost" href="/devices/{{ device.id }}/sync" aria-label="Open sync page for {{ device.name }}">Open sync</a>
+      <a class="btn btn-ghost" href="/" aria-label="Go back to dashboard">Back</a>
     </div>
   </section>
 
@@ -21,14 +21,16 @@
     </section>
   {% else %}
     <section class="panel">
-      <div class="panel-head">
+      <div class="card-header">
         <h2>Users On Device</h2>
         <span class="muted"><span id="device-users-table-count">{{ users|length }}</span> live users found.</span>
       </div>
 
-      <div class="filter-bar-flex no-print" style="margin-bottom:10px">
-        <input data-table-filter="device-users-table" placeholder="Search by name, user ID, UID…" style="max-width:300px">
-        <select data-table-filter="device-users-table" data-filter-col="5" style="max-width:180px">
+      <div class="filter-bar no-print" style="margin-bottom:10px">
+        <label for="du-search" class="sr-only">Search device users</label>
+        <input id="du-search" data-table-filter="device-users-table" placeholder="Search by name, user ID, UID…" style="max-width:300px">
+        <label for="du-privilege" class="sr-only">Filter by privilege level</label>
+        <select id="du-privilege" data-table-filter="device-users-table" data-filter-col="5" style="max-width:180px">
           <option value="">Any privilege</option>
           <option value="0">0 — Normal</option>
           <option value="14">14 — Admin</option>
@@ -37,15 +39,15 @@
 
       <form method="post" action="/devices/{{ device.id }}/import-users">
         <div class="toolbar no-print">
-          <button class="btn primary" type="submit">Import selected</button>
-          <button class="btn ghost" type="submit" name="all" value="1">Import all shown</button>
+          <button class="btn btn-primary" type="submit">Import selected</button>
+          <button class="btn btn-ghost" type="submit" name="all" value="1" aria-label="Import all shown users">Import all shown</button>
         </div>
         <div class="table-wrap">
           <table class="table" id="device-users-table">
             <thead>
               <tr>
-                <th class="no-print">Select</th>
-                <th>UID</th><th>User ID</th><th>Name</th><th>Card</th><th>Privilege</th>
+                <th class="no-print" scope="col">Select</th>
+                <th scope="col">UID</th><th scope="col">User ID</th><th scope="col">Name</th><th scope="col">Card</th><th scope="col">Privilege</th>
               </tr>
             </thead>
             <tbody>

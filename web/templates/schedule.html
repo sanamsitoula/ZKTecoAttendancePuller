@@ -1,47 +1,93 @@
 {% extends 'base.html' %}
+{% from 'components/ui.html' import badge, btn %}
+
+{% block title %}Schedule — ZKTeco Attendance{% endblock %}
 
 {% block content %}
-  <section class="page-head">
-    <div>
-      <p class="eyebrow">Scheduler timing</p>
-      <h1>Pull Schedule</h1>
-    </div>
-  </section>
+<div class="page-header">
+  <div>
+    <h1>Schedule Settings</h1>
+    <p class="subtitle">Configure pull times and timezone</p>
+  </div>
+</div>
 
-  {% if jobs %}
-  <section class="panel narrow">
-    <div class="panel-head">
-      <h2>Next Scheduled Runs</h2>
-      <span class="status success">Scheduler running</span>
+<div style="max-width:720px">
+  {# ── Pull Schedule ─────────────────────────────────────────────────── #}
+  <div class="card" style="margin-bottom:var(--space-6)">
+    <div class="card-header">
+      <h2>Pull Schedule</h2>
+      <span class="subtitle">Nepal Time (Asia/Kathmandu)</span>
     </div>
-    <table class="table compact">
-      <thead><tr><th>Job</th><th>Next Run (NPT)</th></tr></thead>
-      <tbody>
-        {% for j in jobs %}
-        <tr>
-          <td>{{ j.name }}</td>
-          <td><strong>{{ j.next_run }}</strong></td>
-        </tr>
+    <div class="card-body">
+      <form method="post" action="/schedule">
+        <div class="form-group" style="margin-bottom:var(--space-4)">
+          <label class="form-label" for="schedule_text">Schedule Times (Python tuple format)</label>
+          <textarea class="form-input" id="schedule_text" name="schedule_text" rows="6" aria-describedby="schedule-hint" style="font-family:var(--font-mono);font-size:var(--text-sm)">{{ schedule_text }}</textarea>
+          <span id="schedule-hint" class="text-sm text-muted">Format: [(hour, minute), ...] — Example: [(6, 20), (7, 20), (9, 20), (13, 20), (17, 10)]</span>
+        </div>
+
+        <div style="display:flex;gap:var(--space-3)">
+          <button type="submit" class="btn btn-primary">Save Schedule</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {# ── Current Schedule Display ───────────────────────────────────────── #}
+  <div class="card" style="margin-bottom:var(--space-6)">
+    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)">
+      <h2>Current Pull Times</h2>
+      <form method="post" action="/schedule/pull-now" style="margin:0" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Pulling…'">
+        <button type="submit" class="btn btn-primary" title="Pull attendance from all devices now">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/>
+          </svg>
+          Pull Now
+        </button>
+      </form>
+    </div>
+    <div class="card-body">
+      <div style="display:flex;flex-wrap:wrap;gap:var(--space-3)">
+        {% for t in schedule_times %}
+        <div style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-3) var(--space-4);background:var(--color-surface-2);border-radius:var(--radius-lg);border:1px solid var(--color-border)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--color-primary)">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          </svg>
+          <strong style="font-size:var(--text-md)">{{ t }}</strong>
+          <span class="text-sm text-muted">NPT</span>
+        </div>
         {% endfor %}
-      </tbody>
-    </table>
-  </section>
-  {% else %}
-  <section class="panel narrow">
-    <p class="muted">Scheduler not running — save a schedule below to start it.</p>
-  </section>
-  {% endif %}
-
-  <section class="panel narrow">
-    <div class="panel-head">
-      <h2>Schedule Times</h2>
-      <span class="muted">Use Python list-of-tuple format: (hour, minute).</span>
+      </div>
+      <p class="text-sm text-muted" style="margin-top:var(--space-4)">
+        Timezone: <strong>{{ scheduler_timezone }}</strong> — All times are in Nepal Standard Time (UTC+5:45)
+      </p>
     </div>
-    <form class="form" method="post" action="/schedule">
-      <label>SCHEDULE_TIMES
-        <textarea name="schedule_text" rows="8">{{ schedule_text }}</textarea>
-      </label>
-      <button class="btn primary" type="submit">Save &amp; Apply Schedule</button>
-    </form>
-  </section>
+  </div>
+
+  {# ── Auto-Attend Settings ──────────────────────────────────────────── #}
+  <div class="card">
+    <div class="card-header">
+      <h2>Auto-Attend Service</h2>
+      {{ badge('Separate Service', 'info') }}
+    </div>
+    <div class="card-body">
+      <p class="text-sm" style="margin-bottom:var(--space-3)">
+        The auto-attend service runs separately and punches check-in/check-out for configured employees.
+      </p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);margin-bottom:var(--space-4)">
+        <div>
+          <span class="text-sm text-muted">Check-In Window</span>
+          <p class="font-semibold">08:57:00 — 08:59:49</p>
+        </div>
+        <div>
+          <span class="text-sm text-muted">Check-Out Window</span>
+          <p class="font-semibold">17:19:00 — 17:27:00</p>
+        </div>
+      </div>
+      <p class="text-sm text-muted">
+        Configure via <code>auto_attend_config.json</code> or the <code>auto_attend_rules</code> database table.
+      </p>
+    </div>
+  </div>
+</div>
 {% endblock %}

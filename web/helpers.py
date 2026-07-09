@@ -14,9 +14,42 @@ except Exception:
     _device_tz = timezone.utc
 
 
+def _get_company_settings():
+    """Get company settings from DB (cached for the request)."""
+    defaults = {
+        'company_name': 'ZKTeco Attendance',
+        'logo_url': None,
+        'address': '',
+        'phone': '',
+        'email': '',
+        'website': '',
+        'pan_number': '',
+        'fiscal_year_bs': '',
+    }
+    try:
+        from db import get_connection, get_company_settings
+        conn = get_connection()
+        try:
+            data = get_company_settings(conn)
+            if data:
+                defaults.update(data)
+            return defaults
+        finally:
+            conn.close()
+    except Exception:
+        return defaults
+
+
 def render(templates: Jinja2Templates, request: Request, name: str, context: dict | None = None):
     flashes = read_flashes(request)
-    ctx = {"request": request, "flashes": flashes, **(context or {})}
+    session_data = {
+        "display_name": request.session.get("display_name", "User"),
+        "username": request.session.get("username", ""),
+        "role": request.session.get("role", "viewer"),
+        "user_id": request.session.get("user_id"),
+    }
+    company = _get_company_settings()
+    ctx = {"request": request, "flashes": flashes, "session": session_data, "company": company, **(context or {})}
     response = templates.TemplateResponse(request, name, ctx)
     attach_flash_clear(response, bool(flashes))
     return response

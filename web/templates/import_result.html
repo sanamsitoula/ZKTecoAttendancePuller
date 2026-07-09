@@ -7,19 +7,19 @@
       <h1>{{ device.name }} User Import</h1>
     </div>
     <div class="head-actions">
-      <a class="btn primary" href="/users">View users</a>
-      <a class="btn ghost" href="/devices/{{ device.id }}/users">Back to device users</a>
+      <a class="btn btn-primary" href="/users" aria-label="Go to users list">View users</a>
+      <a class="btn btn-ghost" href="/devices/{{ device.id }}/users" aria-label="Go back to device users">Back to device users</a>
     </div>
   </section>
 
   <section class="panel">
-    <div class="panel-head">
+    <div class="card-header">
       <h2>Results</h2>
       <span class="muted">{{ results|length }} rows processed.</span>
     </div>
     <div class="table-wrap">
       <table class="table">
-        <thead><tr><th>UID</th><th>Name</th><th>Status</th><th>Message</th></tr></thead>
+        <thead><tr><th scope="col">UID</th><th scope="col">Name</th><th scope="col">Status</th><th scope="col">Message</th></tr></thead>
         <tbody>
           {% for r in results %}
           <tr>

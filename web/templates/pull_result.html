@@ -8,9 +8,9 @@
       <p class="muted">{{ device.ip_address }}:{{ device.port }}</p>
     </div>
     <div class="head-actions">
-      <a class="btn primary" href="/">Dashboard</a>
-      <a class="btn ghost" href="/pull-sessions">All runs</a>
-      <a class="btn ghost" href="/devices/{{ device.id }}/users">Device users</a>
+      <a class="btn btn-primary" href="/" aria-label="Go to dashboard">Dashboard</a>
+      <a class="btn btn-ghost" href="/pull-sessions" aria-label="View all pull sessions">All runs</a>
+      <a class="btn btn-ghost" href="/devices/{{ device.id }}/users" aria-label="View device users">Device users</a>
     </div>
   </section>
 
@@ -39,13 +39,13 @@
 
   {% if error_message %}
   <section class="panel error-panel">
-    <div class="panel-head"><h2>Error</h2></div>
+    <div class="card-header"><h2>Error</h2></div>
     <p class="error-line">{{ error_message }}</p>
   </section>
   {% endif %}
 
   <section class="panel">
-    <div class="panel-head">
+    <div class="card-header">
       <h2>Run details</h2>
     </div>
     <div class="result-box">

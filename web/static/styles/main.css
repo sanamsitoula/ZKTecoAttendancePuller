@@ -1,0 +1,70 @@
+/* ============================================
+   ZKTeco Attendance Console
+   Enterprise Dashboard Design System
+   ============================================ */
+
+/* Import modular CSS files in order */
+@import url('variables.css');
+@import url('reset.css');
+@import url('layout.css');
+@import url('components.css');
+@import url('dashboard.css');
+@import url('tables.css');
+@import url('forms.css');
+@import url('utilities.css');
+@import url('responsive.css');
+
+/* ============================================
+   ADDITIONAL STYLES
+   ============================================ */
+
+/* ── Smooth Scrolling ──────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ── Focus Styles ────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Selection Styles ────────────────────────────────────── */
+::selection {
+  background: var(--primary-lighter);
+  color: var(--primary);
+}
+
+::-moz-selection {
+  background: var(--primary-lighter);
+  color: var(--primary);
+}
+
+/* ── Custom Scrollbar for WebKit ───────────────────────────── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--gray-300);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-400);
+}
+
+/* ── Dark Theme Scrollbar ──────────────────────────────────── */
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: var(--gray-700);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-600);
+}

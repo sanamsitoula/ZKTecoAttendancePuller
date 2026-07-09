@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File
 from fastapi.responses import RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -21,7 +21,8 @@ from db import (list_global_users, create_global_user, update_global_user, delet
                 find_global_user_by_global_id, get_global_user)
 from db import upsert_employee
 from db import (get_employee_with_device, get_employees_with_device,
-                delete_employee_record, bulk_delete_employee_records)
+                delete_employee_record, bulk_delete_employee_records,
+                get_all_departments)
 import db as db_mod
 import puller as puller_mod
 import re
@@ -33,7 +34,7 @@ from config import SCHEDULE_TIMES, SCHEDULER_TIMEZONE, load_db_config
 from config import COMPANY_NAME, COMPANY_ADDRESS, COMPANY_EMAIL, COMPANY_WEBSITE
 from urllib.parse import urlencode
 from web.flash import redirect_with_flash
-from web.helpers import render, device_config_from_row, attendance_to_dict, action_label
+from web.helpers import render, device_config_from_row, attendance_to_dict, action_label, _get_company_settings
 from web.auth import (get_secret_key, find_user_by_username, verify_password,
                       get_session_user, hash_password)
 from db import (get_web_user_by_username, get_web_user_by_id, get_all_web_users,
@@ -62,6 +63,18 @@ def _scheduler_jobs_info() -> list:
     return out
 
 
+def _safe_pull() -> bool:
+    """Run one pull cycle unless one is already in progress. Returns True if it ran."""
+    if not _pull_lock.acquire(blocking=False):
+        return False
+    try:
+        from main import run_pull_cycle
+        run_pull_cycle()
+        return True
+    finally:
+        _pull_lock.release()
+
+
 def _restart_web_scheduler():
     global _web_scheduler
     if _web_scheduler and _web_scheduler.running:
@@ -69,15 +82,6 @@ def _restart_web_scheduler():
     importlib.reload(_cfg_mod)
     times = _cfg_mod.SCHEDULE_TIMES
     tz    = _cfg_mod.SCHEDULER_TIMEZONE
-    from main import run_pull_cycle
-
-    def _safe_pull():
-        if not _pull_lock.acquire(blocking=False):
-            return
-        try:
-            run_pull_cycle()
-        finally:
-            _pull_lock.release()
 
     sched = BackgroundScheduler(timezone=tz)
     for hour, minute in times:
@@ -142,7 +146,7 @@ def _current_user_id(request: Request) -> int:
 
 _ADMIN_ONLY_PREFIXES = (
     '/devices', '/sync', '/migrate', '/schedule',
-    '/pull-sessions', '/settings', '/web-users',
+    '/pull-sessions', '/settings', '/web-users', '/payroll',
 )
 _VIEWER_ALLOWED_PREFIXES = (
     '/', '/attendance', '/reports/daily', '/reports/absent',
@@ -428,11 +432,16 @@ def web_user_new_post(request: Request,
 
 @app.get("/web-users/{user_id}/edit")
 def web_user_edit_get(request: Request, user_id: int):
-    from db import get_all_global_users_with_dept
+    from db import (get_all_global_users_with_dept, get_all_departments,
+                    get_all_sections, get_all_units, get_all_shifts)
     conn = get_connection()
     try:
         form_user    = get_web_user_by_id(conn, user_id)
         global_users = get_all_global_users_with_dept(conn)
+        departments  = get_all_departments(conn)
+        sections     = get_all_sections(conn)
+        units        = get_all_units(conn)
+        shifts       = get_all_shifts(conn)
     finally:
         conn.close()
     if not form_user:
@@ -440,6 +449,10 @@ def web_user_edit_get(request: Request, user_id: int):
     return render(templates, request, "web_user_form.html", {
         "form_user":    form_user,
         "global_users": global_users,
+        "departments":  departments,
+        "sections":     sections,
+        "units":        units,
+        "shifts":       shifts,
         "COMPANY_NAME": COMPANY_NAME,
     })
 
@@ -452,14 +465,35 @@ def web_user_edit_post(request: Request,
                        global_user_id: str = Form(""),
                        is_active:      str = Form(""),
                        new_password:   str = Form(""),
-                       confirm_pwd:    str = Form("")):
+                       confirm_pwd:    str = Form(""),
+                       # global user fields
+                       gu_employee_id:      str = Form(""),
+                       gu_name:             str = Form(""),
+                       gu_designation:      str = Form(""),
+                       gu_department_id:    str = Form(""),
+                       gu_section_id:       str = Form(""),
+                       gu_unit_id:          str = Form(""),
+                       gu_shift_id:         str = Form(""),
+                       gu_emp_type:         str = Form("PERMANENT"),
+                       gu_emp_status:       str = Form("ACTIVE"),
+                       gu_join_date:        str = Form(""),
+                       gu_level_grade:      str = Form(""),
+                       gu_email:            str = Form(""),
+                       gu_phone:            str = Form(""),
+                       gu_bank_number:      str = Form(""),
+                       gu_appointment_date: str = Form(""),
+                       gu_dob:              str = Form(""),
+                       gu_gender:           str = Form(""),
+                       must_change_pwd:     str = Form("")):
     conn = get_connection()
     try:
+        # ── Update web_users table ──────────────────────────────────────
         fields: dict = {
             "display_name":   display_name.strip(),
             "role":           role,
             "global_user_id": int(global_user_id) if global_user_id.isdigit() else None,
             "is_active":      bool(is_active),
+            "must_change_pwd": bool(must_change_pwd),
         }
         if new_password:
             if new_password != confirm_pwd:
@@ -470,6 +504,33 @@ def web_user_edit_post(request: Request,
                                            "Password must be at least 6 characters.")
             fields["password_hash"] = hash_password(new_password)
         update_web_user(conn, user_id, _current_user_id(request), **fields)
+
+        # ── Update global_users table if linked ─────────────────────────
+        gu_id = int(global_user_id) if global_user_id.isdigit() else None
+        if gu_id:
+            from db import update_global_user
+            gu_data = {
+                "global_user_id":   gu_id,
+                "employee_id":      gu_employee_id.strip() or None,
+                "name":             gu_name.strip(),
+                "designation":      gu_designation.strip() or None,
+                "department_id":    int(gu_department_id) if gu_department_id.isdigit() else None,
+                "section_id":       int(gu_section_id) if gu_section_id.isdigit() else None,
+                "unit_id":          int(gu_unit_id) if gu_unit_id.isdigit() else None,
+                "shift_id":         int(gu_shift_id) if gu_shift_id.isdigit() else None,
+                "emp_type":         gu_emp_type or 'PERMANENT',
+                "emp_status":       gu_emp_status or 'ACTIVE',
+                "join_date":        gu_join_date or None,
+                "level_grade":      gu_level_grade.strip() or None,
+                "email":            gu_email.strip() or None,
+                "phone":            gu_phone.strip() or None,
+                "bank_number":      gu_bank_number.strip() or None,
+                "appointment_date": gu_appointment_date or None,
+                "dob":              gu_dob or None,
+                "gender":           gu_gender or None,
+            }
+            update_global_user(conn, gu_id, gu_data, app_user_id=_current_user_id(request))
+
         ip = _get_client_ip(request)
         add_web_audit_log(conn, user_id, "", "updated", ip,
                           request.headers.get("User-Agent", "")[:255],
@@ -876,6 +937,7 @@ def users_index(
     gu_department:    str | None = None,
     gu_section:       str | None = None,
     gu_unit:          str | None = None,
+    gu_status:        str | None = None,
     gu_sort_by:       str = 'att_id',
     gu_sort_dir:      str = 'asc',
     page:             str | None = None,
@@ -903,6 +965,7 @@ def users_index(
             department_id=_int_param(gu_department),
             section_id=_int_param(gu_section),
             unit_id=_int_param(gu_unit),
+            emp_status=gu_status or None,
         )
         all_users.sort(key=lambda u: _gu_sort_key(u, gu_sort_by),
                        reverse=(gu_sort_dir == 'desc'))
@@ -950,6 +1013,7 @@ def users_index(
             "gu_department":  gu_department or '',
             "gu_section":     gu_section or '',
             "gu_unit":        gu_unit or '',
+            "gu_status":      gu_status or '',
             "gu_sort_by":     gu_sort_by,
             "gu_sort_dir":    gu_sort_dir,
             "employees":      employees,
@@ -1157,6 +1221,48 @@ def user_delete(request: Request, global_id: int):
         conn.close()
 
 
+@app.post("/users/{global_id}/soft-delete")
+def user_soft_delete(request: Request, global_id: int):
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT global_user_id, name FROM global_users WHERE id = %s", (global_id,))
+            row = cur.fetchone()
+            if not row:
+                return redirect_with_flash("/users", "warning", "User not found.")
+            global_user_id, user_name = row[0], row[1]
+        devices = get_devices(conn)
+        for d in devices:
+            device_cfg = device_config_from_row(d)
+            try:
+                puller_mod.delete_user_from_device(device_cfg, global_user_id)
+            except Exception:
+                pass
+        from db import update_global_user
+        update_global_user(conn, global_id, {'emp_status': 'DELETED'}, app_user_id=_current_user_id(request))
+        conn.commit()
+        return redirect_with_flash("/users", "success", f'User "{user_name}" soft-deleted (removed from devices, kept in software).')
+    finally:
+        conn.close()
+
+
+@app.post("/users/{global_id}/restore")
+def user_restore(request: Request, global_id: int):
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM global_users WHERE id = %s", (global_id,))
+            row = cur.fetchone()
+            if not row:
+                return redirect_with_flash("/users", "warning", "User not found.")
+        from db import update_global_user
+        update_global_user(conn, global_id, {'emp_status': 'ACTIVE'}, app_user_id=_current_user_id(request))
+        conn.commit()
+        return redirect_with_flash("/users", "success", f'User restored to Active status.')
+    finally:
+        conn.close()
+
+
 @app.get("/users/{global_id}/push")
 def user_push_form(request: Request, global_id: int):
     conn = get_connection()
@@ -1192,7 +1298,221 @@ def user_push(request: Request, global_id: int, device_id: int = Form(...)):
         conn.close()
 
 
-# ---- Employee delete (from device + DB) ---------------------------------
+# ---- Employees page ----------------------------------------------------
+
+
+_EMP_PAGE_SIZE = 25
+
+
+@app.get("/employees")
+def employees_page(
+    request: Request,
+    search:         str | None = None,
+    device_id:      str | None = None,
+    link_status:    str | None = None,
+    department_id:  str | None = None,
+    page:           str | None = None,
+):
+    """Employee management page with search, device filter, link-status filter, and attendance stats."""
+    conn = get_connection()
+    try:
+        devices = get_devices(conn)
+        device_id_int = _int_param(device_id)
+        dept_id_int = _int_param(department_id)
+        page_num = max(1, _int_param(page) or 1)
+        search_q = (search or '').strip()
+
+        # ── Count totals ──
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM employees")
+            total_employees = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM employees WHERE global_user_id IS NOT NULL")
+            total_linked = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM employees WHERE global_user_id IS NULL")
+            total_unlinked = total_employees - total_linked
+            cur.execute("""
+                SELECT COUNT(DISTINCT user_id)
+                FROM attendance_logs
+                WHERE "timestamp" >= CURRENT_DATE
+                  AND "timestamp" < CURRENT_DATE + INTERVAL '1 day'
+            """)
+            punches_today = cur.fetchone()[0]
+
+        # ── Build query ──
+        where = []
+        params = []
+        if device_id_int:
+            where.append("e.device_id = %s")
+            params.append(device_id_int)
+        if search_q:
+            where.append("(e.name ILIKE %s OR e.user_id ILIKE %s)")
+            params += [f'%{search_q}%', f'%{search_q}%']
+        if link_status == 'linked':
+            where.append("e.global_user_id IS NOT NULL")
+        elif link_status == 'unlinked':
+            where.append("e.global_user_id IS NULL")
+        if dept_id_int:
+            where.append("gu.department_id = %s")
+            params.append(dept_id_int)
+
+        where_clause = f"WHERE {' AND '.join(where)}" if where else ""
+
+        # Fetch all departments for filter dropdown
+        all_departments = get_all_departments(conn)
+
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT COUNT(*) FROM employees e {where_clause}",
+                tuple(params))
+            total_filtered = cur.fetchone()[0]
+
+        total_pages = max(1, (total_filtered + _EMP_PAGE_SIZE - 1) // _EMP_PAGE_SIZE)
+        page_num = min(page_num, total_pages)
+        offset = (page_num - 1) * _EMP_PAGE_SIZE
+
+        # ── Fetch employees ──
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute(f"""
+                SELECT e.id, e.uid, e.user_id, e.name, e.privilege, e.card,
+                       e.global_user_id, d.name AS device_name, d.id AS device_id,
+                       gu.employee_id, gu.email, gu.phone, gu.bank_number,
+                       gu.emp_type, gu.emp_status, gu.join_date, gu.designation,
+                       gu.department_id, dep.name AS department_name,
+                       gu.section_id, sec.name AS section_name,
+                       gu.unit_id, unt.name AS unit_name
+                FROM employees e
+                JOIN devices d ON e.device_id = d.id
+                LEFT JOIN global_users gu ON gu.id = e.global_user_id
+                LEFT JOIN departments dep ON dep.id = gu.department_id
+                LEFT JOIN sections sec ON sec.id = gu.section_id
+                LEFT JOIN units unt ON unt.id = gu.unit_id
+                {where_clause}
+                ORDER BY e.name ASC
+                LIMIT %s OFFSET %s
+            """, tuple(params) + (_EMP_PAGE_SIZE, offset))
+            employees = [dict(row) for row in cur.fetchall()]
+
+        # ── Fetch today's attendance counts per employee ──
+        emp_attendance = {}
+        if employees:
+            emp_pairs = [(e['device_id'], e['user_id']) for e in employees]
+            placeholders = ','.join(['(%s, %s)'] * len(emp_pairs))
+            flat_params = []
+            for did, uid in emp_pairs:
+                flat_params += [did, uid]
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute(f"""
+                    SELECT device_id, user_id, punch_label, COUNT(*) as cnt
+                    FROM attendance_logs
+                    WHERE "timestamp" >= CURRENT_DATE
+                      AND "timestamp" < CURRENT_DATE + INTERVAL '1 day'
+                      AND (device_id, user_id) IN ({placeholders})
+                    GROUP BY device_id, user_id, punch_label
+                """, tuple(flat_params))
+                for row in cur.fetchall():
+                    key = (row['device_id'], row['user_id'])
+                    emp_attendance.setdefault(key, {})
+                    emp_attendance[key][row['punch_label']] = row['cnt']
+
+        schedule_times = _fmt_schedule()
+
+        return render(templates, request, "employees.html", {
+            "employees":        employees,
+            "devices":          devices,
+            "all_departments":  all_departments,
+            "total_employees":  total_employees,
+            "total_linked":     total_linked,
+            "total_unlinked":   total_unlinked,
+            "punches_today":    punches_today,
+            "total_filtered":   total_filtered,
+            "page":             page_num,
+            "total_pages":      total_pages,
+            "page_range":       _page_range(page_num, total_pages),
+            "search":           search_q,
+            "selected_device_id": device_id or '',
+            "selected_department_id": department_id or '',
+            "link_status":      link_status or '',
+            "emp_attendance":   emp_attendance,
+            "schedule_times":   schedule_times,
+        })
+    finally:
+        conn.close()
+
+
+@app.get("/employees/{emp_id}/edit")
+def employee_edit_page(request: Request, emp_id: int):
+    """Employee edit page showing cross-device attendance records."""
+    conn = get_connection()
+    try:
+        emp = get_employee_with_device(conn, emp_id)
+        if not emp:
+            return redirect_with_flash("/employees", "error", "Employee not found.")
+
+        # Fetch all employee records across devices for this user_id
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute("""
+                SELECT e.id, e.uid, e.user_id, e.name, e.privilege, e.card,
+                       e.global_user_id, d.name AS device_name, d.id AS device_id
+                FROM employees e
+                JOIN devices d ON e.device_id = d.id
+                WHERE e.user_id = %s
+                ORDER BY d.name
+            """, (emp['user_id'],))
+            cross_device_records = [dict(row) for row in cur.fetchall()]
+
+        # Fetch today's attendance
+        today_attendance = []
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute("""
+                SELECT al.*, d.name AS device_name
+                FROM attendance_logs al
+                JOIN devices d ON al.device_id = d.id
+                WHERE al.user_id = %s
+                  AND al."timestamp" >= CURRENT_DATE
+                  AND al."timestamp" < CURRENT_DATE + INTERVAL '1 day'
+                ORDER BY al.timestamp
+            """, (emp['user_id'],))
+            today_attendance = [dict(row) for row in cur.fetchall()]
+
+        # All devices for set-global form
+        devices = get_devices(conn)
+
+        # Fetch all global users for the linking dropdown
+        all_global_users = list_global_users(conn)
+
+        return render(templates, request, "employee_edit.html", {
+            "employee":             emp,
+            "cross_device_records": cross_device_records,
+            "today_attendance":     today_attendance,
+            "devices":              devices,
+            "global_users":         all_global_users,
+        })
+    finally:
+        conn.close()
+
+
+@app.post("/employees/{emp_id}/edit")
+async def employee_edit_post(request: Request, emp_id: int):
+    """Update employee name on device and in DB."""
+    form = await request.form()
+    new_name = (form.get('name') or '').strip()
+    if not new_name:
+        return redirect_with_flash(f"/employees/{emp_id}/edit", "error", "Name is required.")
+
+    conn = get_connection()
+    try:
+        emp = get_employee_with_device(conn, emp_id)
+        if not emp:
+            return redirect_with_flash("/employees", "error", "Employee not found.")
+
+        # Update in DB
+        with conn.cursor() as cur:
+            cur.execute("UPDATE employees SET name = %s WHERE id = %s", (new_name, emp_id))
+        conn.commit()
+
+        return redirect_with_flash(f"/employees/{emp_id}/edit", "success", f"Employee updated to '{new_name}'.")
+    finally:
+        conn.close()
 
 
 @app.post("/employees/{emp_id}/delete")
@@ -1201,7 +1521,7 @@ def employee_delete(request: Request, emp_id: int):
     try:
         emp = get_employee_with_device(conn, emp_id)
         if not emp:
-            return redirect_with_flash("/users", "warning", "Employee not found.")
+            return redirect_with_flash("/employees", "warning", "Employee not found.")
         device_cfg = device_config_from_row(emp)
         result = puller_mod.delete_employee_by_uid(device_cfg, emp["uid"])
         delete_employee_record(conn, emp_id)
@@ -1210,7 +1530,7 @@ def employee_delete(request: Request, emp_id: int):
             msg = f'Removed {emp["name"] or emp["user_id"]} (UID {emp["uid"]}) from {emp["device_name"]}.'
         else:
             msg = f'Removed from DB; device said: {result["message"]}'
-        return redirect_with_flash("/users", "success" if result["ok"] else "warning", msg)
+        return redirect_with_flash("/employees", "success" if result["ok"] else "warning", msg)
     finally:
         conn.close()
 
@@ -1221,7 +1541,7 @@ async def employees_bulk_delete(request: Request):
     ids_raw = form.getlist("ids")
     emp_ids = [int(x) for x in ids_raw if x.strip()]
     if not emp_ids:
-        return redirect_with_flash("/users", "warning", "No employees selected.")
+        return redirect_with_flash("/employees", "warning", "No employees selected.")
     conn = get_connection()
     try:
         rows = get_employees_with_device(conn, emp_ids)
@@ -1239,7 +1559,7 @@ async def employees_bulk_delete(request: Request):
         msg = f"Deleted {ok_count} employee(s) from device(s)."
         if fail_count:
             msg += f" {fail_count} had device errors but were removed from DB."
-        return redirect_with_flash("/users", "success", msg)
+        return redirect_with_flash("/employees", "success", msg)
     finally:
         conn.close()
 
@@ -1517,7 +1837,8 @@ def device_pull(request: Request, device_id: int):
                     conn.commit()
                 except Exception as _se:
                     conn.rollback()
-                    logger.warning("attendance_daily settlement failed: %s", _se)
+                    import logging as _lg
+                    _lg.getLogger(__name__).warning("attendance_daily settlement failed: %s", _se)
 
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
                 cur.execute(
@@ -2286,9 +2607,7 @@ def _compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
         if not pd:
             return ''
         t = pd.get('time')
-        ts = t.strftime('%H:%M') if hasattr(t, 'strftime') else str(t)[:5]
-        dev = pd.get('device_name', '')
-        return f"{ts} ({dev})" if dev else ts
+        return t.strftime('%H:%M') if hasattr(t, 'strftime') else str(t)[:5]
 
     days = []
     d = start
@@ -2652,6 +2971,9 @@ def reports_monthly_view(
                                     emp_entry['devices'][0]['user_id'] if emp_entry['devices'] else ''),
                     'device_name':  ', '.join(dv['device_name'] for dv in emp_entry['devices']),
                     'department':   emp_entry.get('department_name', ''),
+                    'directorate':  emp_entry.get('directorate_name', ''),
+                    'section':      emp_entry.get('section_name', ''),
+                    'unit':         emp_entry.get('unit_name', ''),
                     'bs_year':      bs_y,
                     'bs_month':     bs_m,
                     'month_name':   mi['month_name'],
@@ -2899,26 +3221,35 @@ def settings_page(request: Request):
     try:
         from db import (get_all_departments, get_all_shifts, get_all_shift_rules,
                         get_all_global_users_with_dept, get_employees_for_report as _gef,
-                        get_all_directorates, get_all_sections, get_all_units)
-        departments  = get_all_departments(conn)
-        shifts       = get_all_shifts(conn)
-        shift_rules  = get_all_shift_rules(conn)
-        employees    = get_all_global_users_with_dept(conn)
-        directorates = get_all_directorates(conn)
-        sections     = get_all_sections(conn)
-        units        = get_all_units(conn)
-        all_emps     = _gef(conn)
+                        get_all_directorates, get_all_sections, get_all_units,
+                        get_devices as _gd)
+        departments   = get_all_departments(conn)
+        shifts        = get_all_shifts(conn)
+        shift_rules   = get_all_shift_rules(conn)
+        employees     = get_all_global_users_with_dept(conn)
+        directorates  = get_all_directorates(conn)
+        sections      = get_all_sections(conn)
+        units         = get_all_units(conn)
+        all_emps      = _gef(conn)
+        devices_list  = _gd(conn)
+        pull_times_str = '09:00,13:00,17:30'
     finally:
         conn.close()
     return render(templates, request, 'settings.html', {
-        'departments':  departments,
-        'shifts':       shifts,
-        'shift_rules':  shift_rules,
-        'employees':    employees,
-        'directorates': directorates,
-        'sections':     sections,
-        'units':        units,
-        'all_emps':     all_emps,
+        'departments':   departments,
+        'shifts':        shifts,
+        'shift_rules':   shift_rules,
+        'employees':     employees,
+        'directorates':  directorates,
+        'sections':      sections,
+        'units':         units,
+        'all_emps':      all_emps,
+        'devices_list':  devices_list,
+        'pull_times_str': pull_times_str,
+        'source_id':     None,
+        'source_users':  None,
+        'source_device': None,
+        'migrate_error': None,
     })
 
 
@@ -3174,6 +3505,45 @@ async def set_emp_org(request: Request, global_id: int):
     finally:
         conn.close()
     return redirect_with_flash('/settings', 'success', 'Employee org assignment updated.')
+
+
+# ── Company Settings ──────────────────────────────────────────────────────────
+
+@app.post("/settings/company")
+async def update_company(request: Request):
+    """Update company settings (name, logo, address, etc.)."""
+    form = await request.form()
+    company_name = (form.get('company_name') or '').strip()
+    logo_url = (form.get('logo_url') or '').strip()
+    address = (form.get('address') or '').strip()
+    phone = (form.get('phone') or '').strip()
+    email = (form.get('email') or '').strip()
+    website = (form.get('website') or '').strip()
+    pan_number = (form.get('pan_number') or '').strip()
+    fiscal_year_bs = (form.get('fiscal_year_bs') or '').strip()
+
+    if not company_name:
+        return redirect_with_flash('/settings', 'error', 'Company name is required.')
+
+    conn = get_connection()
+    try:
+        from db import update_company_settings
+        user_id = request.session.get('user_id', 1)
+        update_company_settings(
+            conn,
+            updated_by=user_id,
+            company_name=company_name,
+            logo_url=logo_url or None,
+            address=address or None,
+            phone=phone or None,
+            email=email or None,
+            website=website or None,
+            pan_number=pan_number or None,
+            fiscal_year_bs=fiscal_year_bs or None,
+        )
+    finally:
+        conn.close()
+    return redirect_with_flash('/settings', 'success', 'Company settings updated.')
 
 
 # ─── Leave Management ────────────────────────────────────────────────────────
@@ -4295,3 +4665,582 @@ def schedule_update(request: Request, schedule_text: str = Form(...)):
         msg = f'Schedule saved to config.py but scheduler reload failed: {exc}'
     return render(templates, request, 'schedule_result.html', {'message': msg, 'jobs': jobs})
 
+
+@app.post("/schedule/pull-now")
+def schedule_pull_now(request: Request):
+    if _pull_lock.locked():
+        return redirect_with_flash("/schedule", "warning", "A pull is already in progress — please wait.")
+
+    def _bg():
+        try:
+            _safe_pull()
+        except Exception:
+            _traceback.print_exc()
+
+    _threading.Thread(target=_bg, daemon=True).start()
+    return redirect_with_flash("/schedule", "success",
+                               "Manual pull started. Check Sync Runs for results in a minute.")
+
+
+@app.get("/kaaj")
+def kaaj_page(request: Request):
+    from nepali_utils import today_bs, bs_month_info
+    from db import get_all_global_users_with_dept, get_all_departments, get_connection
+    bs_year = request.query_params.get('bs_year')
+    bs_month = request.query_params.get('bs_month')
+    emp_key = request.query_params.get('emp_key')
+    department_id = request.query_params.get('department_id')
+    paid_filter = request.query_params.get('paid_filter')
+    # Defaults
+    today_bs_str = today_bs()
+    if not bs_year or not bs_month:
+        parts = today_bs_str.split('-') if today_bs_str else ['2082', '1', '1']
+        bs_year = bs_year or parts[0]
+        bs_month = bs_month or parts[1]
+    try:
+        y, m = int(bs_year), int(bs_month)
+    except ValueError:
+        y, m = 2082, 1
+    mi = bs_month_info(y, m) if bs_month_info else None
+    from_ad = mi['first_ad'] if mi else None
+    to_ad = mi['last_ad'] if mi else None
+    # We'll fetch employees and departments for the filters
+    conn = get_connection()
+    try:
+        all_emps_raw = get_all_global_users_with_dept(conn)
+        all_depts_raw = get_all_departments(conn)
+    finally:
+        conn.close()
+    # Map employees to the format expected by the template
+    all_emps = []
+    for emp in all_emps_raw:
+        all_emps.append({
+            'key': str(emp['global_user_id']),  # use global_user_id as key
+            'display_name': emp['name'],
+            'company_id': emp['global_user_id'],  # same as key
+            'department_name': emp.get('department_name') or ''
+        })
+    # Map departments
+    all_depts = [{'id': dept['id'], 'name': dept['name']} for dept in all_depts_raw]
+    # Determine selected employee display
+    sel_emp_display = '— All Employees —'
+    if emp_key:
+        # Find the employee with matching key
+        for emp in all_emps:
+            if emp['key'] == emp_key:
+                sel_emp_display = emp['display_name']
+                if emp['company_id']:
+                    sel_emp_display += f" ({emp['company_id']})"
+                break
+    # For now, we don't have a source for kaaj records, so show empty list
+    records = []
+    return render(templates, request, "kaaj.html", {
+        "records": records,
+        "sel_bs_year": bs_year,
+        "sel_bs_month": bs_month,
+        "from_ad": from_ad,
+        "to_ad": to_ad,
+        "all_emps": all_emps,
+        "all_depts": all_depts,
+        "f_dept": department_id,
+        "f_paid": paid_filter,
+        "sel_emp_key": emp_key,
+        "sel_emp_display": sel_emp_display,
+        "COMPANY_NAME": COMPANY_NAME,
+    })
+
+
+@app.post("/kaaj/add")
+async def kaaj_add(request: Request):
+    form = await request.form()
+    global_user_id = form.get('global_user_id')
+    ad_date = form.get('ad_date')
+    bs_date = form.get('bs_date')
+    is_paid = form.get('is_paid')
+    reason = form.get('reason')
+    approved_by = form.get('approved_by')
+    # Basic validation
+    if not global_user_id or not ad_date:
+        return redirect_with_flash(request, '/kaaj', 'error', 'Employee and AD date are required')
+    # Convert is_paid to boolean
+    is_paid_bool = is_paid == '1'
+    conn = get_connection()
+    try:
+        # Insert into kaaj_records table (adjust table/column names as per your schema)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO kaaj_records (global_user_id, ad_date, bs_date, is_paid, reason, approved_by, created_by, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+        """, (global_user_id, ad_date, bs_date, is_paid_bool, reason, approved_by, _current_user_id(request)))
+        conn.commit()
+        return redirect_with_flash(request, '/kaaj', 'success', 'Kaaj record added successfully')
+    except Exception as exc:
+        conn.rollback()
+        return redirect_with_flash(request, '/kaaj', 'error', f'Failed to add kaaj record: {exc}')
+    finally:
+        conn.close()
+
+
+@app.get("/leaves/opening-balance")
+def leaves_opening_balance(request: Request):
+    from nepali_utils import today_bs
+    from db import get_all_departments, get_all_leave_types, get_all_global_users_with_dept, get_leave_balances
+    bs_year = request.query_params.get('bs_year')
+    department_id = request.query_params.get('department_id')
+    if not bs_year:
+        bs_year = today_bs()[0]  # Get current B.S. year
+    else:
+        try:
+            bs_year = int(bs_year)
+        except ValueError:
+            bs_year = today_bs()[0]
+    if department_id:
+        try:
+            department_id = int(department_id)
+        except ValueError:
+            department_id = None
+    conn = get_connection()
+    try:
+        all_depts = get_all_departments(conn)
+        leave_types = get_all_leave_types(conn)
+        all_emps = get_all_global_users_with_dept(conn)
+        if department_id:
+            all_emps = [emp for emp in all_emps if emp.get('department_id') == department_id]
+        balances_list = get_leave_balances(conn, bs_year)
+        # Create a dict: employee_balances[global_user_id][leave_type_code] = balance_object
+        employee_balances = {}
+        for bal in balances_list:
+            gui = bal.get('global_user_id')
+            ltc = bal.get('leave_type_code')  # leave type code from the leave_types table
+            if gui is not None and ltc is not None:
+                if gui not in employee_balances:
+                    employee_balances[gui] = {}
+                employee_balances[gui][ltc] = bal
+        employees_data = []
+        for emp in all_emps:
+            gui = emp.get('id')  # Assuming 'id' is global_user_id from get_all_global_users_with_dept
+            # Get the balances dict for this employee, or an empty dict if none
+            emp['balances'] = employee_balances.get(gui, {})
+            employees_data.append(emp)
+        return render(templates, request, "leave_opening_balance.html", {
+            "sel_bs_year": bs_year,
+            "all_depts": all_depts,
+            "f_dept": department_id,
+            "leave_types": leave_types,
+            "employees_data": employees_data,
+            "COMPANY_NAME": COMPANY_NAME,
+        })
+    finally:
+        conn.close()
+
+
+@app.post("/leaves/opening-balance/save")
+async def save_leaves_opening_balance(request: Request):
+    from db import get_connection
+    from web.flash import redirect_with_flash
+    form = await request.form()
+    bs_year = form.get('bs_year')
+    if not bs_year:
+        return redirect_with_flash(request, '/leaves/opening-balance', 'error', 'Year is required')
+    try:
+        bs_year = int(bs_year)
+    except ValueError:
+        return redirect_with_flash(request, '/leaves/opening-balance', 'error', 'Invalid year')
+    updates = []
+    for key, value in form.items():
+        if key.startswith('ob_'):
+            parts = key.split('_')
+            if len(parts) < 3:
+                continue
+            try:
+                gui = int(parts[1])
+                ltc = '_'.join(parts[2:])  # Handle leave type codes with underscores
+            except ValueError:
+                continue
+            try:
+                ob = float(value) if value else 0
+            except ValueError:
+                ob = 0
+            updates.append((gui, ltc, ob))
+    conn = get_connection()
+    try:
+        # Build a map from leave_type_code to leave_type_id
+        leave_type_map = {}
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT code, id FROM leave_types")
+                for row in cur.fetchall():
+                    leave_type_map[row['code']] = row['id']
+        except Exception as e:
+            # If we can't build the map, we cannot proceed
+            return redirect_with_flash(request, '/leaves/opening-balance', 'error', f'Could not load leave types: {e}')
+        # Convert updates to use leave_type_id
+        updates_with_id = []
+        for gui, ltc, ob in updates:
+            lt_id = leave_type_map.get(ltc)
+            if lt_id is None:
+                # Skip or log? We'll skip for now.
+                continue
+            updates_with_id.append((gui, lt_id, ob))
+        # Try to import the update function; if not available, use raw SQL as fallback
+        try:
+            from db import update_leave_opening_balance
+            for gui, lt_id, ob in updates_with_id:
+                update_leave_opening_balance(conn, gui, lt_id, bs_year, ob)
+            conn.commit()
+            return redirect_with_flash(request, f'/leaves/opening-balance?bs_year={bs_year}&{"&department_id="+str(request.query_params.get("department_id")) if request.query_params.get("department_id") else ""}', 'success', 'Opening balances updated successfully')
+        except ImportError:
+            # Fallback: update leave_balances table directly (adjust table/column names as per your schema)
+            cursor = conn.cursor()
+            for gui, lt_id, ob in updates_with_id:
+                # Try to update existing record; if not found, insert new
+                cursor.execute("""
+                    INSERT INTO leave_balances (global_user_id, leave_type_id, bs_year, opening_balance)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (global_user_id, leave_type_id, bs_year)
+                    DO UPDATE SET opening_balance = EXCLUDED.opening_balance
+                """, (gui, lt_id, bs_year, ob))
+            conn.commit()
+            return redirect_with_flash(request, f'/leaves/opening-balance?bs_year={bs_year}&{"&department_id="+str(request.query_params.get("department_id")) if request.query_params.get("department_id") else ""}', 'success', 'Opening balances updated successfully')
+    finally:
+        conn.close()
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Payroll, Overtime & Tax  (Phase 13)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _payroll_ctx(request, extra=None):
+    ctx = {"company": _get_company_settings(), "session": request.session}
+    if extra:
+        ctx.update(extra)
+    return ctx
+
+
+@app.get("/payroll")
+def payroll_home(request: Request):
+    from db import list_payroll_runs
+    from nepali_utils import NEPALI_MONTHS
+    conn = get_connection()
+    try:
+        runs = list_payroll_runs(conn)
+    finally:
+        conn.close()
+    for r in runs:
+        r["month_name"] = NEPALI_MONTHS[r["bs_month"]] if 1 <= r["bs_month"] <= 12 else r["bs_month"]
+    today_bs = _today_bs()
+    cur_year = int(today_bs[:4]) if today_bs else 2082
+    cur_month = int(today_bs[5:7]) if today_bs else 1
+    return templates.TemplateResponse(request, "payroll_home.html", _payroll_ctx(request, {
+        "runs": runs,
+        "nepali_months": NEPALI_MONTHS,
+        "cur_year": cur_year,
+        "cur_month": cur_month,
+        "total_net": sum(float(r["total_net"]) for r in runs),
+    }))
+
+
+@app.get("/payroll/salary-structures")
+def payroll_salary_structures(request: Request, q: str | None = None):
+    from db import get_all_salary_structures
+    conn = get_connection()
+    try:
+        rows = get_all_salary_structures(conn)
+    finally:
+        conn.close()
+    if q:
+        ql = q.lower()
+        rows = [r for r in rows if ql in (r.get("name") or "").lower()
+                or ql in str(r.get("emp_code") or "").lower()]
+    configured = sum(1 for r in rows if r.get("basic_salary") is not None)
+    return templates.TemplateResponse(request, "payroll_salary_structures.html", _payroll_ctx(request, {
+        "rows": rows, "q": q or "", "configured": configured, "total": len(rows),
+    }))
+
+
+@app.post("/payroll/salary-structures")
+def payroll_save_structure(request: Request,
+                           global_user_id: int = Form(...),
+                           basic_salary: float = Form(0),
+                           allowances: float = Form(0),
+                           daily_hours: float = Form(8),
+                           ot_multiplier: float = Form(1.5),
+                           marital: str = Form("single"),
+                           other_deductions: float = Form(0),
+                           q: str = Form("")):
+    from db import upsert_salary_structure
+    marital = "married" if marital == "married" else "single"
+    conn = get_connection()
+    try:
+        upsert_salary_structure(conn, global_user_id, basic_salary, allowances,
+                                daily_hours, ot_multiplier, marital,
+                                other_deductions, _today_bs())
+    finally:
+        conn.close()
+    dest = "/payroll/salary-structures" + (f"?q={q}" if q else "")
+    return redirect_with_flash(dest, "success", "Salary structure saved.")
+
+
+@app.get("/payroll/runs/new")
+def payroll_new_run(request: Request):
+    from nepali_utils import NEPALI_MONTHS, bs_month_info
+    today_bs = _today_bs()
+    cur_year = int(today_bs[:4]) if today_bs else 2082
+    cur_month = int(today_bs[5:7]) if today_bs else 1
+    mi = bs_month_info(cur_year, cur_month)
+    return templates.TemplateResponse(request, "payroll_run_new.html", _payroll_ctx(request, {
+        "nepali_months": NEPALI_MONTHS,
+        "cur_year": cur_year, "cur_month": cur_month,
+        "default_days": mi["days"] if mi else 30,
+    }))
+
+
+@app.post("/payroll/runs/generate")
+def payroll_generate(request: Request,
+                     bs_year: int = Form(...),
+                     bs_month: int = Form(...),
+                     working_days: int = Form(0)):
+    import payroll as pay
+    from nepali_utils import bs_month_info
+    from db import (get_all_salary_structures, create_payroll_run,
+                    clear_payroll_items, insert_payroll_item,
+                    get_ytd_tax_totals, get_month_ot_split, get_month_present_days,
+                    get_holiday_ot_multiplier)
+
+    mi = bs_month_info(bs_year, bs_month)
+    if not mi:
+        return redirect_with_flash("/payroll/runs/new", "error", "Invalid Nepali month.")
+    start_ad, end_ad = mi["first_ad"], mi["last_ad"]
+    wd = working_days or mi["days"]
+    period_index = pay.fiscal_period_index(bs_month)
+
+    conn = get_connection()
+    try:
+        run_id = create_payroll_run(conn, bs_year, bs_month, period_index, wd,
+                                    request.session.get("username", ""))
+        clear_payroll_items(conn, run_id)
+        structures = [r for r in get_all_salary_structures(conn)
+                      if r.get("basic_salary") is not None]
+        count = 0
+        for s in structures:
+            gu = s["global_user_id"]
+            ot = get_month_ot_split(conn, gu, start_ad, end_ad)
+            present = get_month_present_days(conn, gu, start_ad, end_ad)
+            ytd = get_ytd_tax_totals(conn, gu, bs_year, period_index)
+            # Holiday-OT premium multiplier if the employee is eligible, else normal.
+            hol_mult = get_holiday_ot_multiplier(conn, gu)
+            slip = pay.compute_payslip(
+                basic_salary=s["basic_salary"],
+                allowances=s["allowances"] or 0,
+                working_days=wd,
+                present_days=present,
+                daily_hours=s["daily_hours"] or 8,
+                ot_hours=ot["regular_ot_hours"],
+                ot_multiplier=s["ot_multiplier"] or 1.5,
+                holiday_ot_hours=ot["holiday_ot_hours"],
+                holiday_ot_multiplier=hol_mult,
+                other_deductions=s["other_deductions"] or 0,
+                marital=s["marital"] or "single",
+                period_index=period_index,
+                taxable_ytd_before=ytd["taxable_before"],
+                tax_paid_before=ytd["tax_paid_before"],
+            )
+            insert_payroll_item(conn, run_id, gu, {
+                "present_days": slip["present_days"],
+                "ot_hours": round(slip["ot_hours"] + slip["holiday_ot_hours"], 2),
+                "ot_manual": False,
+                "earned_basic": slip["earned_basic"],
+                "earned_allowance": slip["earned_allowance"],
+                "ot_pay": slip["ot_pay"],
+                "other_earnings": slip["other_earnings"],
+                "gross": slip["gross"],
+                "taxable_this": slip["taxable_this_month"],
+                "taxable_ytd": slip["taxable_ytd"],
+                "tax": slip["tax"],
+                "other_deductions": slip["other_deductions"],
+                "net_pay": slip["net_pay"],
+                "detail": {"hourly_rate": float(slip["hourly_rate"]),
+                           "ot_multiplier": slip["ot_multiplier"],
+                           "regular_ot_hours": slip["ot_hours"],
+                           "regular_ot_pay": float(slip["regular_ot_pay"]),
+                           "holiday_ot_hours": slip["holiday_ot_hours"],
+                           "holiday_ot_multiplier": slip["holiday_ot_multiplier"],
+                           "holiday_ot_pay": float(slip["holiday_ot_pay"]),
+                           "holiday_ot_eligible": hol_mult is not None,
+                           "prorate": slip["prorate"]},
+            })
+            count += 1
+    finally:
+        conn.close()
+    return redirect_with_flash(f"/payroll/runs/{run_id}", "success",
+                               f"Payroll generated for {count} employees.")
+
+
+@app.get("/payroll/runs/{run_id}")
+def payroll_view_run(request: Request, run_id: int):
+    from db import get_payroll_run, get_payroll_items
+    from nepali_utils import NEPALI_MONTHS
+    conn = get_connection()
+    try:
+        run = get_payroll_run(conn, run_id)
+        if not run:
+            return redirect_with_flash("/payroll", "error", "Payroll run not found.")
+        items = get_payroll_items(conn, run_id)
+    finally:
+        conn.close()
+    run["month_name"] = NEPALI_MONTHS[run["bs_month"]] if 1 <= run["bs_month"] <= 12 else run["bs_month"]
+    totals = {
+        "gross": sum(float(i["gross"]) for i in items),
+        "ot_pay": sum(float(i["ot_pay"]) for i in items),
+        "tax": sum(float(i["tax"]) for i in items),
+        "net": sum(float(i["net_pay"]) for i in items),
+    }
+    return templates.TemplateResponse(request, "payroll_run.html", _payroll_ctx(request, {
+        "run": run, "items": items, "totals": totals,
+    }))
+
+
+@app.post("/payroll/runs/{run_id}/item/{gu_id}")
+def payroll_edit_item(request: Request, run_id: int, gu_id: int,
+                      ot_hours: float = Form(...),
+                      holiday_ot_hours: float = Form(0),
+                      other_earnings: float = Form(0),
+                      other_deductions: float = Form(0)):
+    """Manual OT-hours / adjustments override — recomputes just this payslip."""
+    import payroll as pay
+    from db import (get_payroll_run, get_salary_structure, get_ytd_tax_totals,
+                    insert_payroll_item, get_month_present_days,
+                    get_holiday_ot_multiplier)
+    from nepali_utils import bs_month_info
+    conn = get_connection()
+    try:
+        run = get_payroll_run(conn, run_id)
+        s = get_salary_structure(conn, gu_id)
+        if not run or not s:
+            return redirect_with_flash(f"/payroll/runs/{run_id}", "error", "Not found.")
+        mi = bs_month_info(run["bs_year"], run["bs_month"])
+        present = get_month_present_days(conn, gu_id, mi["first_ad"], mi["last_ad"])
+        ytd = get_ytd_tax_totals(conn, gu_id, run["bs_year"], run["period_index"])
+        hol_mult = get_holiday_ot_multiplier(conn, gu_id)
+        slip = pay.compute_payslip(
+            basic_salary=s["basic_salary"], allowances=s["allowances"] or 0,
+            working_days=run["working_days"], present_days=present,
+            daily_hours=s["daily_hours"] or 8, ot_hours=ot_hours,
+            ot_multiplier=s["ot_multiplier"] or 1.5,
+            holiday_ot_hours=holiday_ot_hours, holiday_ot_multiplier=hol_mult,
+            other_earnings=other_earnings, other_deductions=other_deductions,
+            marital=s["marital"] or "single", period_index=run["period_index"],
+            taxable_ytd_before=ytd["taxable_before"], tax_paid_before=ytd["tax_paid_before"],
+        )
+        insert_payroll_item(conn, run_id, gu_id, {
+            "present_days": slip["present_days"],
+            "ot_hours": round(slip["ot_hours"] + slip["holiday_ot_hours"], 2),
+            "ot_manual": True, "earned_basic": slip["earned_basic"],
+            "earned_allowance": slip["earned_allowance"], "ot_pay": slip["ot_pay"],
+            "other_earnings": slip["other_earnings"], "gross": slip["gross"],
+            "taxable_this": slip["taxable_this_month"], "taxable_ytd": slip["taxable_ytd"],
+            "tax": slip["tax"], "other_deductions": slip["other_deductions"],
+            "net_pay": slip["net_pay"],
+            "detail": {"hourly_rate": float(slip["hourly_rate"]),
+                       "ot_multiplier": slip["ot_multiplier"],
+                       "regular_ot_hours": slip["ot_hours"],
+                       "regular_ot_pay": float(slip["regular_ot_pay"]),
+                       "holiday_ot_hours": slip["holiday_ot_hours"],
+                       "holiday_ot_multiplier": slip["holiday_ot_multiplier"],
+                       "holiday_ot_pay": float(slip["holiday_ot_pay"]),
+                       "holiday_ot_eligible": hol_mult is not None,
+                       "prorate": slip["prorate"]},
+        })
+    finally:
+        conn.close()
+    return redirect_with_flash(f"/payroll/runs/{run_id}/payslip/{gu_id}", "success",
+                               "Payslip recalculated.")
+
+
+@app.get("/payroll/runs/{run_id}/payslip/{gu_id}")
+def payroll_payslip(request: Request, run_id: int, gu_id: int):
+    import payroll as pay
+    from db import get_payroll_run, get_payroll_item, get_salary_structure
+    from nepali_utils import NEPALI_MONTHS
+    conn = get_connection()
+    try:
+        run = get_payroll_run(conn, run_id)
+        item = get_payroll_item(conn, run_id, gu_id)
+        s = get_salary_structure(conn, gu_id)
+        if not run or not item:
+            return redirect_with_flash(f"/payroll/runs/{run_id}", "error", "Payslip not found.")
+    finally:
+        conn.close()
+    run["month_name"] = NEPALI_MONTHS[run["bs_month"]] if 1 <= run["bs_month"] <= 12 else run["bs_month"]
+    marital = (s or {}).get("marital", "single")
+    tax_bands = pay.slab_breakdown(item["taxable_ytd"], marital)
+    return templates.TemplateResponse(request, "payroll_payslip.html", _payroll_ctx(request, {
+        "run": run, "item": item, "structure": s, "marital": marital,
+        "tax_bands": tax_bands,
+    }))
+
+
+@app.get("/payroll/tax-preview")
+def payroll_tax_preview(request: Request, income: float = 1200000, marital: str = "single"):
+    """Standalone annual-tax calculator/preview (JSON)."""
+    import payroll as pay
+    bands = pay.slab_breakdown(income, marital)
+    return JSONResponse({
+        "annual_income": income,
+        "marital": marital,
+        "annual_tax": float(pay.annual_tax(income, marital)),
+        "bands": [{k: (float(v) if hasattr(v, "quantize") else v) for k, v in b.items()} for b in bands],
+    })
+
+
+@app.get("/payroll/holiday-ot-rules")
+def payroll_holiday_ot_rules(request: Request):
+    from db import (get_holiday_ot_rules, get_all_departments, get_all_sections,
+                    get_all_global_users_with_dept)
+    conn = get_connection()
+    try:
+        rules = get_holiday_ot_rules(conn)
+        depts = get_all_departments(conn)
+        sections = get_all_sections(conn)
+        users = get_all_global_users_with_dept(conn)
+    finally:
+        conn.close()
+    return templates.TemplateResponse(request, "payroll_holiday_ot_rules.html", _payroll_ctx(request, {
+        "rules": rules, "departments": depts, "sections": sections, "users": users,
+    }))
+
+
+@app.post("/payroll/holiday-ot-rules")
+def payroll_add_holiday_ot_rule(request: Request,
+                                scope: str = Form("employee"),
+                                global_user_id: str = Form(""),
+                                department_id: str = Form(""),
+                                section_id: str = Form(""),
+                                multiplier: float = Form(1.5),
+                                note: str = Form("")):
+    from db import add_holiday_ot_rule
+    gu = _int_param(global_user_id) if scope == "employee" else None
+    dept = _int_param(department_id) if scope == "department" else None
+    sec = _int_param(section_id) if scope == "section" else None
+    if not (gu or dept or sec):
+        return redirect_with_flash("/payroll/holiday-ot-rules", "error",
+                                   "Select an employee, department, or section for the rule.")
+    conn = get_connection()
+    try:
+        add_holiday_ot_rule(conn, gu, dept, sec, multiplier, note)
+    finally:
+        conn.close()
+    return redirect_with_flash("/payroll/holiday-ot-rules", "success",
+                               "Holiday-OT rule added.")
+
+
+@app.post("/payroll/holiday-ot-rules/{rule_id}/delete")
+def payroll_delete_holiday_ot_rule(request: Request, rule_id: int):
+    from db import delete_holiday_ot_rule
+    conn = get_connection()
+    try:
+        delete_holiday_ot_rule(conn, rule_id)
+    finally:
+        conn.close()
+    return redirect_with_flash("/payroll/holiday-ot-rules", "success", "Rule removed.")

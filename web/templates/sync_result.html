@@ -8,9 +8,9 @@
       <p class="muted">{{ action_label }} · {{ device.ip_address }}:{{ device.port }}</p>
     </div>
     <div class="head-actions">
-      <a class="btn primary" href="/">Dashboard</a>
-      <a class="btn ghost" href="/devices/{{ device.id }}/sync">Back to sync</a>
-      <a class="btn ghost" href="/users">Users</a>
+      <a class="btn btn-primary" href="/" aria-label="Go to dashboard">Dashboard</a>
+      <a class="btn btn-ghost" href="/devices/{{ device.id }}/sync" aria-label="Go back to sync page">Back to sync</a>
+      <a class="btn btn-ghost" href="/users" aria-label="Go to users list">Users</a>
     </div>
   </section>
 
@@ -38,13 +38,13 @@
   </section>
 
   <section class="panel">
-    <div class="panel-head">
+    <div class="card-header">
       <h2>Results</h2>
       <span class="muted">Review each row before leaving this page.</span>
     </div>
     <div class="table-wrap">
       <table class="table">
-        <thead><tr><th>ID</th><th>Status</th><th>Details</th></tr></thead>
+        <thead><tr><th scope="col">ID</th><th scope="col">Status</th><th scope="col">Details</th></tr></thead>
         <tbody>
         {% for r in results %}
           {% set ok = r.result.ok if r.result else r.ok %}

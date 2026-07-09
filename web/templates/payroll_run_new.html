@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Generate Payroll{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="subtitle">Payroll</p>
+    <h1>Generate Payroll</h1>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-secondary btn-sm" href="/payroll">Cancel</a>
+  </div>
+</div>
+
+<div class="card" style="max-width:560px">
+  <div class="card-body">
+    <p class="text-sm text-muted" style="margin-bottom:var(--space-5)">
+      Salary is prorated by present days from attendance, overtime is pulled from
+      recorded OT hours, and TDS is computed on Nepal FY 2081/82 slabs with mid-year
+      true-up. Regenerating a period recalculates every payslip.
+    </p>
+    <form method="post" action="/payroll/runs/generate">
+      <div class="form-group">
+        <label class="form-label" for="bs_year">Nepali Year (BS)</label>
+        <input class="form-control" id="bs_year" type="number" name="bs_year" value="{{ cur_year }}" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="bs_month">Nepali Month</label>
+        <select class="form-select" id="bs_month" name="bs_month" required>
+          {% for i in range(1, 13) %}
+          <option value="{{ i }}" {{ 'selected' if i==cur_month }}>{{ nepali_months[i] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="working_days">Working Days in Month</label>
+        <input class="form-control" id="working_days" type="number" name="working_days" value="{{ default_days }}" min="1" max="32">
+        <span class="text-xs text-muted">Defaults to the number of days in the selected BS month.</span>
+      </div>
+      <button class="btn btn-primary" type="submit">Generate Payroll</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

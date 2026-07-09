@@ -1,0 +1,222 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Attendance</p>
+    <h1>Manual Attendance</h1>
+  </div>
+  <div class="head-actions" style="gap:8px">
+    <a class="btn" href="/manual-attendance/sample">&#11123; Sample Excel</a>
+    <button class="btn" aria-label="Download sample Excel file" onclick="document.getElementById('upload-modal').removeAttribute('hidden')">&#8679; Upload Excel</button>
+    <button class="btn btn-primary" aria-label="Add manual attendance entry" onclick="document.getElementById('add-modal').removeAttribute('hidden')">+ Add Entry</button>
+  </div>
+</section>
+
+{# Filter bar #}
+<section class="panel no-print" style="margin-bottom:12px">
+  <form method="get" action="/manual-attendance" class="form" style="max-width:none">
+    <div class="filter-bar" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
+      <label style="min-width:240px;flex:1">Employee
+        <div class="emp-picker" id="emp-picker">
+          <div class="emp-picker-trigger" id="emp-trigger" onclick="empToggle(event)">
+            <span id="emp-display">{{ sel_emp_display or '— All Employees —' }}</span>
+            <span class="emp-arrow">&#9660;</span>
+          </div>
+          <div class="emp-panel" id="emp-panel" style="display:none">
+            <input type="text" class="emp-search-input" id="emp-search"
+                   oninput="empFilter(this.value)" placeholder="Search…" autocomplete="off">
+            <div class="emp-list" id="emp-list">
+              <div class="emp-item" data-key="" data-search="all" onclick="empPickItem(this)">
+                <div class="emp-item-name">— All Employees —</div>
+              </div>
+              {% for emp in all_emps %}
+              <div class="emp-item{% if sel_emp_key == emp.key %} active{% endif %}"
+                   data-key="{{ emp.key }}"
+                   data-search="{{ emp.display_name|lower }} {{ emp.company_id or '' }}">
+                <div class="emp-item-name">{{ emp.display_name }}
+                  {% if emp.company_id %}<span class="emp-item-id">{{ emp.company_id }}</span>{% endif %}
+                </div>
+                <div class="emp-item-meta">{{ emp.department_name or '' }}</div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          <input type="hidden" name="emp_key" id="emp-key-input" value="{{ sel_emp_key }}">
+        </div>
+      </label>
+      <label for="ma-from" style="width:140px">From (AD)
+        <input type="date" id="ma-from" name="from_ad" value="{{ sel_from }}">
+      </label>
+      <label for="ma-to" style="width:140px">To (AD)
+        <input type="date" id="ma-to" name="to_ad" value="{{ sel_to }}">
+      </label>
+      <div class="filter-actions" style="padding-top:4px">
+        <button class="btn btn-primary" type="submit">Apply</button>
+        <a class="btn btn-ghost" href="/manual-attendance">Reset</a>
+      </div>
+    </div>
+  </form>
+</section>
+
+{# Records table #}
+<section class="panel">
+  <div class="card-header">
+    <h2>{{ records | length }} manual punch{{ 'es' if records | length != 1 }}</h2>
+    <small class="muted">Manual punches go into attendance_logs with source=manual</small>
+  </div>
+  <div class="table-wrap">
+    <table class="table" style="min-width:750px">
+      <thead>
+        <tr>
+          <th scope="col">SN</th>
+          <th scope="col">Date (NPT)</th>
+          <th scope="col">Time</th>
+          <th scope="col">Punch</th>
+          <th scope="col">Employee</th>
+          <th scope="col">ATT.ID</th>
+          <th scope="col">Note</th>
+          <th scope="col">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in records %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td style="font-family:monospace;white-space:nowrap">
+            {{ r.ts_npt.strftime('%Y-%m-%d') if r.ts_npt else r.bs_date }}
+          </td>
+          <td style="font-family:monospace">
+            {{ r.ts_npt.strftime('%H:%M') if r.ts_npt else '—' }}
+          </td>
+          <td>
+            {% if r.punch == 0 %}
+            <span class="badge badge-success" style="font-size:11px">In</span>
+            {% elif r.punch == 1 %}
+            <span class="badge badge-info" style="font-size:11px">Out</span>
+            {% else %}
+            <span class="status" style="font-size:11px">{{ r.punch }}</span>
+            {% endif %}
+          </td>
+          <td><strong>{{ r.emp_name }}</strong></td>
+          <td class="muted">{{ r.company_id or '—' }}</td>
+          <td style="font-size:12px;color:#64748b">{{ r.manual_note or '—' }}</td>
+          <td>
+            <form method="post" action="/manual-attendance/{{ r.id }}/delete" style="display:inline">
+              <button class="btn btn-ghost btn-danger" style="padding:3px 8px;font-size:12px"
+                      aria-label="Delete manual punch for {{ r.emp_name }}"
+                      onclick="return confirm('Delete this manual punch?')">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="empty">No manual attendance entries.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{# ── Add Single Entry Modal ── #}
+<div class="modal-overlay" id="add-modal" role="dialog" aria-modal="true" aria-labelledby="add-modal-title" hidden>
+  <div class="modal-box" style="max-width:480px">
+    <h2 class="modal-title" id="add-modal-title">Add Manual Attendance</h2>
+    <form method="post" action="/manual-attendance/add" class="form">
+      <label for="ma-emp">Employee <span style="color:#ef4444">*</span>
+        <select id="ma-emp" name="global_user_id" required>
+          <option value="">— Select —</option>
+          {% for emp in all_emps %}
+          <option value="{{ emp.global_id }}">
+            {{ emp.display_name }}{% if emp.company_id %} ({{ emp.company_id }}){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label for="ma-date">Date (AD) <span style="color:#ef4444">*</span>
+        <input type="date" id="ma-date" name="ad_date" required>
+      </label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <label for="ma-in">In Time (HH:MM)
+          <input type="time" id="ma-in" name="in_time" placeholder="09:00">
+        </label>
+        <label for="ma-out">Out Time (HH:MM)
+          <input type="time" id="ma-out" name="out_time" placeholder="17:00">
+        </label>
+      </div>
+      <label for="ma-note">Note
+        <input type="text" id="ma-note" name="manual_note" placeholder="Reason for manual entry">
+      </label>
+      <p style="font-size:12px;color:#64748b;margin:0">
+        Leave In or Out blank to add only one punch direction.
+      </p>
+      <div class="modal-actions">
+        <button class="btn btn-primary" type="submit">Save</button>
+        <button type="button" class="btn btn-ghost"
+                onclick="document.getElementById('add-modal').setAttribute('hidden','')">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Excel Upload Modal ── #}
+<div class="modal-overlay" id="upload-modal" role="dialog" aria-modal="true" aria-labelledby="upload-modal-title" hidden>
+  <div class="modal-box" style="max-width:500px">
+    <h2 class="modal-title" id="upload-modal-title">Bulk Upload via Excel</h2>
+    <p style="font-size:13px;color:#475569;margin-top:0">
+      Upload an Excel file with columns:<br>
+      <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px">
+        ATT_ID | Employee_Name | Date_AD | In_Time | Out_Time | Note
+      </code>
+    </p>
+    <p style="font-size:12px;color:#64748b;margin-top:4px">
+      Row 1 is the header and is skipped. Date format: <strong>YYYY-MM-DD</strong>. Time: <strong>HH:MM</strong>.
+    </p>
+    <form method="post" action="/manual-attendance/upload" enctype="multipart/form-data" class="form">
+      <label for="ma-file">Excel File (.xlsx) <span style="color:#ef4444">*</span>
+        <input type="file" id="ma-file" name="file" accept=".xlsx,.xls" required>
+      </label>
+      <div class="modal-actions">
+        <button class="btn btn-primary" type="submit">Upload</button>
+        <button type="button" class="btn btn-ghost"
+                onclick="document.getElementById('upload-modal').setAttribute('hidden','')">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  window.empToggle = function (e) {
+    e.stopPropagation();
+    var panel = document.getElementById('emp-panel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    if (panel.style.display === 'block') document.getElementById('emp-search').focus();
+  };
+  window.empFilter = function (q) {
+    q = (q || '').toLowerCase();
+    document.querySelectorAll('#emp-list .emp-item').forEach(function (item) {
+      item.style.display = item.getAttribute('data-search').indexOf(q) !== -1 ? '' : 'none';
+    });
+  };
+  window.empPickItem = function (item) {
+    document.getElementById('emp-key-input').value = item.getAttribute('data-key');
+    document.getElementById('emp-display').textContent = item.querySelector('.emp-item-name').childNodes[0].textContent.trim();
+    document.getElementById('emp-panel').style.display = 'none';
+  };
+  document.addEventListener('click', function (e) {
+    var picker = document.getElementById('emp-picker');
+    if (picker && !picker.contains(e.target)) {
+      var p = document.getElementById('emp-panel');
+      if (p) p.style.display = 'none';
+    }
+  });
+  ['add-modal', 'upload-modal'].forEach(function (id) {
+    var m = document.getElementById(id);
+    if (m) m.addEventListener('click', function (e) {
+      if (e.target === this) this.setAttribute('hidden', '');
+    });
+  });
+})();
+</script>
+
+{% endblock %}

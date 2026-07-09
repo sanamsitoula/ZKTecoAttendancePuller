@@ -3,116 +3,121 @@
 {% block content %}
 
 {% if view == 'list' %}
-{# ════════════════════════════════════════════════════════════════
+{# ═════════════════════════════════════════════════════════════════
    EMPLOYEE LIST VIEW
-   ════════════════════════════════════════════════════════════════ #}
+   ═════════════════════════════════════════════════════════════════ #}
 
-<section class="page-head">
+<div class="page-header">
   <div>
-    <p class="eyebrow">Reports</p>
-    <h1>Monthly Attendance &mdash; Select Employee</h1>
+    <p class="subtitle">Reports / Monthly</p>
+    <h1>Monthly Attendance — Select Employee</h1>
   </div>
-  <div class="head-actions">
-    <a class="btn" href="/reports/monthly/print-all?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}" target="_blank">Print All Employees</a>
+  <div class="page-actions">
+    <a class="btn btn-secondary" href="/reports/monthly/print-all?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}" target="_blank">Print All Employees</a>
   </div>
-</section>
+</div>
 
-{# Month + Org Filters #}
-<section class="panel">
-  <form method="get" action="/reports/monthly" class="form" style="max-width:none">
-    <div class="filter-bar-flex" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
-      <label style="width:90px">Year (BS)
-        <input type="number" name="bs_year" value="{{ sel_bs_year }}" min="2060" max="2100">
-      </label>
-      <label style="width:170px">Month (BS)
-        <select name="bs_month">
+<div class="card" style="margin-bottom:var(--space-6)">
+  <div class="toolbar">
+    <form method="get" action="/reports/monthly" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap;width:100%">
+      <div class="form-group" style="margin-bottom:0;min-width:90px">
+        <label class="form-label" for="rpt-month-year">Year (BS)</label>
+        <input type="number" class="form-input" id="rpt-month-year" name="bs_year" value="{{ sel_bs_year }}" min="2060" max="2100">
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:170px">
+        <label class="form-label" for="rpt-month-month">Month (BS)</label>
+        <select class="form-select" id="rpt-month-month" name="bs_month">
           {% for mn, ml in [('1','Baisakh'),('2','Jestha'),('3','Ashadh'),('4','Shrawan'),
                             ('5','Bhadra'),('6','Ashwin'),('7','Kartik'),('8','Mangsir'),
                             ('9','Poush'),('10','Magh'),('11','Falgun'),('12','Chaitra')] %}
-          <option value="{{ mn }}" {% if sel_bs_month|string == mn %}selected{% endif %}>{{ mn }} &ndash; {{ ml }}</option>
+          <option value="{{ mn }}" {% if sel_bs_month|string == mn %}selected{% endif %}>{{ mn }} – {{ ml }}</option>
           {% endfor %}
         </select>
-      </label>
-      <label style="width:180px">Search Name/ID
-        <input type="text" name="search" value="{{ f_srch }}" placeholder="name, ID, dept…">
-      </label>
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:180px;flex:1">
+        <label class="form-label" for="rpt-month-search">Search Name/ID</label>
+        <input type="text" class="form-input" id="rpt-month-search" name="search" value="{{ f_srch }}" placeholder="name, ID, dept…">
+      </div>
       {% if all_dirs %}
-      <label style="width:160px">Directorate
-        <select name="directorate_id">
+      <div class="form-group" style="margin-bottom:0;min-width:150px">
+        <label class="form-label" for="rpt-month-dir">Directorate</label>
+        <select class="form-select" id="rpt-month-dir" name="directorate_id">
           <option value="">All Directorates</option>
           {% for dr in all_dirs %}
           <option value="{{ dr.id }}" {% if f_dir|string == dr.id|string %}selected{% endif %}>{{ dr.name }}</option>
           {% endfor %}
         </select>
-      </label>
+      </div>
       {% endif %}
       {% if all_depts %}
-      <label style="width:160px">Department
-        <select name="department_id">
+      <div class="form-group" style="margin-bottom:0;min-width:150px">
+        <label class="form-label" for="rpt-month-dept">Department</label>
+        <select class="form-select" id="rpt-month-dept" name="department_id">
           <option value="">All Departments</option>
           {% for dp in all_depts %}
           <option value="{{ dp.id }}" {% if f_dept|string == dp.id|string %}selected{% endif %}>{{ dp.name }}</option>
           {% endfor %}
         </select>
-      </label>
+      </div>
       {% endif %}
       {% if all_sections %}
-      <label style="width:150px">Section
-        <select name="section_id">
+      <div class="form-group" style="margin-bottom:0;min-width:140px">
+        <label class="form-label" for="rpt-month-sec">Section</label>
+        <select class="form-select" id="rpt-month-sec" name="section_id">
           <option value="">All Sections</option>
           {% for sc in all_sections %}
           <option value="{{ sc.id }}" {% if f_sec|string == sc.id|string %}selected{% endif %}>{{ sc.name }}</option>
           {% endfor %}
         </select>
-      </label>
-      {% endif %}
-      <div class="filter-actions" style="padding-top:4px;display:flex;gap:6px">
-        <button class="btn primary" type="submit">Apply</button>
-        <a class="btn ghost" href="/reports/monthly?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}">Reset</a>
       </div>
-    </div>
-  </form>
-</section>
-
-{# Employee table #}
-<section class="panel">
-  <div class="panel-head">
-    <h2>Employees</h2>
-    <span class="muted">{{ total_employees }} shown{% if total_unfiltered and total_unfiltered != total_employees %} of {{ total_unfiltered }}{% endif %}</span>
+      {% endif %}
+      <div style="display:flex;gap:6px;padding-top:4px">
+        <button class="btn btn-primary btn-sm" type="submit">Apply</button>
+        <a class="btn btn-ghost btn-sm" href="/reports/monthly?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}">Reset</a>
+      </div>
+    </form>
   </div>
-  <div class="table-wrap">
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <span class="text-sm text-muted">{{ total_employees }} shown{% if total_unfiltered and total_unfiltered != total_employees %} of {{ total_unfiltered }}{% endif %}</span>
+    </div>
+  </div>
+  <div class="table-wrap" style="border:none;border-radius:0">
     <table class="table" id="emp-list-table">
       <thead>
         <tr>
-          <th style="width:36px">SN</th>
-          <th style="width:80px">ID</th>
-          <th>Name</th>
-          <th>Directorate</th>
-          <th>Department</th>
-          <th>Section</th>
-          <th>Unit</th>
-          <th>Devices</th>
-          <th style="width:110px">Action</th>
+          <th scope="col" style="width:50px">SN</th>
+          <th scope="col">ID</th>
+          <th scope="col">Name</th>
+          <th scope="col">Directorate</th>
+          <th scope="col">Department</th>
+          <th scope="col">Section</th>
+          <th scope="col">Unit</th>
+          <th scope="col">Devices</th>
+          <th scope="col" style="width:80px">Action</th>
         </tr>
       </thead>
       <tbody>
         {% set offset = (page - 1) * 25 %}
         {% for emp in page_emps %}
         <tr>
-          <td>{{ offset + loop.index }}</td>
-          <td>{{ emp.company_id or '&mdash;' }}</td>
+          <td class="text-sm text-muted">{{ offset + loop.index }}</td>
+          <td><code style="font-size:var(--text-xs)">{{ emp.company_id or '—' }}</code></td>
           <td><strong>{{ emp.display_name }}</strong></td>
-          <td>{{ emp.directorate_name or '&mdash;' }}</td>
-          <td>{{ emp.department_name or '&mdash;' }}</td>
-          <td>{{ emp.section_name or '&mdash;' }}</td>
-          <td>{{ emp.unit_name or '&mdash;' }}</td>
+          <td class="text-sm">{{ emp.directorate_name or '—' }}</td>
+          <td class="text-sm">{{ emp.department_name or '—' }}</td>
+          <td class="text-sm">{{ emp.section_name or '—' }}</td>
+          <td class="text-sm">{{ emp.unit_name or '—' }}</td>
           <td>
             {% for dv in emp.devices %}
-            <span class="status info" style="font-size:11px;margin:1px 2px">{{ dv.device_name }} ({{ dv.user_id }})</span>
+            <span class="badge badge-info" style="font-size:10px;margin:1px 2px">{{ dv.device_name }} ({{ dv.user_id }})</span>
             {% endfor %}
           </td>
           <td>
-            <a class="btn small primary"
+            <a class="btn btn-sm btn-primary"
                href="/reports/monthly/view?emp_key={{ emp.key }}&bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}">
               View
             </a>
@@ -131,317 +136,355 @@
   {% if f_dept %}{% set fp = fp ~ '&department_id=' ~ f_dept %}{% endif %}
   {% if f_sec %}{% set fp = fp ~ '&section_id=' ~ f_sec %}{% endif %}
   {{ paginate(page, total_pages, total_employees, fp, page_range, per_page=25) }}
-</section>
+</div>
 
 {% else %}
-{# ════════════════════════════════════════════════════════════════
+{# ═════════════════════════════════════════════════════════════════
    INDIVIDUAL REPORT VIEW
-   ════════════════════════════════════════════════════════════════ #}
+   ═════════════════════════════════════════════════════════════════ #}
 
-{# Print header — only visible when printing #}
-{% if report %}
-<div class="print-only" style="position:relative;max-width:100%;margin:0 auto 6px auto;font-size:8pt;border-bottom:2px solid #000;padding-bottom:6px">
-  <div style="position:absolute;top:0;right:0;font-size:7pt">Print Time: {{ now_str }}</div>
-  <div style="text-align:center;margin-bottom:5px">
-    <div style="font-size:14pt;font-weight:bold;letter-spacing:.5px">{{ COMPANY_NAME }}</div>
-    <div style="font-size:8pt;color:#555">Sanothimi, Bhaktapur &nbsp;&middot;&nbsp; info@janakedu.org.np &nbsp;&middot;&nbsp; www.janakedu.org.np</div>
-    <div style="font-size:11pt;font-weight:bold;margin-top:3px">
-      Periodic Attendance Report &mdash; {{ report.month_name }} {{ report.bs_year }} BS
-    </div>
-    <div style="font-size:8pt">{{ report.from_bs_disp }} to {{ report.to_bs_disp }}</div>
-  </div>
-  <table style="border-collapse:collapse;width:auto;font-size:8pt;margin:3px auto">
-    <tr>
-      <td style="border:1px solid #000;padding:2px 8px;font-weight:bold">Employee Id</td>
-      <td style="border:1px solid #000;padding:2px 8px;min-width:80px">{{ report.emp_user_id }}</td>
-      <td style="width:14px"></td>
-      <td style="border:1px solid #000;padding:2px 8px;font-weight:bold">Employee Name</td>
-      <td style="border:1px solid #000;padding:2px 8px;min-width:140px">{{ report.emp_name }}</td>
-      {% if report.department %}
-      <td style="width:14px"></td>
-      <td style="border:1px solid #000;padding:2px 8px;font-weight:bold">Department</td>
-      <td style="border:1px solid #000;padding:2px 8px">{{ report.department }}</td>
-      {% endif %}
-      <td style="width:14px"></td>
-      <td style="border:1px solid #000;padding:2px 8px;font-weight:bold">Device(s)</td>
-      <td style="border:1px solid #000;padding:2px 8px">{{ report.device_name }}</td>
-    </tr>
-  </table>
-</div>
-{% endif %}
-
-<section class="page-head no-print">
+<div class="page-header no-print">
   <div>
-    <p class="eyebrow"><a href="/reports/monthly?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}">Reports</a> &rsaquo; Individual</p>
+    <p class="subtitle"><a href="/reports/monthly?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}">Reports</a> / Individual</p>
     <h1>{{ report.emp_name if report else 'Monthly Report' }}</h1>
   </div>
   {% if report %}
-  <div class="head-actions">
-    <a class="btn" href="/reports/monthly/print-all?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}" target="_blank">Print All</a>
-    <button class="btn" type="button" onclick="downloadPDF()">Download PDF</button>
-    <button class="btn primary" type="button" onclick="window.print()">Print</button>
+  <div class="page-actions">
+    <a class="btn btn-secondary" href="/reports/monthly/print-all?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}" target="_blank">Print All</a>
+    <button class="btn btn-secondary" type="button" onclick="downloadPDF()">Download PDF</button>
+    <button class="btn btn-primary" type="button" onclick="window.print()">Print</button>
   </div>
   {% endif %}
-</section>
+</div>
 
-{# Employee selector with searchable dropdown #}
-<section class="panel no-print">
-  <form id="rep-form" method="get" action="/reports/monthly/view" class="form" style="max-width:none">
-    <div class="filter-bar-flex" style="gap:14px;align-items:flex-end;flex-wrap:wrap">
-
-      <label style="min-width:300px;flex:1">Employee
-        <div class="emp-picker" id="emp-picker">
-          <div class="emp-picker-trigger" id="emp-trigger" onclick="empToggle(event)">
-            <span id="emp-display">{{ sel_emp_display or '-- Select Employee --' }}</span>
-            <span class="emp-arrow">&#9660;</span>
-          </div>
-          <div class="emp-panel" id="emp-panel" style="display:none">
-            <input type="text" class="emp-search-input" id="emp-search"
-                   oninput="empFilter(this.value)"
-                   placeholder="Type name, ID or department..."
-                   autocomplete="off">
-            <div class="emp-list" id="emp-list">
-              {% for emp in all_emps %}
-              <div class="emp-item{% if sel_emp_key == emp.key %} active{% endif %}"
-                   data-key="{{ emp.key }}"
-                   data-dept="{{ emp.department_name or '' }}"
-                   data-search="{{ emp.display_name|lower }} {{ emp.company_id or '' }} {{ (emp.department_name or '')|lower }}"
-                   onclick="empPickItem(this)">
-                <div class="emp-item-name">{{ emp.display_name }}
-                  {% if emp.company_id %}<span class="emp-item-id">{{ emp.company_id }}</span>{% endif %}
-                </div>
-                <div class="emp-item-meta">
-                  {% if emp.department_name %}<span class="emp-item-dept-tag">{{ emp.department_name }}</span>{% endif %}
-                  {% for dv in emp.devices %}{{ dv.device_name }}{% if not loop.last %}, {% endif %}{% endfor %}
-                </div>
-              </div>
-              {% endfor %}
-            </div>
-          </div>
-          <input type="hidden" name="emp_key" id="emp-key-input" value="{{ sel_emp_key or '' }}">
-        </div>
-      </label>
-
-      <label style="width:90px">Year (BS)
-        <input type="number" name="bs_year" id="inp-year"
-               value="{{ sel_bs_year }}" min="2060" max="2100" onchange="this.form.submit()">
-      </label>
-
-      <label style="width:170px">Month (BS)
-        <select name="bs_month" onchange="this.form.submit()">
+{# ── Employee selector ────────────────────────────────────────────── #}
+<div class="card no-print" style="margin-bottom:var(--space-6)">
+  <div class="card-body">
+    <form method="get" action="/reports/monthly/view" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="margin-bottom:0;flex:1;min-width:200px">
+        <label class="form-label" for="emp-select">Employee</label>
+        <select class="form-select" id="emp-select" name="emp_key">
+          {% for em in all_emps %}
+          <option value="{{ em.key }}" {{ 'selected' if em.key == sel_emp_key }}>
+            {{ em.display_name }}{% if em.company_id %} ({{ em.company_id }}){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:90px">
+        <label class="form-label" for="rpt-ind-year">Year (BS)</label>
+        <input type="number" class="form-input" id="rpt-ind-year" name="bs_year" value="{{ sel_bs_year }}" min="2060" max="2100">
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:150px">
+        <label class="form-label" for="rpt-ind-month">Month (BS)</label>
+        <select class="form-select" id="rpt-ind-month" name="bs_month">
           {% for mn, ml in [('1','Baisakh'),('2','Jestha'),('3','Ashadh'),('4','Shrawan'),
                             ('5','Bhadra'),('6','Ashwin'),('7','Kartik'),('8','Mangsir'),
                             ('9','Poush'),('10','Magh'),('11','Falgun'),('12','Chaitra')] %}
-          <option value="{{ mn }}" {% if sel_bs_month|string == mn %}selected{% endif %}>{{ mn }} &ndash; {{ ml }}</option>
+          <option value="{{ mn }}" {% if sel_bs_month|string == mn %}selected{% endif %}>{{ mn }} – {{ ml }}</option>
           {% endfor %}
         </select>
-      </label>
-
-      <div class="filter-actions" style="padding-top:4px">
-        <button class="btn" type="submit">Generate</button>
-        <a class="btn ghost" href="/reports/monthly">All Employees</a>
       </div>
-    </div>
-  </form>
-</section>
+      <div style="padding-top:4px">
+        <button class="btn btn-primary btn-sm" type="submit">View Report</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 {% if error %}
-<section class="panel"><p class="bad-text">{{ error }}</p></section>
+<div class="card" style="margin-bottom:var(--space-6);border-color:var(--color-danger-light)">
+  <div class="card-body" style="color:var(--color-danger)">{{ error }}</div>
+</div>
 {% endif %}
 
 {% if report %}
-{# Info bar #}
-<section class="panel no-print" style="padding:8px 16px">
-  <div style="display:flex;flex-wrap:wrap;gap:20px;font-size:13px">
-    <span><strong>Employee:</strong> {{ report.emp_name }} ({{ report.emp_user_id }})</span>
-    {% if report.department %}<span><strong>Dept:</strong> {{ report.department }}</span>{% endif %}
-    <span><strong>Device(s):</strong> {{ report.device_name }}</span>
-    <span><strong>Period:</strong> {{ report.month_name }} {{ report.bs_year }} BS
-      &nbsp;&mdash;&nbsp; {{ report.from_ad }} &rarr; {{ report.to_ad }}</span>
-  </div>
-</section>
+{# ── Report Card ──────────────────────────────────────────────────── #}
+<div id="report-card" style="width:90%;margin:0 auto;background:#fff;padding:20px 24px;border:1px solid var(--color-border);border-radius:var(--radius-xl)">
 
-{# 16-column attendance table #}
-<section class="panel" id="printable-report" style="overflow-x:auto">
-  <table class="monthly-report-table">
+  {# ── Company Header ────────────────────────────────────────────────── #}
+  <div style="margin-bottom:12px;padding-bottom:10px;border-bottom:2px solid #000">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      {% if company and company.logo_url %}
+      <img src="{{ company.logo_url }}" alt="Logo" style="max-height:48px;max-width:180px;object-fit:contain">
+      {% endif %}
+      <div>
+        <div style="font-size:16pt;font-weight:700;letter-spacing:0.5px">{{ company.company_name if company else COMPANY_NAME }}</div>
+        {% if company and company.address %}<div style="font-size:9pt;color:#555">{{ company.address }}</div>{% endif %}
+        {% if company and (company.email or company.website) %}
+        <div style="font-size:8pt;color:#555">
+          {% if company.email %}Email: {{ company.email }}{% endif %}
+          {% if company.email and company.website %} &middot; {% endif %}
+          {% if company.website %}{{ company.website }}{% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# ── Report Title + Employee Info (single box) ────────────────────── #}
+  <div class="emp-info-bar" style="display:flex;gap:var(--space-4);flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:10px;padding:6px 10px;border:1px solid #000;border-radius:var(--radius-md);font-size:var(--text-sm)">
+    <div style="font-size:11pt;font-weight:700">
+      Periodic Attendance Report &mdash; {{ report.month_name }} {{ report.bs_year }} BS
+    </div>
+    <div style="display:flex;gap:var(--space-4);flex-wrap:wrap;align-items:baseline">
+      <div style="font-size:10.5pt"><span class="text-muted">ID:</span> <strong>{{ report.emp_user_id }}</strong></div>
+      <div style="font-size:10.5pt"><span class="text-muted">Global ID:</span> <strong>{{ report.global_id }}</strong></div>
+      <div style="font-size:11.5pt"><span class="text-muted">Name:</span> <strong>{{ report.emp_name }}</strong></div>
+      {% set org_parts = [report.directorate, report.department, report.section, report.unit] | select | list %}
+      {% if org_parts %}
+      <div style="font-size:8pt;color:#444;text-transform:lowercase">{{ org_parts | join(' | ') }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Attendance Table ──────────────────────────────────────────────── #}
+  <table class="monthly-report-table" style="width:100%;border-collapse:collapse;font-size:10.5pt">
     <thead>
       <tr>
-        <th rowspan="2" class="workdate" style="text-align:left;min-width:150px">Work Date</th>
-        <th colspan="2">Planned Time</th>
-        <th rowspan="2">Work<br>Time</th>
-        <th colspan="2">Time</th>
-        <th colspan="2">Break</th>
-        <th rowspan="2">Time</th>
-        <th rowspan="2">Actual</th>
-        <th rowspan="2">OT</th>
-        <th rowspan="2">LateIn</th>
-        <th rowspan="2">EarlyOut</th>
-        <th rowspan="2">EarlyIn</th>
-        <th rowspan="2">LateOut</th>
-        <th rowspan="2">Remark</th>
+        <th rowspan="2" style="text-align:left;min-width:110px;padding:6px 8px;border-bottom:2px solid #000;border-right:1px solid #ccc;background:#e8f0fe">Work Date</th>
+        <th colspan="2" style="text-align:center;padding:4px 6px;border-bottom:1px solid #000;border-right:1px solid #ccc;background:#e8f0fe">Planned</th>
+        <th colspan="2" style="text-align:center;padding:4px 6px;border-bottom:1px solid #000;border-right:1px solid #ccc;background:#e8f0fe">Actual</th>
+        <th colspan="2" style="text-align:center;padding:4px 6px;border-bottom:1px solid #000;border-right:1px solid #ccc;background:#e8f0fe">Break</th>
+        <th rowspan="2" style="text-align:center;padding:4px 6px;border-bottom:2px solid #000;border-right:1px solid #ccc;background:#e8f0fe">Work<br>Time</th>
+        <th rowspan="2" style="text-align:center;padding:4px 6px;border-bottom:2px solid #000;border-right:1px solid #ccc;background:#e8f0fe">OT</th>
+        <th rowspan="2" style="text-align:center;padding:4px 6px;border-bottom:2px solid #000;border-right:1px solid #ccc;background:#e8f0fe">Late<br>In</th>
+        <th rowspan="2" style="text-align:center;padding:4px 6px;border-bottom:2px solid #000;border-right:1px solid #ccc;background:#e8f0fe">Early<br>Out</th>
+        <th rowspan="2" style="text-align:center;padding:4px 6px;border-bottom:2px solid #000;border-right:1px solid #ccc;background:#e8f0fe">Early<br>In</th>
+        <th rowspan="2" style="text-align:center;padding:4px 6px;border-bottom:2px solid #000;border-right:1px solid #ccc;background:#e8f0fe">Late<br>Out</th>
+        <th rowspan="2" style="text-align:center;padding:4px 6px;border-bottom:2px solid #000;background:#e8f0fe">Remark</th>
       </tr>
       <tr>
-        <th>In</th><th>Out</th>
-        <th>In</th><th>Out</th>
-        <th>In</th><th>Out</th>
+        <th style="padding:3px 6px;border-bottom:1px solid #000;border-right:1px solid #ccc;font-size:8pt">In</th>
+        <th style="padding:3px 6px;border-bottom:1px solid #000;border-right:1px solid #ccc;font-size:8pt">Out</th>
+        <th style="padding:3px 6px;border-bottom:1px solid #000;border-right:1px solid #ccc;font-size:8pt">In</th>
+        <th style="padding:3px 6px;border-bottom:1px solid #000;border-right:1px solid #ccc;font-size:8pt">Out</th>
+        <th style="padding:3px 6px;border-bottom:1px solid #000;border-right:1px solid #ccc;font-size:8pt">In</th>
+        <th style="padding:3px 6px;border-bottom:1px solid #000;border-right:1px solid #ccc;font-size:8pt">Out</th>
       </tr>
     </thead>
     <tbody>
+      {% macro dcell(val, dash, extra='') -%}
+      <td class="dc{{ ' cell-dash' if dash and not val }}" style="padding:4px 6px;border-bottom:1px solid #e5e7eb;text-align:center;{{ extra }}">{{ val }}</td>
+      {%- endmacro %}
       {% for day in report.days %}
-      <tr>
-        <td class="workdate">{{ day.bs_date }} , {{ day.day_name }}{% if day.shift_name %}<span class="shift-badge">{{ day.shift_name }}</span>{% endif %}</td>
-        <td>{{ day.planned_in }}</td>
-        <td>{{ day.planned_out }}</td>
-        <td>{{ day.planned_work }}</td>
-        <td style="white-space:nowrap">{{ day.time_in }}</td>
-        <td style="white-space:nowrap">{{ day.time_out }}</td>
-        <td style="white-space:nowrap">{{ day.break_in }}</td>
-        <td style="white-space:nowrap">{{ day.break_out }}</td>
-        <td>{{ day.time_col }}</td>
-        <td>{{ day.actual }}</td>
-        <td>{{ day.ot }}</td>
-        <td>{{ day.late_in }}</td>
-        <td>{{ day.early_out }}</td>
-        <td>{{ day.early_in }}</td>
-        <td>{{ day.late_out }}</td>
-        <td class="remark-{{ day.remark | lower }}">{{ day.remark }}</td>
+      {% set off    = day.remark in ('Weekend', 'Holiday', 'Festival') %}
+      {% set absent = day.remark in ('Absent', 'Leave') %}
+      <tr class="{{ 'row-off' if off }}">
+        <td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;white-space:nowrap;font-weight:500">
+          {{ day.bs_date }} <span style="color:#888;font-size:9pt">{{ day.day_name[:3] }}</span>
+          {% if day.shift_name %}<span class="shift-badge" style="font-size:8pt;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:3px;margin-left:3px">{{ day.shift_name }}</span>{% endif %}
+        </td>
+        {{ dcell(day.planned_in,  absent) }}
+        {{ dcell(day.planned_out, absent, 'border-right:1px solid #e5e7eb') }}
+        {{ dcell(day.time_in,     absent) }}
+        {{ dcell(day.time_out,    absent, 'border-right:1px solid #e5e7eb') }}
+        {{ dcell(day.break_in,    absent) }}
+        {{ dcell(day.break_out,   absent, 'border-right:1px solid #e5e7eb') }}
+        {{ dcell(day.time_col,    absent, 'font-weight:500') }}
+        {{ dcell(day.ot,          absent, 'border-right:1px solid #e5e7eb') }}
+        {{ dcell(day.late_in,     absent, 'border-right:1px solid #e5e7eb') }}
+        {{ dcell(day.early_out,   absent, 'border-right:1px solid #e5e7eb') }}
+        {{ dcell(day.early_in,    absent, 'border-right:1px solid #e5e7eb') }}
+        {{ dcell(day.late_out,    absent, 'border-right:1px solid #e5e7eb') }}
+        <td style="padding:4px 6px;border-bottom:1px solid #e5e7eb;text-align:center">{{ day.remark }}</td>
       </tr>
       {% endfor %}
-
-      <tr class="summary-row">
-        <td class="workdate" colspan="3" style="text-align:left">{{ report.emp_name }} &mdash; Summary</td>
-        <td>{{ report.totals.planned }}</td>
-        <td></td><td></td><td></td><td></td>
-        <td>{{ report.totals.actual }}</td>
-        <td>{{ report.totals.actual }}</td>
-        <td>{{ report.totals.ot }}</td>
-        <td>{{ report.totals.late_in }}</td>
-        <td>{{ report.totals.early_out }}</td>
-        <td>{{ report.totals.early_in }}</td>
-        <td>{{ report.totals.late_out }}</td>
-        <td></td>
+    </tbody>
+    <tbody class="report-totals">
+      <tr style="background:#f0f4ff;font-weight:700">
+        <td colspan="3" style="padding:5px 8px;border-top:2px solid #000;text-align:left">{{ report.emp_name }} &mdash; Summary</td>
+        <td style="padding:5px 6px;border-top:2px solid #000;text-align:center"></td>
+        <td style="padding:5px 6px;border-top:2px solid #000;text-align:center;border-right:1px solid #e5e7eb"></td>
+        <td style="padding:5px 6px;border-top:2px solid #000;text-align:center"></td>
+        <td style="padding:5px 6px;border-top:2px solid #000;text-align:center;border-right:1px solid #e5e7eb"></td>
+        <td style="padding:5px 6px;border-top:2px solid #000;text-align:center">{{ report.totals.actual }}</td>
+        <td style="padding:5px 6px;border-top:2px solid #000;text-align:center;border-right:1px solid #e5e7eb">{{ report.totals.ot }}</td>
+        <td style="padding:5px 6px;border-top:2px solid #000;text-align:center;border-right:1px solid #e5e7eb">{{ report.totals.late_in }}</td>
+        <td style="padding:5px 6px;border-top:2px solid #000;text-align:center;border-right:1px solid #e5e7eb">{{ report.totals.early_out }}</td>
+        <td style="padding:5px 6px;border-top:2px solid #000;text-align:center;border-right:1px solid #e5e7eb">{{ report.totals.early_in }}</td>
+        <td style="padding:5px 6px;border-top:2px solid #000;text-align:center;border-right:1px solid #e5e7eb">{{ report.totals.late_out }}</td>
+        <td style="padding:5px 6px;border-top:2px solid #000;text-align:center"></td>
       </tr>
-
-      <tr class="total-row">
-        <td colspan="2" style="text-align:right;font-weight:700">Total</td>
-        <td style="font-weight:700;color:#1769E0">Working Days = {{ report.totals.working_days }}</td>
-        <td>Present = {{ report.totals.counts.Present }}</td>
-        <td>Absent = {{ report.totals.counts.Absent }}</td>
-        <td>Weekend = {{ report.totals.counts.Weekend }}</td>
-        <td style="color:#b45309">Holiday = {{ report.totals.counts.Holiday }}</td>
-        <td style="color:#7c3aed">Festival = {{ report.totals.counts.Festival }}</td>
-        <td colspan="2" style="color:#0369a1">Leave = {{ report.totals.counts.Leave }}</td>
-        <td>Misc = {{ report.totals.counts.Misc }}</td>
-        <td colspan="2">Total Days = {{ report.totals.total_days }}</td>
-        <td colspan="2">Manual = 0</td>
+      <tr style="background:#f0f4ff;font-weight:700;font-size:8pt">
+        <td colspan="2" style="padding:4px 8px;text-align:right">Total</td>
+        <td style="padding:4px 6px;color:#1769e0;text-align:center">Working = {{ report.totals.working_days }}</td>
+        <td style="padding:4px 6px;text-align:center">P = {{ report.totals.counts.Present }}</td>
+        <td style="padding:4px 6px;text-align:center;border-right:1px solid #e5e7eb">A = {{ report.totals.counts.Absent }}</td>
+        <td style="padding:4px 6px;text-align:center">W = {{ report.totals.counts.Weekend }}</td>
+        <td style="padding:4px 6px;text-align:center;border-right:1px solid #e5e7eb;color:#b45309">H = {{ report.totals.counts.Holiday }}</td>
+        <td style="padding:4px 6px;text-align:center;color:#7c3aed">F = {{ report.totals.counts.Festival }}</td>
+        <td style="padding:4px 6px;text-align:center;border-right:1px solid #e5e7eb" colspan="2">L = {{ report.totals.counts.Leave }}</td>
+        <td style="padding:4px 6px;text-align:center">M = {{ report.totals.counts.Misc }}</td>
+        <td style="padding:4px 6px;text-align:center" colspan="2">Total = {{ report.totals.total_days }}</td>
+        <td style="padding:4px 6px;text-align:center"></td>
       </tr>
     </tbody>
   </table>
-</section>
 
-{% elif not error %}
-<section class="panel">
-  <p class="muted">Select an employee above to generate their monthly report.</p>
-</section>
+  {# ── Print Footer ──────────────────────────────────────────────────── #}
+  <div style="margin-top:10px;padding-top:8px;border-top:1px solid #ccc;display:flex;justify-content:space-between;font-size:7.5pt;color:#666">
+    <div>Printed Time: {{ now_str }}</div>
+    <div>Developed and Maintained by JEMC IT Unit</div>
+    <div>Printed By: {{ session.get('display_name', 'User') }}</div>
+  </div>
+
+</div>{# end report-card #}
 {% endif %}
-
-{% endif %}{# end view == report #}
 
 <script src="/static/html2pdf.bundle.min.js"></script>
 <script>
-/* ── Searchable employee picker ──────────────────────────────────────────── */
-(function () {
-  var list = document.getElementById('emp-list');
-  if (!list) return;
-
-  /* Group items by department header */
-  var items = list.querySelectorAll('.emp-item');
-  var lastDept = null;
-  items.forEach(function (item) {
-    var dept = item.getAttribute('data-dept');
-    if (dept !== lastDept) {
-      var hdr = document.createElement('div');
-      hdr.className = 'emp-group-hdr';
-      hdr.textContent = dept || 'No Department';
-      hdr.setAttribute('data-grp', dept);
-      list.insertBefore(hdr, item);
-      lastDept = dept;
-    }
-  });
-
-  window.empToggle = function (e) {
-    e.stopPropagation();
-    var panel = document.getElementById('emp-panel');
-    if (panel.style.display === 'none' || panel.style.display === '') {
-      panel.style.display = 'block';
-      var inp = document.getElementById('emp-search');
-      inp.value = '';
-      empFilter('');
-      setTimeout(function () { inp.focus(); }, 50);
-    } else {
-      panel.style.display = 'none';
-    }
-  };
-
-  window.empFilter = function (q) {
-    q = (q || '').toLowerCase();
-    var items = list.querySelectorAll('.emp-item');
-    var hdrs  = list.querySelectorAll('.emp-group-hdr');
-
-    items.forEach(function (item) {
-      var txt = (item.getAttribute('data-search') || '').toLowerCase();
-      item.style.display = txt.indexOf(q) !== -1 ? '' : 'none';
-    });
-
-    hdrs.forEach(function (hdr) {
-      var next = hdr.nextElementSibling;
-      var any  = false;
-      while (next && !next.classList.contains('emp-group-hdr')) {
-        if (next.classList.contains('emp-item') && next.style.display !== 'none') {
-          any = true; break;
-        }
-        next = next.nextElementSibling;
-      }
-      hdr.style.display = any ? '' : 'none';
-    });
-  };
-
-  window.empPickItem = function (item) {
-    var key  = item.getAttribute('data-key');
-    var name = item.querySelector('.emp-item-name').childNodes[0].textContent.trim();
-    document.getElementById('emp-key-input').value = key;
-    document.getElementById('emp-display').textContent = name;
-    document.getElementById('emp-panel').style.display = 'none';
-    document.getElementById('rep-form').submit();
-  };
-
-  document.addEventListener('click', function (e) {
-    var picker = document.getElementById('emp-picker');
-    var panel  = document.getElementById('emp-panel');
-    if (picker && panel && !picker.contains(e.target)) {
-      panel.style.display = 'none';
-    }
-  });
-})();
-
-/* ── PDF download ────────────────────────────────────────────────────────── */
 function downloadPDF() {
-  var el = document.getElementById('printable-report');
-  if (!el) { alert('No report to download.'); return; }
-  {% if report %}
-  var fn = '{{ report.emp_name|replace(" ", "_") }}_{{ report.month_name }}_{{ report.bs_year }}.pdf';
-  {% else %}
-  var fn = 'attendance_report.pdf';
-  {% endif %}
-  var opt = {
-    margin:     [6, 5, 6, 5],
-    filename:   fn,
-    image:      { type: 'jpeg', quality: 0.98 },
-    html2canvas:{ scale: 2, useCORS: true },
-    jsPDF:      { unit: 'mm', format: 'a4', orientation: 'landscape' }
-  };
-  html2pdf().set(opt).from(el).save();
+  var el = document.getElementById('report-card');
+  if (!el || typeof html2pdf === 'undefined') { window.print(); return; }
+  el.classList.add('pdf-export');
+  html2pdf().set({
+    margin: [6, 8, 4, 6],
+    filename: '{{ COMPANY_NAME|replace(" ", "_") }}_{{ report.month_name }}_{{ report.bs_year }}_{{ report.emp_name|replace(" ", "_") }}.pdf',
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2, useCORS: true },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+  }).from(el).save().then(function() {
+    el.classList.remove('pdf-export');
+  }).catch(function() {
+    el.classList.remove('pdf-export');
+  });
 }
+
+document.getElementById('emp-select').addEventListener('change', function() {
+  this.closest('form').submit();
+});
 </script>
 
+<style>
+/* ── Off-day (Weekend / Holiday / Festival) dim bar — B/W only ── */
+#report-card tbody tr.row-off td {
+  background: #d9d9d9 !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+/* ── Dashed line in empty cells of Absent / Leave days ── */
+#report-card td.cell-dash::after {
+  content: '';
+  display: block;
+  border-top: 1.5px dashed #000;
+  margin: 0 2px;
+}
+
+@media print {
+  @page { size: A4 landscape; margin: 6mm 6mm 4mm 8mm; } /* top right bottom left — extra left for binding */
+  html, body { font-size: 8pt !important; margin: 0 !important; padding: 0 !important; }
+  .no-print { display: none !important; }
+  .main-content, .content, main { margin: 0 !important; padding: 0 !important; }
+  #report-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    page-break-inside: avoid;
+  }
+  #report-card table { font-size: 8pt !important; width: 100% !important; border-collapse: collapse !important; page-break-inside: avoid; }
+  #report-card tr { page-break-inside: avoid; }
+  #report-card th,
+  #report-card td {
+    padding: 1px 3px !important;
+    font-size: 8pt !important;
+    white-space: nowrap;
+    border: 0.5px solid #000 !important;
+    line-height: 1.15;
+  }
+  #report-card th {
+    background: #eee !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    font-size: 7.5pt !important;
+    padding: 1px 3px !important;
+  }
+  #report-card .report-totals td {
+    background: #eee !important;
+    color: #000 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    font-size: 7.5pt !important;
+  }
+  #report-card .report-totals td[style*="color"] { color: #000 !important; }
+  #report-card .shift-badge {
+    background: none !important;
+    color: #000 !important;
+    padding: 0 !important;
+    border: none !important;
+  }
+  #report-card .emp-info-bar {
+    font-size: 8pt !important;
+    margin-bottom: 3px !important;
+    padding: 2px 6px !important;
+    background: #fff !important;
+    border-radius: 0 !important;
+  }
+  #report-card .emp-info-bar div[style*="11pt"]   { font-size: 10pt !important; }
+  #report-card .emp-info-bar div[style*="11.5pt"] { font-size: 10.5pt !important; }
+  #report-card .emp-info-bar div[style*="10.5pt"] { font-size: 9.5pt !important; }
+  #report-card > div[style*="border-bottom"] {
+    margin-bottom: 3px !important;
+    padding-bottom: 3px !important;
+  }
+  #report-card > div[style*="border-bottom"] div[style*="16pt"] { font-size: 12pt !important; }
+  #report-card img { max-height: 32px !important; }
+}
+
+/* ── PDF export mirrors the print layout (html2canvas uses screen styles) ── */
+#report-card.pdf-export {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+#report-card.pdf-export table { font-size: 8pt !important; }
+#report-card.pdf-export th,
+#report-card.pdf-export td {
+  padding: 1px 3px !important;
+  font-size: 8pt !important;
+  white-space: nowrap;
+  border: 0.5px solid #000 !important;
+  line-height: 1.15;
+}
+#report-card.pdf-export th,
+#report-card.pdf-export .report-totals td {
+  background: #eee !important;
+  color: #000 !important;
+  font-size: 7.5pt !important;
+}
+#report-card.pdf-export .shift-badge {
+  background: none !important;
+  color: #000 !important;
+  padding: 0 !important;
+}
+#report-card.pdf-export .emp-info-bar {
+  font-size: 8pt !important;
+  margin-bottom: 3px !important;
+  padding: 2px 6px !important;
+  background: #fff !important;
+}
+#report-card.pdf-export .emp-info-bar div[style*="11pt"]   { font-size: 10pt !important; }
+#report-card.pdf-export .emp-info-bar div[style*="11.5pt"] { font-size: 10.5pt !important; }
+#report-card.pdf-export .emp-info-bar div[style*="10.5pt"] { font-size: 9.5pt !important; }
+#report-card.pdf-export > div[style*="border-bottom"] {
+  margin-bottom: 3px !important;
+  padding-bottom: 3px !important;
+}
+#report-card.pdf-export > div[style*="border-bottom"] div[style*="16pt"] { font-size: 12pt !important; }
+#report-card.pdf-export img { max-height: 32px !important; }
+
+@media screen {
+  .no-print { display: flex !important; }
+}
+</style>
+
+{% endif %}
 {% endblock %}

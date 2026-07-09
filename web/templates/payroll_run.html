@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from 'components/ui.html' import stat_card %}
+{% block title %}Payroll — {{ run.month_name }} {{ run.bs_year }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="subtitle">Payroll Run</p>
+    <h1>{{ run.month_name }} {{ run.bs_year }} BS</h1>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-secondary btn-sm" href="/payroll">Back</a>
+    <a class="btn btn-secondary btn-sm" href="/payroll/runs/new">Regenerate</a>
+    <button class="btn btn-secondary btn-sm" type="button" onclick="window.print()">Print</button>
+  </div>
+</div>
+
+<div class="dashboard-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--space-4);margin-bottom:var(--space-6)">
+  {{ stat_card("Employees", items|length, color="blue") }}
+  {{ stat_card("Total Gross", 'Rs {:,.0f}'.format(totals.gross), color="purple") }}
+  {{ stat_card("Total Tax (TDS)", 'Rs {:,.0f}'.format(totals.tax), color="orange") }}
+  {{ stat_card("Total Net", 'Rs {:,.0f}'.format(totals.net), color="green") }}
+</div>
+
+<div class="card">
+  <div class="card-header"><h2>Payslips</h2><span class="text-sm text-muted">Working days: {{ run.working_days }}</span></div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Employee</th><th>Dept</th><th class="text-right">Present</th>
+          <th class="text-right">OT hrs</th><th class="text-right">OT pay</th>
+          <th class="text-right">Gross</th><th class="text-right">Tax</th>
+          <th class="text-right">Net Pay</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for i in items %}
+        <tr>
+          <td><strong>{{ i.name or '—' }}</strong><br><span class="text-xs text-muted">{{ i.emp_code }}</span></td>
+          <td class="text-xs">{{ i.department or '—' }}</td>
+          <td class="text-right">{{ i.present_days }}/{{ run.working_days }}</td>
+          <td class="text-right">{{ '%.1f'|format(i.ot_hours|float) }}{% if i.ot_manual %} <span class="badge badge-info" title="Manual override">M</span>{% endif %}</td>
+          <td class="text-right">{{ '{:,.0f}'.format(i.ot_pay|float) }}</td>
+          <td class="text-right">{{ '{:,.2f}'.format(i.gross|float) }}</td>
+          <td class="text-right">{{ '{:,.2f}'.format(i.tax|float) }}</td>
+          <td class="text-right"><strong>{{ '{:,.2f}'.format(i.net_pay|float) }}</strong></td>
+          <td class="text-right"><a class="btn btn-secondary btn-sm" href="/payroll/runs/{{ run.id }}/payslip/{{ i.global_user_id }}">Slip</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-center text-muted" style="padding:var(--space-8)">No payslips. Ensure employees have salary structures configured.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

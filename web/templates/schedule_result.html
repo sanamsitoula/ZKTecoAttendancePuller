@@ -14,7 +14,7 @@
     {% if jobs %}
     <h3 style="margin-top:18px">Next Scheduled Runs</h3>
     <table class="table compact">
-      <thead><tr><th>Job</th><th>Next Run (NPT)</th></tr></thead>
+      <thead><tr><th scope="col">Job</th><th scope="col">Next Run (NPT)</th></tr></thead>
       <tbody>
         {% for j in jobs %}
         <tr>
@@ -27,8 +27,8 @@
     {% endif %}
 
     <div style="margin-top:20px;display:flex;gap:10px">
-      <a class="btn primary" href="/schedule">Back to Schedule</a>
-      <a class="btn ghost" href="/">Dashboard</a>
+      <a class="btn btn-primary" href="/schedule" aria-label="Go back to schedule page">Back to Schedule</a>
+      <a class="btn btn-ghost" href="/" aria-label="Go to dashboard">Dashboard</a>
     </div>
   </section>
 {% endblock %}

@@ -1,81 +1,82 @@
 {% extends "base.html" %}
+{% block title %}Holiday Calendar — {{ month_name }} {{ bs_year }} BS{% endblock %}
 
 {% block content %}
-
-<section class="page-head">
+<div class="page-header">
   <div>
-    <p class="eyebrow">Calendar</p>
-    <h1>Holiday Calendar &mdash; {{ month_name }} {{ bs_year }} BS</h1>
+    <p class="subtitle">Calendar</p>
+    <h1>Holiday Calendar — {{ month_name }} {{ bs_year }} BS</h1>
   </div>
-
-  {# Month navigation #}
-  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-    <a class="btn" href="/calendar?bs_year={{ prev_y }}&bs_month={{ prev_m }}">&larr;</a>
-    <strong style="font-size:1.05rem;white-space:nowrap">{{ month_name }} {{ bs_year }} BS</strong>
-    <a class="btn" href="/calendar?bs_year={{ next_y }}&bs_month={{ next_m }}">&rarr;</a>
-
-    {# Quick month/year picker #}
-    <form method="get" action="/calendar" style="display:flex;gap:6px;align-items:center;margin-left:10px">
-      <select name="bs_month" style="min-width:110px">
+  <div class="page-actions">
+    <a class="btn btn-secondary btn-sm" href="/calendar?bs_year={{ prev_y }}&bs_month={{ prev_m }}">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      Prev
+    </a>
+    <a class="btn btn-secondary btn-sm" href="/calendar?bs_year={{ next_y }}&bs_month={{ next_m }}">
+      Next
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+    </a>
+    <form method="get" action="/calendar" style="display:flex;gap:6px;align-items:center">
+      <label for="cal-month" class="sr-only" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden">Month</label>
+      <select class="form-select" id="cal-month" name="bs_month" style="min-width:110px;padding:6px 10px;font-size:var(--text-sm)">
         {% for i in range(1, 13) %}
         <option value="{{ i }}" {% if i == bs_month %}selected{% endif %}>{{ nepali_months[i] }}</option>
         {% endfor %}
       </select>
-      <input type="number" name="bs_year" value="{{ bs_year }}" min="2070" max="2099"
-             style="width:80px;text-align:center">
-      <button class="btn primary" type="submit">Go</button>
+      <label for="cal-year" class="sr-only" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden">Year</label>
+      <input type="number" class="form-input" id="cal-year" name="bs_year" value="{{ bs_year }}" min="2070" max="2099"
+             style="width:80px;text-align:center;padding:6px 10px;font-size:var(--text-sm)">
+      <button class="btn btn-primary btn-sm" type="submit">Go</button>
     </form>
   </div>
-</section>
+</div>
 
-{# Error card #}
 {% if error %}
-<div class="panel" style="border-left:4px solid #dc2626;padding:18px 22px">
-  <strong style="color:#dc2626">Error</strong>
-  <p style="margin:6px 0 0">{{ error }}</p>
+<div class="card" style="margin-bottom:var(--space-6);border-left:4px solid var(--color-danger)">
+  <div class="card-body" style="color:var(--color-danger)">
+    <strong>Error:</strong> {{ error }}
+  </div>
 </div>
 {% else %}
 
-{# ── Stat boxes ──────────────────────────────────────────────────────────── #}
-<div class="stat-boxes">
-  <div class="stat-box">
-    <div class="stat-val">{{ total_days }}</div>
-    <div class="stat-lbl">Total Days</div>
+{# ── Stat Cards ──────────────────────────────────────────────────────────── #}
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:var(--space-4);margin-bottom:var(--space-6)">
+  <div class="card" style="text-align:center;padding:var(--space-4)">
+    <div style="font-size:var(--text-3xl);font-weight:var(--weight-bold);color:var(--color-text)">{{ total_days }}</div>
+    <div style="font-size:var(--text-sm);color:var(--color-text-muted);margin-top:var(--space-1)">Total Days</div>
   </div>
-  <div class="stat-box green">
-    <div class="stat-val">{{ working_days }}</div>
-    <div class="stat-lbl">Working Days</div>
+  <div class="card" style="text-align:center;padding:var(--space-4);border-left:3px solid #16a34a">
+    <div style="font-size:var(--text-3xl);font-weight:var(--weight-bold);color:#16a34a">{{ working_days }}</div>
+    <div style="font-size:var(--text-sm);color:var(--color-text-muted);margin-top:var(--space-1)">Working Days</div>
   </div>
-  <div class="stat-box red">
-    <div class="stat-val">{{ holiday_count }}</div>
-    <div class="stat-lbl">Holidays</div>
+  <div class="card" style="text-align:center;padding:var(--space-4);border-left:3px solid var(--color-danger)">
+    <div style="font-size:var(--text-3xl);font-weight:var(--weight-bold);color:var(--color-danger)">{{ holiday_count }}</div>
+    <div style="font-size:var(--text-sm);color:var(--color-text-muted);margin-top:var(--space-1)">Holidays</div>
   </div>
-  <div class="stat-box amber">
-    <div class="stat-val">{{ weekend_count }}</div>
-    <div class="stat-lbl">Weekends</div>
+  <div class="card" style="text-align:center;padding:var(--space-4);border-left:3px solid var(--color-warning)">
+    <div style="font-size:var(--text-3xl);font-weight:var(--weight-bold);color:var(--color-warning)">{{ weekend_count }}</div>
+    <div style="font-size:var(--text-sm);color:var(--color-text-muted);margin-top:var(--space-1)">Weekends</div>
   </div>
 </div>
 
 {# ── Two-column layout ───────────────────────────────────────────────────── #}
-<div style="display:grid;grid-template-columns:1fr 380px;gap:20px;align-items:start">
+<div style="display:grid;grid-template-columns:1fr 400px;gap:var(--space-6);align-items:start">
 
-  {# ── Left: Calendar grid ─────────────────────────────────────────────── #}
-  <section class="panel" style="padding:0;overflow:hidden">
-    <div class="panel-head" style="padding:14px 18px">
-      <h2 style="margin:0">{{ month_name }} {{ bs_year }}</h2>
-      <span class="muted" style="font-size:.82rem">{{ from_ad }} &rarr; {{ to_ad }}</span>
+  {# ═══════════════════════════════════════════════════════════════════════
+     LEFT: Calendar Grid
+     ═══════════════════════════════════════════════════════════════════════ #}
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="card-header">
+      <h2>{{ month_name }} {{ bs_year }}</h2>
+      <span class="text-sm text-muted">{{ from_ad }} &rarr; {{ to_ad }}</span>
     </div>
-    <div style="overflow-x:auto">
-      <table class="cal-grid">
+    <div style="overflow-x:auto;padding:var(--space-4)">
+      <table style="width:100%;border-collapse:collapse;table-layout:fixed">
         <thead>
           <tr>
-            <th>Sun</th>
-            <th>Mon</th>
-            <th>Tue</th>
-            <th>Wed</th>
-            <th>Thu</th>
-            <th>Fri</th>
-            <th>Sat</th>
+            {% for dh in ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] %}
+            <th scope="col" style="padding:var(--space-2) var(--space-1);font-size:var(--text-xs);font-weight:var(--weight-semibold);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.05em;text-align:center;border-bottom:2px solid var(--color-border-light)">{{ dh }}</th>
+            {% endfor %}
           </tr>
         </thead>
         <tbody>
@@ -83,37 +84,46 @@
           <tr>
             {% for day in week %}
             {% if day is none %}
-            <td class="cal-empty"></td>
+            <td style="padding:var(--space-2);height:80px"></td>
             {% else %}
-            {# Determine cell CSS classes #}
-            {% set cell_class = '' %}
+            {% set cell_bg = '' %}
+            {% set cell_border = '' %}
+            {% set cell_text = '' %}
             {% if day.is_holiday %}
               {% if day.holiday_type == 'public' %}
-                {% set cell_class = 'cal-holiday-public' %}
+                {% set cell_bg = '#fef2f2' %}
+                {% set cell_border = '#fca5a5' %}
               {% elif day.holiday_type == 'festival' %}
-                {% set cell_class = 'cal-holiday-festival' %}
+                {% set cell_bg = '#fffbeb' %}
+                {% set cell_border = '#fcd34d' %}
               {% else %}
-                {% set cell_class = 'cal-holiday-other' %}
+                {% set cell_bg = '#faf5ff' %}
+                {% set cell_border = '#c4b5fd' %}
               {% endif %}
             {% elif day.is_weekend %}
-              {% set cell_class = 'cal-weekend' %}
+              {% set cell_bg = '#fefce8' %}
+              {% set cell_border = '#fde68a' %}
             {% endif %}
-            {# Today highlight: compare AD date string to today_bs-derived value via bs_day match #}
             {% set today_parts = today_bs.split('-') if today_bs else [] %}
             {% set is_today = (today_parts | length == 3
                                and today_parts[0] | int == bs_year
                                and today_parts[1] | int == bs_month
                                and today_parts[2] | int == day.bs_day) %}
-            <td class="{{ cell_class }}"
-              {% if is_today %}style="border: 2px solid #2563eb;"{% endif %}>
-              <span class="cal-day-num">{{ day.bs_day }}</span>
+            <td style="padding:var(--space-2);height:80px;vertical-align:top;border:1px solid var(--color-border-light);border-radius:var(--radius-md);
+              {% if cell_bg %}background:{{ cell_bg }};{% endif %}
+              {% if is_today %}border:2px solid var(--color-primary);box-shadow:0 0 0 1px var(--color-primary);{% endif %}
+              transition:box-shadow 0.15s">
+              <div style="font-weight:var(--weight-semibold);font-size:var(--text-sm);
+                {% if is_today %}color:var(--color-primary);{% elif day.is_weekend or day.is_holiday %}color:var(--color-text-muted);{% endif %}">
+                {{ day.bs_day }}
+              </div>
               {%- if day.date_ad %}
               {%- set _ad_parts = day.date_ad.split('-') %}
               {%- set _month_abbr = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
-              <span class="cal-day-ad">{{ _month_abbr[_ad_parts[1]|int] }} {{ _ad_parts[2]|int }}</span>
+              <div style="font-size:10px;color:var(--color-text-muted);line-height:1.3">{{ _month_abbr[_ad_parts[1]|int] }} {{ _ad_parts[2]|int }}</div>
               {%- endif %}
               {% if day.is_holiday and day.holiday_name %}
-              <span class="cal-holiday-label">{{ day.holiday_name }}</span>
+              <div style="font-size:10px;color:var(--color-danger);font-weight:var(--weight-medium);margin-top:2px;line-height:1.2;word-break:break-word">{{ day.holiday_name }}</div>
               {% endif %}
             </td>
             {% endif %}
@@ -125,53 +135,59 @@
     </div>
 
     {# Legend #}
-    <div style="display:flex;gap:14px;flex-wrap:wrap;padding:12px 18px;border-top:1px solid #e2e8f0;font-size:.75rem">
-      <span><span style="display:inline-block;width:12px;height:12px;background:#fef9c3;border:1px solid #e2e8f0;border-radius:2px;vertical-align:middle;margin-right:4px"></span>Weekend</span>
-      <span><span style="display:inline-block;width:12px;height:12px;background:#fee2e2;border:1px solid #e2e8f0;border-radius:2px;vertical-align:middle;margin-right:4px"></span>Public Holiday</span>
-      <span><span style="display:inline-block;width:12px;height:12px;background:#fef3c7;border:1px solid #e2e8f0;border-radius:2px;vertical-align:middle;margin-right:4px"></span>Festival</span>
-      <span><span style="display:inline-block;width:12px;height:12px;background:#f3e8ff;border:1px solid #e2e8f0;border-radius:2px;vertical-align:middle;margin-right:4px"></span>Other</span>
-      <span><span style="display:inline-block;width:12px;height:12px;border:2px solid #2563eb;border-radius:2px;vertical-align:middle;margin-right:4px"></span>Today</span>
+    <div style="display:flex;gap:var(--space-4);flex-wrap:wrap;padding:var(--space-3) var(--space-4);border-top:1px solid var(--color-border-light);font-size:var(--text-xs);color:var(--color-text-muted)">
+      <span style="display:flex;align-items:center;gap:4px">
+        <span style="display:inline-block;width:12px;height:12px;background:#fefce8;border:1px solid #fde68a;border-radius:var(--radius-sm)"></span> Weekend
+      </span>
+      <span style="display:flex;align-items:center;gap:4px">
+        <span style="display:inline-block;width:12px;height:12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:var(--radius-sm)"></span> Public Holiday
+      </span>
+      <span style="display:flex;align-items:center;gap:4px">
+        <span style="display:inline-block;width:12px;height:12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:var(--radius-sm)"></span> Festival
+      </span>
+      <span style="display:flex;align-items:center;gap:4px">
+        <span style="display:inline-block;width:12px;height:12px;background:#faf5ff;border:1px solid #c4b5fd;border-radius:var(--radius-sm)"></span> Other
+      </span>
+      <span style="display:flex;align-items:center;gap:4px">
+        <span style="display:inline-block;width:12px;height:12px;border:2px solid var(--color-primary);border-radius:var(--radius-sm)"></span> Today
+      </span>
     </div>
-  </section>
+  </div>
 
-  {# ── Right column ────────────────────────────────────────────────────── #}
-  <div style="display:flex;flex-direction:column;gap:18px">
+  {# ═══════════════════════════════════════════════════════════════════════
+     RIGHT COLUMN
+     ═══════════════════════════════════════════════════════════════════════ #}
+  <div style="display:flex;flex-direction:column;gap:var(--space-6)">
 
-    {# Holidays list #}
-    <section class="panel" style="padding:0;overflow:hidden">
-      <div class="panel-head" style="padding:14px 18px">
-        <h2 style="margin:0">Holidays This Month</h2>
-        <span class="muted">{{ holiday_count }} holiday{% if holiday_count != 1 %}s{% endif %}</span>
+    {# ── Holidays List ────────────────────────────────────────────────── #}
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="card-header">
+        <h2>Holidays This Month</h2>
+        <span class="text-sm text-muted">{{ holiday_count }} holiday{% if holiday_count != 1 %}s{% endif %}</span>
       </div>
 
-      {# Type counts #}
       {% set pub_count  = holidays | selectattr('holiday_type', 'eq', 'public')   | list | length %}
       {% set fest_count = holidays | selectattr('holiday_type', 'eq', 'festival') | list | length %}
       {% set oth_count  = holiday_count - pub_count - fest_count %}
+
+      {# Type badges #}
       {% if holidays %}
-      <div style="display:flex;gap:10px;flex-wrap:wrap;padding:10px 18px 0;font-size:.78rem">
-        <span style="background:#fee2e2;color:#b91c1c;padding:2px 10px;border-radius:12px">
-          Public: {{ pub_count }}
-        </span>
-        <span style="background:#fef3c7;color:#92400e;padding:2px 10px;border-radius:12px">
-          Festival: {{ fest_count }}
-        </span>
+      <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;padding:var(--space-3) var(--space-5) 0">
+        <span class="badge badge-danger">Public: {{ pub_count }}</span>
+        <span class="badge badge-warning">Festival: {{ fest_count }}</span>
         {% if oth_count > 0 %}
-        <span style="background:#f3e8ff;color:#6b21a8;padding:2px 10px;border-radius:12px">
-          Other: {{ oth_count }}
-        </span>
+        <span class="badge badge-info">Other: {{ oth_count }}</span>
         {% endif %}
-        <span style="background:#dcfce7;color:#166534;padding:2px 10px;border-radius:12px">
-          Working: {{ working_days }}d
-        </span>
+        <span class="badge badge-success">Working: {{ working_days }}d</span>
       </div>
 
-      {# Filter bar #}
-      <div style="padding:10px 18px;display:flex;gap:8px;align-items:center">
-        <input id="hol-search" type="text" placeholder="Search holiday name…"
-               style="flex:1;min-width:0;font-size:.83rem;padding:5px 10px"
+      {# Search filter #}
+      <div style="padding:var(--space-3) var(--space-5);display:flex;gap:var(--space-2);align-items:center">
+        <input id="hol-search" type="text" class="form-input" placeholder="Search holiday name…"
+               aria-label="Search holidays"
+               style="flex:1;min-width:0;font-size:var(--text-sm);padding:6px 10px"
                oninput="filterHolidays()">
-        <select id="hol-type-filter" style="font-size:.83rem;padding:5px 8px" onchange="filterHolidays()">
+        <select id="hol-type-filter" class="form-select" aria-label="Filter by holiday type" style="font-size:var(--text-sm);padding:6px 10px;min-width:100px" onchange="filterHolidays()">
           <option value="">All Types</option>
           <option value="public">Public</option>
           <option value="festival">Festival</option>
@@ -179,139 +195,138 @@
         </select>
       </div>
 
-      <div style="overflow-x:auto">
-        <table class="table compact" style="min-width:auto" id="hol-list-table">
-          <thead>
-            <tr>
-              <th>Date (BS)</th>
-              <th>Date (AD)</th>
-              <th>Name</th>
-              <th>Type</th>
-              <th style="width:80px"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for h in holidays %}
-            <tr data-htype="{{ h.holiday_type or 'other' }}" data-hname="{{ h.name | lower }}">
-              <td><small>{{ h.holiday_ad | bs_date }}</small></td>
-              <td><small>{{ h.holiday_ad }}</small></td>
-              <td>{{ h.name }}</td>
-              <td>
-                <span class="status holiday-{{ h.holiday_type or 'other' }}"
-                      style="font-size:.72rem;padding:2px 7px;min-height:auto;border-radius:4px">
-                  {{ (h.holiday_type or 'other') | capitalize }}
-                </span>
-              </td>
-              <td style="white-space:nowrap;display:flex;gap:4px">
-                <button class="btn small"
-                        style="padding:2px 8px;min-height:auto;font-size:.78rem"
-                        onclick="openEditModal({{ h.id }}, '{{ h.name | replace("'", "\\'") }}', '{{ h.holiday_ad }}', '{{ h.holiday_bs or '' }}', '{{ h.holiday_type or 'public' }}', '{{ (h.description or '') | replace("'", "\\'") }}')">
-                  Edit
-                </button>
-                <form method="post" action="/calendar/holidays/{{ h.id }}/delete"
-                      style="margin:0"
-                      onsubmit="return confirm('Delete {{ h.name }}?')">
-                  <input type="hidden" name="redirect_to"
-                         value="/calendar?bs_year={{ bs_year }}&bs_month={{ bs_month }}">
-                  <button class="btn danger small" type="submit"
-                          style="padding:2px 8px;min-height:auto;font-size:.78rem">
-                    Del
-                  </button>
-                </form>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      {# Holiday items as cards #}
+      <div id="hol-list-table" style="padding:0 var(--space-5) var(--space-4);display:flex;flex-direction:column;gap:var(--space-2)">
+        {% for h in holidays %}
+        <div class="hol-item" data-htype="{{ h.holiday_type or 'other' }}" data-hname="{{ h.name | lower }}"
+             style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3);border:1px solid var(--color-border-light);border-radius:var(--radius-md);transition:background 0.15s"
+             onmouseover="this.style.background='var(--color-bg)'" onmouseout="this.style.background=''">
+          {# Date indicator #}
+          <div style="min-width:48px;text-align:center;flex-shrink:0">
+            <div style="font-size:var(--text-xl);font-weight:var(--weight-bold);line-height:1;
+              {% if h.holiday_type == 'public' %}color:var(--color-danger)
+              {% elif h.holiday_type == 'festival' %}color:var(--color-warning)
+              {% else %}color:#7c3aed{% endif %}">
+              {{ h.holiday_ad | bs_date }}
+            </div>
+          </div>
+          {# Details #}
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:var(--weight-semibold);font-size:var(--text-sm)">{{ h.name }}</div>
+            <div style="font-size:var(--text-xs);color:var(--color-text-muted)">{{ h.holiday_ad }}</div>
+          </div>
+          {# Type badge #}
+          <span class="badge
+            {% if h.holiday_type == 'public' %}badge-danger
+            {% elif h.holiday_type == 'festival' %}badge-warning
+            {% else %}badge-info{% endif %}"
+            style="font-size:10px;flex-shrink:0">
+            {{ (h.holiday_type or 'other') | capitalize }}
+          </span>
+          {# Actions #}
+          <div style="display:flex;gap:4px;flex-shrink:0">
+            <button class="btn btn-sm btn-ghost" style="padding:4px 8px"
+                    onclick="openEditModal({{ h.id }}, '{{ h.name | replace("'", "\\'") }}', '{{ h.holiday_ad }}', '{{ h.holiday_bs or '' }}', '{{ h.holiday_type or 'public' }}', '{{ (h.description or '') | replace("'", "\\'") }}')">
+              Edit
+            </button>
+            <form method="post" action="/calendar/holidays/{{ h.id }}/delete" style="margin:0"
+                  onsubmit="return confirm('Delete {{ h.name }}?')">
+              <input type="hidden" name="redirect_to" value="/calendar?bs_year={{ bs_year }}&bs_month={{ bs_month }}">
+              <button class="btn btn-sm btn-ghost" style="padding:4px 8px;color:var(--color-danger)" type="submit">Del</button>
+            </form>
+          </div>
+        </div>
+        {% endfor %}
       </div>
       {% else %}
-      <p class="empty" style="padding:16px 18px;margin:0;color:#94a3b8">No holidays this month.</p>
+      <p class="text-sm text-muted" style="padding:var(--space-4) var(--space-5)">No holidays this month.</p>
       {% endif %}
-    </section>
+    </div>
 
-    {# Add holiday form #}
-    <section class="panel">
-      <div class="panel-head">
-        <h2 style="margin:0">Add Holiday</h2>
+    {# ── Add Holiday Form ─────────────────────────────────────────────── #}
+    <div class="card">
+      <div class="card-header">
+        <h2>Add Holiday</h2>
       </div>
-      <form method="post" action="/calendar/holidays/add">
-        <input type="hidden" name="redirect_to"
-               value="/calendar?bs_year={{ bs_year }}&bs_month={{ bs_month }}">
+      <div class="card-body">
+        <form method="post" action="/calendar/holidays/add" style="display:flex;flex-direction:column;gap:var(--space-4)">
+          <input type="hidden" name="redirect_to" value="/calendar?bs_year={{ bs_year }}&bs_month={{ bs_month }}">
 
-        <div style="display:flex;flex-direction:column;gap:12px">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" for="hol-name">Name <span class="required">*</span></label>
+            <input type="text" class="form-input" id="hol-name" name="name" required placeholder="e.g. Dashain, Tej Pihar">
+          </div>
 
-          <label>Name
-            <input type="text" name="name" required placeholder="Holiday name" style="width:100%">
-          </label>
-
-          <label>Date (BS)
-            <input class="bsdp" name="holiday_bs"
-                   placeholder="Click to pick BS date"
-                   data-ad-target="holiday_ad_h"
-                   style="width:100%">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" for="hol-bs">Date (BS) <span class="required">*</span></label>
+            <input class="form-input bsdp" name="holiday_bs" placeholder="Click to pick BS date"
+                   data-ad-target="holiday_ad_h">
             <input type="hidden" name="holiday_ad" id="holiday_ad_h">
-            <small class="muted">Selecting a BS date auto-fills the AD date</small>
-          </label>
+            <span class="form-hint">Selecting a BS date auto-fills the AD date</span>
+          </div>
 
-          <label>Type
-            <select name="holiday_type" style="width:100%">
-              <option value="public">Public</option>
-              <option value="festival">Festival</option>
-              <option value="other">Other</option>
-            </select>
-          </label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="hol-type">Type</label>
+              <select class="form-select" id="hol-type" name="holiday_type">
+                <option value="public">Public</option>
+                <option value="festival">Festival</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="hol-desc">Description <span class="form-hint">(optional)</span></label>
+              <input type="text" class="form-input" id="hol-desc" name="description" placeholder="Short description">
+            </div>
+          </div>
 
-          <label>Description <span class="muted">(optional)</span>
-            <input type="text" name="description" placeholder="Short description" style="width:100%">
-          </label>
-
-          <button class="btn primary" type="submit" style="align-self:flex-start">Add Holiday</button>
-        </div>
-      </form>
-    </section>
+          <button class="btn btn-primary" type="submit" style="align-self:flex-start">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+            Add Holiday
+          </button>
+        </form>
+      </div>
+    </div>
 
   </div>{# end right column #}
 </div>{# end two-column grid #}
 
-{% endif %}{# end error check #}
+{% endif %}
 
 {# ── Edit Holiday Modal ───────────────────────────────────────────────────── #}
-<div id="edit-holiday-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
-  <div style="background:#fff;border-radius:10px;padding:28px 28px 24px;max-width:440px;width:92%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
-    <h3 style="margin:0 0 18px">Edit Holiday</h3>
+<div id="edit-holiday-modal" role="dialog" aria-modal="true" aria-labelledby="edit-holiday-title" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:var(--color-surface);border-radius:var(--radius-xl);padding:var(--space-6);max-width:480px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,.2)">
+    <h3 id="edit-holiday-title" style="margin:0 0 var(--space-5);font-size:var(--text-lg);font-weight:var(--weight-semibold)">Edit Holiday</h3>
     <form id="edit-holiday-form" method="post" action="">
-      <input type="hidden" name="redirect_to"
-             value="/calendar?bs_year={{ bs_year }}&bs_month={{ bs_month }}">
-      <div style="display:flex;flex-direction:column;gap:12px">
-
-        <label>Name
-          <input type="text" id="edit-name" name="name" required style="width:100%">
-        </label>
-
-        <label>Date (BS)
-          <input class="bsdp" id="edit-bs" name="holiday_bs"
-                 placeholder="Click to pick BS date"
-                 data-ad-target="edit-ad-hidden"
-                 style="width:100%">
+      <input type="hidden" name="redirect_to" value="/calendar?bs_year={{ bs_year }}&bs_month={{ bs_month }}">
+      <div style="display:flex;flex-direction:column;gap:var(--space-4)">
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label" for="edit-name">Name <span class="required">*</span></label>
+          <input type="text" class="form-input" id="edit-name" name="name" required>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label" for="edit-bs">Date (BS)</label>
+          <input class="form-input bsdp" id="edit-bs" name="holiday_bs" placeholder="Click to pick BS date" data-ad-target="edit-ad-hidden">
           <input type="hidden" name="holiday_ad" id="edit-ad-hidden">
-          <small class="muted">Selecting a BS date auto-fills the AD date</small>
-        </label>
-
-        <label>Type
-          <select id="edit-type" name="holiday_type" style="width:100%">
-            <option value="public">Public</option>
-            <option value="festival">Festival</option>
-            <option value="other">Other</option>
-          </select>
-        </label>
-
-        <label>Description <span class="muted">(optional)</span>
-          <input type="text" id="edit-desc" name="description" style="width:100%">
-        </label>
-
-        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
-          <button type="button" class="btn" onclick="closeEditModal()">Cancel</button>
-          <button type="submit" class="btn primary">Save Changes</button>
+          <span class="form-hint">Selecting a BS date auto-fills the AD date</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" for="edit-type">Type</label>
+            <select class="form-select" id="edit-type" name="holiday_type">
+              <option value="public">Public</option>
+              <option value="festival">Festival</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" for="edit-desc">Description</label>
+            <input type="text" class="form-input" id="edit-desc" name="description">
+          </div>
+        </div>
+        <div style="display:flex;gap:var(--space-3);justify-content:flex-end;margin-top:var(--space-2)">
+          <button type="button" class="btn btn-secondary" aria-label="Cancel editing holiday" onclick="closeEditModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
         </div>
       </div>
     </form>
@@ -319,9 +334,12 @@
 </div>
 
 <style>
-  @media (max-width: 900px) {
-    div[style*="grid-template-columns:1fr 380px"] {
+  @media (max-width: 1024px) {
+    div[style*="grid-template-columns:1fr 400px"] {
       grid-template-columns: 1fr !important;
+    }
+    div[style*="grid-template-columns:repeat(4"] {
+      grid-template-columns: repeat(2, 1fr) !important;
     }
   }
   #edit-holiday-modal.open { display: flex !important; }
@@ -331,11 +349,11 @@
 function filterHolidays() {
   var q    = (document.getElementById('hol-search').value || '').toLowerCase();
   var type = (document.getElementById('hol-type-filter').value || '');
-  var rows = document.querySelectorAll('#hol-list-table tbody tr');
-  rows.forEach(function(row) {
-    var matchName = !q    || row.dataset.hname.indexOf(q) >= 0;
-    var matchType = !type || row.dataset.htype === type;
-    row.style.display = (matchName && matchType) ? '' : 'none';
+  var items = document.querySelectorAll('#hol-list-table .hol-item');
+  items.forEach(function(el) {
+    var matchName = !q    || el.dataset.hname.indexOf(q) >= 0;
+    var matchType = !type || el.dataset.htype === type;
+    el.style.display = (matchName && matchType) ? '' : 'none';
   });
 }
 
@@ -344,17 +362,11 @@ function openEditModal(id, name, holidayAd, holidayBs, holidayType, description)
   document.getElementById('edit-name').value    = name;
   document.getElementById('edit-desc').value    = description;
   document.getElementById('edit-ad-hidden').value = holidayAd;
-
-  // Pre-fill the BS datepicker display value and hidden AD
-  var bsInput = document.getElementById('edit-bs');
-  bsInput.value = holidayBs || '';
-
-  // Set type dropdown
+  document.getElementById('edit-bs').value = holidayBs || '';
   var sel = document.getElementById('edit-type');
   for (var i = 0; i < sel.options.length; i++) {
     sel.options[i].selected = (sel.options[i].value === holidayType);
   }
-
   document.getElementById('edit-holiday-modal').classList.add('open');
 }
 
@@ -362,10 +374,11 @@ function closeEditModal() {
   document.getElementById('edit-holiday-modal').classList.remove('open');
 }
 
-// Close on backdrop click
 document.getElementById('edit-holiday-modal').addEventListener('click', function(e) {
   if (e.target === this) closeEditModal();
 });
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeEditModal();
+});
 </script>
-
 {% endblock %}

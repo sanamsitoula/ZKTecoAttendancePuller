@@ -7,9 +7,9 @@
       <h1>{{ device.name }}</h1>
     </div>
     <div class="head-actions">
-      <a class="btn primary" href="/users">Users</a>
-      <a class="btn ghost" href="/bulk-enroll">New bulk enroll</a>
-      <a class="btn ghost" href="/">Dashboard</a>
+      <a class="btn btn-primary" href="/users" aria-label="Go to users list">Users</a>
+      <a class="btn btn-ghost" href="/bulk-enroll" aria-label="Start a new bulk enroll">New bulk enroll</a>
+      <a class="btn btn-ghost" href="/" aria-label="Go back to dashboard">Dashboard</a>
     </div>
   </section>
 
@@ -37,17 +37,18 @@
   </section>
 
   <section class="panel">
-    <div class="panel-head">
+    <div class="card-header">
       <h2>Details</h2>
       <span class="muted"><span id="bulk-result-table-count">{{ summary.results|length }}</span> rows</span>
     </div>
     <div class="no-print" style="margin-bottom:10px">
-      <input data-table-filter="bulk-result-table" placeholder="Search by user ID, action…" style="max-width:280px">
+      <label for="bulk-result-search" class="sr-only">Search bulk enroll results</label>
+      <input id="bulk-result-search" data-table-filter="bulk-result-table" placeholder="Search by user ID, action…" style="max-width:280px">
     </div>
     <div class="table-wrap">
       <table class="table" id="bulk-result-table">
         <thead>
-          <tr><th>Global ID</th><th>Status</th><th>Action</th><th>Device UID</th><th>Message</th></tr>
+          <tr><th scope="col">Global ID</th><th scope="col">Status</th><th scope="col">Action</th><th scope="col">Device UID</th><th scope="col">Message</th></tr>
         </thead>
         <tbody>
           {% for r in summary.results %}

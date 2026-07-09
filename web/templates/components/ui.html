@@ -1,0 +1,111 @@
+{# Reusable Card Component #}
+{# Usage: {% call card(title="My Title", subtitle="Optional", footer=False) %}...{% endcall %} #}
+{% macro card(title="", subtitle="", class="", footer=False) %}
+<div class="card {{ class }}">
+  {% if title or subtitle %}
+  <div class="card-header">
+    <div>
+      <h2>{{ title }}</h2>
+      {% if subtitle %}<span class="subtitle">{{ subtitle }}</span>{% endif %}
+    </div>
+    {{ caller() if caller is defined and not footer }}
+  </div>
+  {% endif %}
+  {% if not title and not subtitle %}
+  <div class="card-body">
+    {{ caller() }}
+  </div>
+  {% elif footer %}
+  <div class="card-body">{{ caller() }}</div>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{# Stat Card #}
+{% macro stat_card(label, value, icon="", color="blue", meta="") %}
+<div class="stat-card">
+  {% if icon %}
+  <div class="stat-card-icon {{ color }}">{{ icon }}</div>
+  {% endif %}
+  <span class="stat-card-label">{{ label }}</span>
+  <span class="stat-card-value">{{ value }}</span>
+  {% if meta %}<span class="stat-card-meta">{{ meta }}</span>{% endif %}
+</div>
+{% endmacro %}
+
+{# Badge #}
+{% macro badge(text, variant="neutral", dot=False) %}
+<span class="badge badge-{{ variant }}">
+  {% if dot %}<span class="badge-dot"></span>{% endif %}
+  {{ text }}
+</span>
+{% endmacro %}
+
+{# Button #}
+{% macro btn(text, href="", variant="secondary", size="", type="submit", icon="", class="") %}
+{% if href %}
+<a href="{{ href }}" class="btn btn-{{ variant }} {{ size }} {{ class }}">{{ text }}</a>
+{% else %}
+<button type="{{ type }}" class="btn btn-{{ variant }} {{ size }} {{ class }}">{{ text }}</button>
+{% endif %}
+{% endmacro %}
+
+{# Page Header #}
+{% macro page_header(title, subtitle="") %}
+<div class="page-header">
+  <div>
+    <h1>{{ title }}</h1>
+    {% if subtitle %}<p class="subtitle">{{ subtitle }}</p>{% endif %}
+  </div>
+  <div class="page-actions">
+    {{ caller() }}
+  </div>
+</div>
+{% endmacro %}
+
+{# Search Input #}
+{% macro search_input(name="search", placeholder="Search...", value="") %}
+<div class="search-input-wrap">
+  <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+  </svg>
+  <input type="text" class="search-input" name="{{ name }}" placeholder="{{ placeholder }}" value="{{ value }}">
+</div>
+{% endmacro %}
+
+{# Pagination #}
+{% macro pagination(page, total_pages, total, base_url="") %}
+{% if total_pages > 1 %}
+<div class="pagination">
+  <span class="pagination-info">Page {{ page }} of {{ total_pages }} ({{ total }} total)</span>
+  <nav class="pagination-nav" aria-label="Pagination">
+    {% if page > 1 %}
+    <a href="{{ base_url }}page={{ page - 1 }}" class="pagination-btn" aria-label="Previous">&laquo;</a>
+    {% endif %}
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == page %}
+      <span class="pagination-btn active" aria-current="page">{{ p }}</span>
+      {% elif p <= 3 or p > total_pages - 3 or (p >= page - 1 and p <= page + 1) %}
+      <a href="{{ base_url }}page={{ p }}" class="pagination-btn">{{ p }}</a>
+      {% elif p == 4 or p == total_pages - 3 %}
+      <span class="pagination-btn" style="cursor:default;border:none;">...</span>
+      {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
+    <a href="{{ base_url }}page={{ page + 1 }}" class="pagination-btn" aria-label="Next">&raquo;</a>
+    {% endif %}
+  </nav>
+</div>
+{% endif %}
+{% endmacro %}
+
+{# Empty State #}
+{% macro empty_state(title="No data", message="", icon="") %}
+<div class="empty-state">
+  {% if icon %}
+  <div class="empty-state-icon">{{ icon }}</div>
+  {% endif %}
+  <h3>{{ title }}</h3>
+  {% if message %}<p>{{ message }}</p>{% endif %}
+</div>
+{% endmacro %}

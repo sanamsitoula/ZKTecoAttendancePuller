@@ -1,256 +1,105 @@
 {% extends 'base.html' %}
+{% from 'components/ui.html' import badge, btn, search_input %}
+
+{% block title %}Attendance — ZKTeco Attendance{% endblock %}
 
 {% block content %}
-
-  {# ── Company header (print / export only) ─────────────────────────────── #}
-  <div class="company-header print-only">
-    <h2>{{ COMPANY_NAME }}</h2>
-    <p>{{ COMPANY_ADDRESS }}</p>
-    <p>Email: {{ COMPANY_EMAIL }} &nbsp;|&nbsp; Website: {{ COMPANY_WEBSITE }}</p>
-    <hr>
-    <p>
-      Attendance Report &nbsp;|&nbsp;
-      {{ from_date }} to {{ to_date }}
-      &nbsp;|&nbsp;
-      {{ from_date | bs_date }} to {{ to_date | bs_date }}
-    </p>
+<div class="page-header">
+  <div>
+    <h1>Attendance</h1>
+    <p class="subtitle">View daily attendance records</p>
   </div>
+</div>
 
-  <section class="page-head no-print">
-    <div>
-      <p class="eyebrow">Attendance</p>
-      <h1>Check-In / Check-Out</h1>
-    </div>
-    <div class="head-actions">
-      <a class="btn" href="/attendance/export/excel?{{ filter_qs }}">Export Excel</a>
-      <a class="btn" href="/attendance/export/pdf?{{ filter_qs }}">Export PDF</a>
-      <button class="btn" type="button" onclick="window.print()">Print</button>
-    </div>
-  </section>
-
-  {# ── Filter panel ──────────────────────────────────────────────────────── #}
-  <section class="panel no-print">
-    <form method="get" action="/attendance">
-      <div class="filter-bar-flex">
-
-        <label style="min-width:150px">From BS Date
-          <input class="bsdp" name="from_bs" id="from_bs"
-                 value="{{ from_bs }}" placeholder="Click to pick BS date"
-                 data-ad-target="from_date">
-          <small class="muted">{{ from_bs }} BS</small>
-        </label>
-
-        <label style="min-width:140px">From AD Date
-          <input type="date" name="from_date" id="from_date"
-                 value="{{ from_date }}" data-bs-target="from_bs">
-          <small class="muted">{{ from_date | bs_date }}</small>
-        </label>
-
-        <label style="min-width:150px">To BS Date
-          <input class="bsdp" name="to_bs" id="to_bs"
-                 value="{{ to_bs }}" placeholder="Click to pick BS date"
-                 data-ad-target="to_date">
-          <small class="muted">{{ to_bs }} BS</small>
-        </label>
-
-        <label style="min-width:140px">To AD Date
-          <input type="date" name="to_date" id="to_date"
-                 value="{{ to_date }}" data-bs-target="to_bs">
-          <small class="muted">{{ to_date | bs_date }}</small>
-        </label>
-
-        <label>Device
-          <select name="device_id">
-            <option value="">All devices</option>
-            {% for d in devices %}
-            <option value="{{ d.id }}" {% if selected_device_id == d.id %}selected{% endif %}>{{ d.name }}</option>
-            {% endfor %}
-          </select>
-        </label>
-
-        <label>Name / User ID
-          <input type="text" name="name" value="{{ name_search }}" placeholder="Search person…">
-        </label>
-
-        <div class="filter-actions">
-          <button class="btn primary" type="submit">Filter</button>
-          <a class="btn" href="/attendance">Reset</a>
-          <a class="btn" href="/attendance/export/excel?{{ filter_qs }}">Excel</a>
-          <a class="btn" href="/attendance/export/pdf?{{ filter_qs }}">PDF</a>
-          <button class="btn" type="button" onclick="window.print()">Print</button>
-        </div>
+{# ── Filter Bar ──────────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:var(--space-6)">
+  <div class="toolbar">
+    <form method="get" action="/attendance" style="display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap;width:100%">
+      <div class="form-group" style="margin:0">
+        <label class="form-label" for="att-date" style="font-size:var(--text-xs)">Date</label>
+        <input type="date" class="form-input" id="att-date" name="date_str" value="{{ selected_date }}" style="width:auto">
       </div>
+      <div class="form-group" style="margin:0">
+        <label class="form-label" for="att-device" style="font-size:var(--text-xs)">Device</label>
+        <select class="form-select" id="att-device" name="device_id" style="width:auto;min-width:160px">
+          <option value="">All Devices</option>
+          {% for d in devices %}
+          <option value="{{ d.id }}" {{ 'selected' if selected_device_id == d.id }}>{{ d.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm" style="align-self:flex-end">Filter</button>
     </form>
-  </section>
+  </div>
+</div>
 
-  {# ── Daily Shift Summary ───────────────────────────────────────────────── #}
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Daily Shift Summary</h2>
-      <span class="muted">
-        <span id="att-summary-count">{{ total_summary }}</span> employees -
-        {{ from_date }}{% if to_date != from_date %} to {{ to_date }}{% endif %}
-        &nbsp;|&nbsp;
-        {{ from_date | bs_date }}{% if to_date != from_date %} to {{ to_date | bs_date }}{% endif %}
-      </span>
-    </div>
+{# ── Summary Table ───────────────────────────────────────────────────── #}
+{% if summary %}
+<div class="card" style="margin-bottom:var(--space-6)">
+  <div class="card-header">
+    <h2>Daily Summary</h2>
+    <span class="subtitle">{{ selected_date }}</span>
+  </div>
+  <div class="table-wrap" style="border:none;border-radius:0">
+      <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col">User ID</th>
+          <th scope="col">First Check-In</th>
+          <th scope="col">Last Check-Out</th>
+          <th scope="col">Total Punches</th>
+          <th scope="col">Devices</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in summary %}
+        <tr>
+          <td><strong>{{ s.name }}</strong></td>
+          <td class="text-sm">{{ s.user_id }}</td>
+          <td class="text-sm">{{ s.first_in | fmt_dt if s.first_in else '—' }}</td>
+          <td class="text-sm">{{ s.last_out | fmt_dt if s.last_out else '—' }}</td>
+          <td>{{ s.total_punches }}</td>
+          <td class="text-sm">{{ s.devices }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 
-    <div class="no-print" style="margin-bottom:10px">
-      <input class="inline-search" id="ss-name-filter" data-table-filter="att-summary-table"
-             value="{{ name_search }}" autocomplete="off"
-             placeholder="Filter this page — press Enter to search all pages"
-             style="max-width:360px">
-    </div>
-
-    <div class="table-wrap">
-      <table class="table" id="att-summary-table">
-        <thead>
-          <tr>
-            <th>SN</th><th>Name</th><th>User ID</th>
-            <th>First Check-In (NPT)</th><th>First Check-In (BS)</th>
-            <th>Last Check-Out (NPT)</th><th>Last Check-Out (BS)</th>
-            <th>Punch Detail</th>
-            <th>Total</th><th>Devices</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% set offset = (page - 1) * per_page %}
-          {% for s in summary %}
-          <tr>
-            <td>{{ offset + loop.index }}</td>
-            <td><strong>{{ s.name }}</strong></td>
-            <td>{{ s.user_id }}</td>
-            <td><span class="status success" style="font-size:12px">{{ s.first_in | fmt_dt }}</span></td>
-            <td><small>{{ s.first_in | bs_datetime }}</small></td>
-            <td><span class="status info" style="font-size:12px">{{ s.last_out | fmt_dt }}</span></td>
-            <td><small>{{ s.last_out | bs_datetime }}</small></td>
-            <td>
-              {% for p in s.punches %}
-                <div style="white-space:nowrap;font-size:11px;line-height:1.6">
-                  <span class="status {{ 'success' if 'In' in (p.label or '') else 'info' }}"
-                        style="font-size:10px;padding:1px 5px;min-height:auto">
-                    {{ p.label or '?' }}
-                  </span>
-                  {{ p.ts | fmt_dt }}
-                  <small style="color:var(--muted)">{{ p.ts | bs_datetime }}</small>
-                </div>
-              {% endfor %}
-            </td>
-            <td style="text-align:center"><strong>{{ s.total_punches }}</strong></td>
-            <td>{{ s.devices }}</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="10" class="empty">No data for this date range.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    {# Pagination — summary #}
-    {% if total_pages > 1 %}
-    <nav class="pagination no-print" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;align-items:center">
-      <span class="muted" style="margin-right:6px">Page {{ page }} of {{ total_pages }}</span>
-      {% if page > 1 %}
-        <a class="btn small" href="/attendance?{{ filter_qs }}&page={{ page - 1 }}">← Prev</a>
-      {% endif %}
-      {% for p in range(1, total_pages + 1) %}
-        {% if p == page %}
-          <span class="btn small primary">{{ p }}</span>
-        {% elif p <= 2 or p >= total_pages - 1 or (p >= page - 2 and p <= page + 2) %}
-          <a class="btn small" href="/attendance?{{ filter_qs }}&page={{ p }}">{{ p }}</a>
-        {% elif p == 3 or p == total_pages - 2 %}
-          <span class="muted">…</span>
-        {% endif %}
-      {% endfor %}
-      {% if page < total_pages %}
-        <a class="btn small" href="/attendance?{{ filter_qs }}&page={{ page + 1 }}">Next →</a>
-      {% endif %}
-    </nav>
-    {% endif %}
-  </section>
-
-  {# ── Raw Punch Log ─────────────────────────────────────────────────────── #}
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Raw Punch Log</h2>
-      <span class="muted">
-        <span id="punch-table-count">{{ total_records }}</span> total rows
-        (showing {{ records|length }} on page {{ log_page }} of {{ total_log_pages }})
-      </span>
-    </div>
-    <div class="no-print" style="margin-bottom:10px">
-      <input class="inline-search" id="pl-name-filter" data-table-filter="punch-table"
-             value="{{ name_search }}" autocomplete="off"
-             placeholder="Filter this page — press Enter to search all pages"
-             style="max-width:360px">
-    </div>
-    <div class="table-wrap">
-      <table class="table compact" id="punch-table">
-        <thead>
-          <tr>
-            <th>SN</th><th>Time (NPT)</th><th>Time (BS)</th>
-            <th>Name</th><th>User ID</th><th>UID</th>
-            <th>Shift Status</th><th>Device</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% set log_offset = (log_page - 1) * per_page %}
-          {% for r in records %}
-          <tr>
-            <td>{{ log_offset + loop.index }}</td>
-            <td>{{ r.timestamp | fmt_dt }}</td>
-            <td><small>{{ r.timestamp | bs_datetime }}</small></td>
-            <td><strong>{{ r.name }}</strong></td>
-            <td>{{ r.user_id }}</td>
-            <td>{{ r.uid }}</td>
-            <td><span class="status info">{{ r.punch_label or 'Unknown' }}</span></td>
-            <td>{{ r.device_name }}</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="8" class="empty">No logs match this filter.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    {# Pagination — log #}
-    {% if total_log_pages > 1 %}
-    <nav class="pagination no-print" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;align-items:center">
-      <span class="muted" style="margin-right:6px">Page {{ log_page }} of {{ total_log_pages }}</span>
-      {% if log_page > 1 %}
-        <a class="btn small" href="/attendance?{{ filter_qs }}&log_page={{ log_page - 1 }}">← Prev</a>
-      {% endif %}
-      {% for p in range(1, total_log_pages + 1) %}
-        {% if p == log_page %}
-          <span class="btn small primary">{{ p }}</span>
-        {% elif p <= 2 or p >= total_log_pages - 1 or (p >= log_page - 2 and p <= log_page + 2) %}
-          <a class="btn small" href="/attendance?{{ filter_qs }}&log_page={{ p }}">{{ p }}</a>
-        {% elif p == 3 or p == total_log_pages - 2 %}
-          <span class="muted">…</span>
-        {% endif %}
-      {% endfor %}
-      {% if log_page < total_log_pages %}
-        <a class="btn small" href="/attendance?{{ filter_qs }}&log_page={{ log_page + 1 }}">Next →</a>
-      {% endif %}
-    </nav>
-    {% endif %}
-  </section>
-
-<script>
-(function () {
-  ['ss-name-filter', 'pl-name-filter'].forEach(function (id) {
-    var inp = document.getElementById(id);
-    if (!inp) return;
-    inp.addEventListener('keydown', function (e) {
-      if (e.key !== 'Enter') return;
-      e.preventDefault();
-      var url = new URL(window.location.href);
-      url.searchParams.set('name', inp.value.trim());
-      url.searchParams.set('page', '1');
-      url.searchParams.set('log_page', '1');
-      window.location.href = url.toString();
-    });
-  });
-})();
-</script>
+{# ── Raw Punch Log ───────────────────────────────────────────────────── #}
+<div class="card">
+  <div class="card-header">
+    <h2>Punch Log</h2>
+    <span class="subtitle">{{ records|length }} records</span>
+  </div>
+  <div class="table-wrap" style="border:none;border-radius:0">
+      <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Time</th>
+          <th scope="col">Name</th>
+          <th scope="col">User ID</th>
+          <th scope="col">Status</th>
+          <th scope="col">Device</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in records %}
+        <tr>
+          <td class="text-sm">{{ r.timestamp | fmt_dt }}</td>
+          <td><strong>{{ r.name }}</strong></td>
+          <td class="text-sm">{{ r.user_id }}</td>
+          <td>{{ badge(r.punch_label, 'success' if r.punch_label == 'Check-In' else 'info' if r.punch_label == 'Check-Out' else 'neutral') }}</td>
+          <td class="text-sm">{{ r.device_name }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">No attendance records for this date.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% endblock %}

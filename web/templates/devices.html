@@ -1,186 +1,217 @@
 {% extends 'base.html' %}
+{% from 'components/ui.html' import stat_card, badge, btn, search_input, pagination, empty_state %}
+
+{% block title %}Dashboard — ZKTeco Attendance{% endblock %}
 
 {% block content %}
-  <section class="page-head">
-    <div>
-      <p class="eyebrow">System overview</p>
-      <h1>Device Dashboard</h1>
-    </div>
-    <div class="head-actions">
-      <a class="btn primary" href="/devices/add">Add device</a>
-      <a class="btn ghost" href="/pull-sessions">View runs</a>
-    </div>
-  </section>
+<div class="page-header">
+  <div>
+    <h1>Dashboard</h1>
+    <p class="subtitle">System overview and device status</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-primary" href="/devices/add">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+      Add Device
+    </a>
+  </div>
+</div>
 
-  <section class="status-grid">
-    <div class="metric">
-      <span class="metric-label">Database</span>
-      <strong class="{{ 'ok-text' if db_status.ok else 'bad-text' }}">{{ db_status.label }}</strong>
-      <small>{{ db_status.detail }}</small>
+{# ── Stat Cards ──────────────────────────────────────────────────────── #}
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-card-icon blue">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>
+      </svg>
     </div>
-    <div class="metric">
-      <span class="metric-label">Active devices</span>
-      <strong>{{ stats.active_device_count if stats else 0 }} / {{ stats.device_count if stats else devices|length }}</strong>
-      <small>Configured biometric terminals</small>
-    </div>
-    <div class="metric">
-      <span class="metric-label">Users in DB</span>
-      <strong>{{ stats.employee_count if stats else 0 }}</strong>
-      <small>Imported from device data</small>
-    </div>
-    <div class="metric">
-      <span class="metric-label">Today punches</span>
-      <strong>{{ stats.punches_today if stats else 0 }}</strong>
-      <small>Check-in, check-out and shift punches</small>
-    </div>
-  </section>
+    <span class="stat-card-label">Total Devices</span>
+    <span class="stat-card-value">{{ stats.device_count if stats else devices|length }}</span>
+    <span class="stat-card-meta">{{ stats.active_device_count if stats else 0 }} active</span>
+  </div>
 
-  <section class="split">
-    <div class="panel">
-      <div class="panel-head">
-        <h2>Scheduler</h2>
-        <a class="link" href="/schedule">Edit timing</a>
+  <div class="stat-card">
+    <div class="stat-card-icon green">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+        <path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+    </div>
+    <span class="stat-card-label">Employees</span>
+    <span class="stat-card-value">{{ stats.employee_count if stats else 0 }}</span>
+    <span class="stat-card-meta">Imported from devices</span>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-icon amber">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/>
+        <path d="M3 10h18"/>
+      </svg>
+    </div>
+    <span class="stat-card-label">Today Punches</span>
+    <span class="stat-card-value">{{ stats.punches_today if stats else 0 }}</span>
+    <span class="stat-card-meta">Check-in / Check-out</span>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-icon {{ 'green' if db_status.ok else 'red' }}">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+      </svg>
+    </div>
+    <span class="stat-card-label">Database</span>
+    <span class="stat-card-value" style="font-size:var(--text-xl)">{{ db_status.label }}</span>
+    <span class="stat-card-meta">{{ db_status.detail }}</span>
+  </div>
+</div>
+
+{# ── Scheduler + Latest Run ──────────────────────────────────────────── #}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);margin-bottom:var(--space-6)">
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h2>Schedule</h2>
+        <span class="subtitle">Pull times ({{ scheduler_timezone }})</span>
       </div>
-      <div class="schedule-row">
+      <a href="/schedule" class="btn btn-sm btn-secondary">Edit</a>
+    </div>
+    <div class="card-body">
+      <div style="display:flex;flex-wrap:wrap;gap:var(--space-2)">
         {% for t in schedule_times %}
-          <span class="time-chip">{{ t }}</span>
+        <span class="chip">{{ t }}</span>
         {% endfor %}
       </div>
-      <p class="muted">Timezone: {{ scheduler_timezone }}</p>
     </div>
-    <div class="panel">
-      <div class="panel-head">
-        <h2>Latest Run</h2>
-        <a class="link" href="/pull-sessions">Details</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h2>Latest Sync</h2>
+        <span class="subtitle">Most recent pull run</span>
       </div>
+      <a href="/pull-sessions" class="btn btn-sm btn-secondary">View All</a>
+    </div>
+    <div class="card-body">
       {% if stats and stats.latest_session %}
-        <div class="run-summary">
-          <span class="status {{ stats.latest_session.status }}">{{ stats.latest_session.status }}</span>
+        <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-2)">
+          {{ badge(stats.latest_session.status, 'success' if stats.latest_session.status == 'success' else 'danger') }}
           <strong>{{ stats.latest_session.device_name }}</strong>
-          <span>{{ stats.latest_session.records_pulled }} records, {{ stats.latest_session.new_inserts }} new</span>
         </div>
+        <p class="text-sm text-muted">{{ stats.latest_session.records_pulled }} records pulled, {{ stats.latest_session.new_inserts }} new</p>
         {% if stats.latest_session.error_message %}
-          <p class="error-line">{{ stats.latest_session.error_message }}</p>
-        {% else %}
-          {% set ts = stats.latest_session.completed_at or stats.latest_session.started_at %}
-          <p class="muted">{{ ts | fmt_dt }}<small style="display:block">{{ ts | bs_datetime }}</small></p>
+          <p class="text-sm" style="color:var(--color-danger)">{{ stats.latest_session.error_message }}</p>
         {% endif %}
       {% else %}
-        <p class="muted">No pull run has been recorded yet.</p>
+        <p class="text-sm text-muted">No pull run recorded yet.</p>
       {% endif %}
     </div>
-  </section>
+  </div>
+</div>
 
-  <section class="panel">
-    <div class="panel-head">
+{# ── Device List Table ───────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:var(--space-6)">
+  <div class="card-header">
+    <div>
       <h2>Devices</h2>
-      <span class="muted"><span id="devices-table-count">{{ devices|length }}</span> devices.</span>
+      <span class="subtitle">{{ devices|length }} devices configured</span>
     </div>
-    <div class="filter-bar-flex no-print" style="margin-bottom:10px">
-      <input data-table-filter="devices-table" placeholder="Search by name or IP…" style="max-width:220px;min-width:0;flex:1 1 180px">
-      <select data-table-filter="devices-table" data-filter-col="3" style="max-width:160px;min-width:0;flex:1 1 140px">
-        <option value="">All status</option>
-        <option value="active">Active</option>
-        <option value="inactive">Inactive</option>
-      </select>
-      <select data-table-filter="devices-table" data-filter-col="4" style="max-width:160px;min-width:0;flex:1 1 140px">
-        <option value="">All ping</option>
-        <option value="online">Online</option>
-        <option value="offline">Offline</option>
-      </select>
-    </div>
-    <div class="table-wrap">
+  </div>
+  <div class="table-wrap" style="border:none;border-radius:0">
       <table class="table" id="devices-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Network</th>
-            <th>Model</th>
-            <th>Active</th>
-            <th>Ping</th>
-            <th>Last run</th>
-            <th>Records</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for d in devices %}
-          {% set ping = d.ping if d.ping is defined else none %}
-          <tr>
-            <td><strong>{{ d.name }}</strong></td>
-            <td>{{ d.ip_address }}:{{ d.port }}</td>
-            <td>{{ d.model or 'unknown' }}</td>
-            <td><span class="status {{ 'success' if d.is_active else 'muted-status' }}">{{ 'Active' if d.is_active else 'Inactive' }}</span></td>
-            <td>
-              {% if ping %}
-                <span class="status {{ 'success' if ping.ok else 'failed' }}">{{ 'Online' if ping.ok else 'Offline' }}</span>
-                {% if ping.ok %}<small>{{ ping.ms }} ms</small>{% endif %}
-                <small class="muted">{{ ping.checked_at | fmt_dt }}</small>
-                <small class="muted" style="font-size:11px">{{ ping.checked_at | bs_datetime }}</small>
-              {% else %}
-                <span class="muted">—</span>
-              {% endif %}
-            </td>
-            <td>
-              {% if d.last_status %}
-                <span class="status {{ d.last_status }}">{{ d.last_status }}</span>
-                <small>{{ d.last_started_at | fmt_dt }}</small>
-                <small>{{ d.last_started_at | bs_datetime }}</small>
-                {% if d.error_message %}<small class="bad-text">{{ d.error_message }}</small>{% endif %}
-              {% else %}
-                <span class="muted">No run</span>
-              {% endif %}
-            </td>
-            <td>{{ d.records_pulled or 0 }} pulled / {{ d.new_inserts or 0 }} new</td>
-            <td class="actions">
-              <a class="btn small" href="/devices/{{ d.id }}/users">Device users</a>
-              <a class="btn small" href="/devices/{{ d.id }}/sync">Sync</a>
-              <a class="btn small ghost" href="/devices/{{ d.id }}/edit">Edit</a>
-              <form method="post" action="/devices/{{ d.id }}/pull">
-                <button class="btn small ghost" type="submit">Run pull</button>
-              </form>
-              <form method="post" action="/devices/{{ d.id }}/delete">
-                <button class="btn small danger" type="submit" onclick="return confirm('Delete device?')">Delete</button>
-              </form>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Recent Punches</h2>
-      <a class="link" href="/attendance">Open attendance</a>
-    </div>
-    <div class="no-print" style="margin-bottom:10px">
-      <input data-table-filter="punches-table" placeholder="Search by name, device…" style="max-width:260px">
-    </div>
-    <div class="table-wrap">
-      <table class="table compact" id="punches-table">
-        <thead>
-          <tr><th>Time</th><th>Name</th><th>User ID</th><th>Shift status</th><th>Device</th></tr>
-        </thead>
-        <tbody>
-          {% if stats %}
-            {% for p in stats.recent_punches %}
-            <tr>
-              <td>{{ p.timestamp | fmt_dt }}<small style="display:block">{{ p.timestamp | bs_datetime }}</small></td>
-              <td>{{ p.name }}</td>
-              <td>{{ p.user_id }}</td>
-              <td><span class="status info">{{ p.punch_label }}</span></td>
-              <td>{{ p.device_name }}</td>
-            </tr>
+      <thead>
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col">IP Address</th>
+          <th scope="col">Model</th>
+          <th scope="col">Status</th>
+          <th scope="col">Last Sync</th>
+          <th scope="col">Records</th>
+          <th scope="col">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in devices %}
+        <tr>
+          <td><strong>{{ d.name }}</strong></td>
+          <td><code style="font-size:var(--text-xs)">{{ d.ip_address }}:{{ d.port }}</code></td>
+          <td>{{ d.model or '—' }}</td>
+          <td>
+            {% if d.is_active %}
+              {{ badge('Online', 'success', dot=True) }}
             {% else %}
-            <tr><td colspan="5" class="empty">No attendance punches found yet.</td></tr>
-            {% endfor %}
-          {% else %}
-            <tr><td colspan="5" class="empty">Database is not connected.</td></tr>
-          {% endif %}
-        </tbody>
-      </table>
+              {{ badge('Offline', 'danger', dot=True) }}
+            {% endif %}
+          </td>
+          <td>
+            {% if d.last_status %}
+              <span class="text-sm">{{ d.last_started_at | fmt_dt }}</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="text-sm">{{ d.records_pulled or 0 }} / {{ d.new_inserts or 0 }}</td>
+          <td>
+            <div class="actions">
+              <a class="btn btn-sm btn-secondary" href="/devices/{{ d.id }}/sync">Sync</a>
+              <a class="btn btn-sm btn-ghost" href="/devices/{{ d.id }}/edit">Edit</a>
+              <form method="post" action="/devices/{{ d.id }}/pull" style="display:inline">
+                <button class="btn btn-sm btn-ghost" type="submit">Pull</button>
+              </form>
+              <form method="post" action="/devices/{{ d.id }}/delete" style="display:inline">
+                <button class="btn btn-sm btn-danger" type="submit" aria-label="Delete device {{ d.name }}" onclick="return confirm('Delete device?')">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="empty">No devices configured. <a href="/devices/add">Add one</a></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── Recent Punches ──────────────────────────────────────────────────── #}
+<div class="card">
+  <div class="card-header">
+    <div>
+      <h2>Recent Punches</h2>
+      <span class="subtitle">Latest attendance records</span>
     </div>
-  </section>
+    <a href="/attendance" class="btn btn-sm btn-secondary">View All</a>
+  </div>
+  <div class="table-wrap" style="border:none;border-radius:0">
+      <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Time</th>
+          <th scope="col">Name</th>
+          <th scope="col">User ID</th>
+          <th scope="col">Status</th>
+          <th scope="col">Device</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if stats %}
+          {% for p in stats.recent_punches %}
+          <tr>
+            <td class="text-sm">{{ p.timestamp | fmt_dt }}</td>
+            <td><strong>{{ p.name }}</strong></td>
+            <td class="text-sm">{{ p.user_id }}</td>
+            <td>{{ badge(p.punch_label, 'info') }}</td>
+            <td class="text-sm">{{ p.device_name }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="empty">No punches recorded yet.</td></tr>
+          {% endfor %}
+        {% else %}
+        <tr><td colspan="5" class="empty">Database not connected.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% endblock %}

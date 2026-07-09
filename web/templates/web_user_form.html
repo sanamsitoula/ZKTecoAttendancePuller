@@ -1,106 +1,364 @@
 {% extends 'base.html' %}
+{% from 'components/ui.html' import badge %}
+
+{% block title %}{{ 'Edit' if form_user else 'New' }} Web User — ZKTeco Attendance{% endblock %}
+
 {% block content %}
+<div class="page-header">
+  <div>
+    <p class="subtitle"><a href="/web-users" style="color:var(--color-primary)">Web Users</a> / {{ 'Edit' if form_user else 'New' }}</p>
+    <h1>{{ 'Edit User' if form_user else 'New Web User' }}</h1>
+    {% if form_user %}<p class="text-muted">{{ form_user.username }}</p>{% endif %}
+  </div>
+  <div class="page-actions">
+    <a href="/web-users" class="btn btn-secondary">Back to List</a>
+  </div>
+</div>
 
 {% set is_edit = form_user is not none %}
 
-<section class="page-head">
-  <div>
-    <p class="eyebrow"><a href="/web-users">Web Users</a></p>
-    <h1>{{ 'Edit User' if is_edit else 'New Web User' }}</h1>
-    {% if is_edit %}<p class="sub">{{ form_user.username }}</p>{% endif %}
-  </div>
-</section>
+<div style="display:grid;grid-template-columns:{{ '1fr 1fr' if is_edit else '1fr' }};gap:var(--space-6)">
+  {# ── User Form ────────────────────────────────────────────────────── #}
+  <div class="card">
+    <div class="card-header"><h2>{{ 'User Details' if is_edit else 'Create New User' }}</h2></div>
+    <div class="card-body">
+      <form method="post"
+            action="{{ '/web-users/' ~ form_user.id ~ '/edit' if is_edit else '/web-users/new' }}"
+            style="display:flex;flex-direction:column;gap:var(--space-4)">
 
-<section class="panel" style="max-width:560px">
-  <form method="post"
-        action="{{ '/web-users/' + form_user.id|string + '/edit' if is_edit else '/web-users/new' }}"
-        class="form" style="padding:20px 24px">
+        {# Username #}
+        <div class="form-group">
+          <label class="form-label" for="username">Username</label>
+          {% if is_edit %}
+          <input type="text" class="form-input" value="{{ form_user.username }}" disabled aria-disabled="true"
+                 style="background:var(--color-bg);color:var(--color-text-muted)">
+          {% else %}
+          <input type="text" class="form-input" id="username" name="username" required
+                 autocomplete="off" placeholder="e.g. jsmith" value="">
+          {% endif %}
+        </div>
 
-    <label>Username {% if not is_edit %}<span style="color:#ef4444">*</span>{% endif %}
-      {% if is_edit %}
-      <input type="text" value="{{ form_user.username }}" disabled style="background:#f9fafb;color:#6b7280">
-      {% else %}
-      <input type="text" name="username" required autocomplete="off"
-             placeholder="e.g. jsmith" value="">
-      {% endif %}
-    </label>
+        {# Display Name #}
+        <div class="form-group">
+          <label class="form-label" for="display_name">Display Name</label>
+          <input type="text" class="form-input" id="display_name" name="display_name"
+                 value="{{ form_user.display_name if is_edit else '' }}"
+                 placeholder="Full name shown in the UI">
+        </div>
 
-    <label>Display Name
-      <input type="text" name="display_name"
-             value="{{ form_user.display_name if is_edit else '' }}"
-             placeholder="Full name shown in the UI">
-    </label>
+        {# Role #}
+        <div class="form-group">
+          <label class="form-label" for="role">Role <span class="required">*</span></label>
+          <select class="form-select" id="role" name="role">
+            {% for r in ('admin', 'manager', 'viewer') %}
+            <option value="{{ r }}"
+                    {{ 'selected' if (is_edit and form_user.role == r) or (not is_edit and r == 'viewer') }}>
+              {{ r | capitalize }}
+              {% if r == 'admin' %} — full access{% endif %}
+              {% if r == 'manager' %} — attendance, reports, leaves, calendar{% endif %}
+              {% if r == 'viewer' %} — attendance & daily reports only{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
 
-    <label>Role <span style="color:#ef4444">*</span>
-      <select name="role">
-        {% for r in ('admin', 'manager', 'viewer') %}
-        <option value="{{ r }}"
-                {{ 'selected' if (is_edit and form_user.role == r) or (not is_edit and r == 'viewer') }}>
-          {{ r | capitalize }}
-          {% if r == 'admin' %} — full access{% endif %}
-          {% if r == 'manager' %} — attendance, reports, leaves, calendar{% endif %}
-          {% if r == 'viewer' %} — attendance & daily reports only{% endif %}
-        </option>
-        {% endfor %}
-      </select>
-    </label>
+        {# Linked Global User #}
+        <div class="form-group">
+          <label class="form-label" for="global_user_id">Linked Global User</label>
+          <select class="form-select" id="global_user_id" name="global_user_id">
+            <option value="">— None (standalone account) —</option>
+            {% for gu in global_users %}
+            <option value="{{ gu.id }}"
+                    {{ 'selected' if is_edit and form_user.global_user_id == gu.id }}
+                    data-dept="{{ gu.department_name or '' }}"
+                    data-desig="{{ gu.designation or '' }}"
+                    data-empid="{{ gu.employee_id or '' }}"
+                    data-email="{{ gu.email or '' }}"
+                    data-phone="{{ gu.phone or '' }}"
+                    data-type="{{ gu.emp_type or '' }}"
+                    data-status="{{ gu.emp_status or '' }}">
+              {{ gu.name }} — {{ gu.global_user_id }}
+              {% if gu.department_name %} ({{ gu.department_name }}){% endif %}
+            </option>
+            {% endfor %}
+          </select>
+          <span class="form-hint">Links this login account to an employee record.</span>
+        </div>
 
-    <label>Linked Global User
-      <select name="global_user_id">
-        <option value="">— None (standalone account) —</option>
-        {% for gu in global_users %}
-        <option value="{{ gu.id }}"
-                {{ 'selected' if is_edit and form_user.global_user_id == gu.id }}>
-          {{ gu.name or gu.global_user_id }}
-          {% if gu.department_name %} ({{ gu.department_name }}){% endif %}
-          {% if gu.global_user_id %} — ATT.ID {{ gu.global_user_id }}{% endif %}
-        </option>
-        {% endfor %}
-      </select>
-      <small class="muted">Links this login account to an employee record.</small>
-    </label>
+        {# Linked User Preview #}
+        <div id="linked-user-preview" style="display:none;padding:var(--space-4);background:var(--color-bg);border:1px solid var(--color-border);border-radius:var(--radius-md)">
+          <div style="font-size:var(--text-sm);font-weight:var(--weight-semibold);margin-bottom:var(--space-2)">Linked Employee Details</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2);font-size:var(--text-sm)">
+            <div><span class="text-muted">Emp ID:</span> <span id="preview-empid">—</span></div>
+            <div><span class="text-muted">Department:</span> <span id="preview-dept">—</span></div>
+            <div><span class="text-muted">Designation:</span> <span id="preview-desig">—</span></div>
+            <div><span class="text-muted">Type:</span> <span id="preview-type">—</span></div>
+            <div><span class="text-muted">Email:</span> <span id="preview-email">—</span></div>
+            <div><span class="text-muted">Phone:</span> <span id="preview-phone">—</span></div>
+          </div>
+        </div>
 
-    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:4px">
-      <input type="checkbox" name="is_active" value="1"
-             {{ 'checked' if (is_edit and form_user.is_active) or not is_edit }}>
-      <span>Account is active</span>
-    </label>
+        {# Active & Password Change #}
+        <div style="display:flex;flex-direction:column;gap:var(--space-2)">
+          <label class="form-check">
+            <input type="checkbox" name="is_active" value="1"
+                   {{ 'checked' if (is_edit and form_user.is_active) or not is_edit }}>
+            <span>Account is active</span>
+          </label>
+          <label class="form-check">
+            <input type="checkbox" name="must_change_pwd" value="1"
+                   {{ 'checked' if is_edit and form_user.must_change_pwd }}>
+            <span>Require password change on next login</span>
+          </label>
+        </div>
 
-    <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-      <input type="checkbox" name="must_change_pwd" value="1"
-             {{ 'checked' if is_edit and form_user.must_change_pwd }}>
-      <span>Require password change on next login</span>
-    </label>
+        {# Password Section #}
+        <div style="border-top:1px solid var(--color-border-light);padding-top:var(--space-4);margin-top:var(--space-2)">
+          {% if is_edit %}
+          <p class="text-sm text-muted" style="margin-bottom:var(--space-3)">
+            Leave password fields blank to keep the current password.
+          </p>
+          <div class="form-group">
+            <label class="form-label" for="new_password">New Password <span class="form-hint">(min 6 chars)</span></label>
+            <input type="password" class="form-input" id="new_password" name="new_password"
+                   minlength="6" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="confirm_pwd">Confirm New Password</label>
+            <input type="password" class="form-input" id="confirm_pwd" name="confirm_pwd"
+                   autocomplete="new-password">
+          </div>
+          {% else %}
+          <div class="form-group">
+            <label class="form-label" for="password">Password <span class="required">*</span> <span class="form-hint">(min 6 chars)</span></label>
+            <input type="password" class="form-input" id="password" name="password"
+                   required minlength="6" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="confirm_pwd">Confirm Password <span class="required">*</span></label>
+            <input type="password" class="form-input" id="confirm_pwd" name="confirm_pwd"
+                   required autocomplete="new-password">
+          </div>
+          {% endif %}
+        </div>
 
-    <hr style="margin: 16px 0; border: none; border-top: 1px solid #e5e7eb">
-
-    {% if is_edit %}
-    <p style="font-size:13px;color:#6b7280;margin:0 0 10px">
-      Leave password fields blank to keep the current password.
-    </p>
-    <label>New Password <small class="muted">(min 6 chars)</small>
-      <input type="password" name="new_password" minlength="6" autocomplete="new-password">
-    </label>
-    <label>Confirm New Password
-      <input type="password" name="confirm_pwd" autocomplete="new-password">
-    </label>
-    {% else %}
-    <label>Password <span style="color:#ef4444">*</span> <small class="muted">(min 6 chars)</small>
-      <input type="password" name="password" required minlength="6" autocomplete="new-password">
-    </label>
-    <label>Confirm Password <span style="color:#ef4444">*</span>
-      <input type="password" name="confirm_pwd" required autocomplete="new-password">
-    </label>
-    {% endif %}
-
-    <div style="display:flex;gap:10px;margin-top:20px">
-      <button class="btn primary" type="submit">
-        {{ 'Save Changes' if is_edit else 'Create User' }}
-      </button>
-      <a class="btn ghost" href="/web-users">Cancel</a>
+        <div style="display:flex;gap:var(--space-3);margin-top:var(--space-4)">
+          <button type="submit" class="btn btn-primary">
+            {{ 'Save Changes' if is_edit else 'Create User' }}
+          </button>
+          <a href="/web-users" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
     </div>
+  </div>
 
-  </form>
-</section>
+  {# ── Global User Details (edit mode only) ─────────────────────────── #}
+  {% if is_edit and form_user.global_user_id %}
+  <div>
+    <div class="card" style="margin-bottom:var(--space-4)">
+      <div class="card-header">
+        <h2>Employee Details</h2>
+        <span class="text-sm text-muted">Linked to global user #{{ form_user.global_user_id }}</span>
+      </div>
+      <div class="card-body">
+        <form method="post"
+              action="{{ '/web-users/' ~ form_user.id ~ '/edit' }}"
+              style="display:flex;flex-direction:column;gap:var(--space-4)"
+              id="gu-form">
+          {# Pass all web user fields as hidden so the same POST saves both #}
+          <input type="hidden" name="display_name" value="{{ form_user.display_name or '' }}">
+          <input type="hidden" name="role" value="{{ form_user.role or 'viewer' }}">
+          <input type="hidden" name="global_user_id" value="{{ form_user.global_user_id }}">
+          <input type="hidden" name="is_active" value="{{ '1' if form_user.is_active else '' }}">
+          <input type="hidden" name="must_change_pwd" value="{{ '1' if form_user.must_change_pwd else '' }}">
 
+          {# Name #}
+          <div class="form-group">
+            <label class="form-label" for="gu_name">Full Name <span class="required">*</span></label>
+            <input type="text" class="form-input" id="gu_name" name="gu_name"
+                   value="{{ form_user.name or '' }}" required>
+          </div>
+
+          {# Employee ID + Designation #}
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)">
+            <div class="form-group">
+              <label class="form-label" for="gu_employee_id">Employee ID</label>
+              <input type="text" class="form-input" id="gu_employee_id" name="gu_employee_id"
+                     value="{{ form_user.employee_id or '' }}">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="gu_designation">Designation</label>
+              <input type="text" class="form-input" id="gu_designation" name="gu_designation"
+                     value="{{ form_user.designation or '' }}">
+            </div>
+          </div>
+
+          {# Department + Section #}
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)">
+            <div class="form-group">
+              <label class="form-label" for="gu_department_id">Department</label>
+              <select class="form-select" id="gu_department_id" name="gu_department_id">
+                <option value="">— None —</option>
+                {% for d in departments %}
+                <option value="{{ d.id }}" {{ 'selected' if form_user.department_id == d.id }}>{{ d.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="gu_section_id">Section</label>
+              <select class="form-select" id="gu_section_id" name="gu_section_id">
+                <option value="">— None —</option>
+                {% for s in sections %}
+                <option value="{{ s.id }}" {{ 'selected' if form_user.section_id == s.id }}>{{ s.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          {# Unit + Shift #}
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)">
+            <div class="form-group">
+              <label class="form-label" for="gu_unit_id">Unit</label>
+              <select class="form-select" id="gu_unit_id" name="gu_unit_id">
+                <option value="">— None —</option>
+                {% for u in units %}
+                <option value="{{ u.id }}" {{ 'selected' if form_user.unit_id == u.id }}>{{ u.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="gu_shift_id">Shift</label>
+              <select class="form-select" id="gu_shift_id" name="gu_shift_id">
+                <option value="">— None —</option>
+                {% for sh in shifts %}
+                <option value="{{ sh.id }}" {{ 'selected' if form_user.shift_id == sh.id }}>{{ sh.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          {# Emp Type + Status #}
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)">
+            <div class="form-group">
+              <label class="form-label" for="gu_emp_type">Employment Type</label>
+              <select class="form-select" id="gu_emp_type" name="gu_emp_type">
+                {% for t in ('PERMANENT','CONFIRMED','PROBATION','CONTRACT','INTERN') %}
+                <option value="{{ t }}" {{ 'selected' if form_user.emp_type == t }}>{{ t }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="gu_emp_status">Status</label>
+              <select class="form-select" id="gu_emp_status" name="gu_emp_status">
+                {% for s in ('ACTIVE','INACTIVE','TERMINATED','RESIGNED') %}
+                <option value="{{ s }}" {{ 'selected' if form_user.emp_status == s }}>{{ s }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          {# Email + Phone #}
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)">
+            <div class="form-group">
+              <label class="form-label" for="gu_email">Email</label>
+              <input type="email" class="form-input" id="gu_email" name="gu_email"
+                     value="{{ form_user.email or '' }}">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="gu_phone">Phone</label>
+              <input type="text" class="form-input" id="gu_phone" name="gu_phone"
+                     value="{{ form_user.phone or '' }}">
+            </div>
+          </div>
+
+          {# Bank Number + Level/Grade #}
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)">
+            <div class="form-group">
+              <label class="form-label" for="gu_bank_number">Bank Number</label>
+              <input type="text" class="form-input" id="gu_bank_number" name="gu_bank_number"
+                     value="{{ form_user.bank_number or '' }}">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="gu_level_grade">Level / Grade</label>
+              <input type="text" class="form-input" id="gu_level_grade" name="gu_level_grade"
+                     value="{{ form_user.level_grade or '' }}">
+            </div>
+          </div>
+
+          {# Join Date + Appointment Date #}
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)">
+            <div class="form-group">
+              <label class="form-label" for="gu_join_date">Join Date</label>
+              <input type="date" class="form-input" id="gu_join_date" name="gu_join_date"
+                     value="{{ form_user.join_date or '' }}">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="gu_appointment_date">Appointment Date</label>
+              <input type="date" class="form-input" id="gu_appointment_date" name="gu_appointment_date"
+                     value="{{ form_user.appointment_date or '' }}">
+            </div>
+          </div>
+
+          {# DOB + Gender #}
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)">
+            <div class="form-group">
+              <label class="form-label" for="gu_dob">Date of Birth</label>
+              <input type="date" class="form-input" id="gu_dob" name="gu_dob"
+                     value="{{ form_user.dob or '' }}">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="gu_gender">Gender</label>
+              <select class="form-select" id="gu_gender" name="gu_gender">
+                <option value="">— Select —</option>
+                {% for g in ('Male','Female','Other') %}
+                <option value="{{ g }}" {{ 'selected' if form_user.gender == g }}>{{ g }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--color-border-light);padding-top:var(--space-4);margin-top:var(--space-2)">
+            <button type="submit" class="btn btn-primary">Save Employee Details</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+(function() {
+  var sel = document.getElementById('global_user_id');
+  if (!sel) return;
+  var preview = document.getElementById('linked-user-preview');
+  var fields = {
+    empid:  document.getElementById('preview-empid'),
+    dept:   document.getElementById('preview-dept'),
+    desig:  document.getElementById('preview-desig'),
+    type:   document.getElementById('preview-type'),
+    email:  document.getElementById('preview-email'),
+    phone:  document.getElementById('preview-phone')
+  };
+
+  function updatePreview() {
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value) {
+      if (preview) preview.style.display = 'none';
+      return;
+    }
+    var data = opt.dataset;
+    if (fields.empid)  fields.empid.textContent  = data.empid  || '—';
+    if (fields.dept)   fields.dept.textContent   = data.dept   || '—';
+    if (fields.desig)  fields.desig.textContent  = data.desig  || '—';
+    if (fields.type)   fields.type.textContent   = data.type   || '—';
+    if (fields.email)  fields.email.textContent  = data.email  || '—';
+    if (fields.phone)  fields.phone.textContent  = data.phone  || '—';
+    if (preview) preview.style.display = '';
+  }
+
+  sel.addEventListener('change', updatePreview);
+  if (sel.value) updatePreview();
+})();
+</script>
 {% endblock %}

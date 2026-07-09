@@ -11,14 +11,14 @@
 
   <section class="panel narrow">
     <form class="form" method="post" action="/users/{{ user.id }}/push">
-      <label>Device
-        <select name="device_id">
+      <label for="push-device">Device
+        <select id="push-device" name="device_id">
           {% for d in devices %}
           <option value="{{ d.id }}">{{ d.name }} - {{ d.ip_address }}:{{ d.port }}</option>
           {% endfor %}
         </select>
       </label>
-      <button class="btn primary" type="submit">Push to device</button>
+      <button class="btn btn-primary" type="submit" aria-label="Push {{ user.name }} to selected device">Push to device</button>
     </form>
   </section>
 {% endblock %}

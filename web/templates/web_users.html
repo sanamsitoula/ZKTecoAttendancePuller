@@ -1,47 +1,60 @@
 {% extends 'base.html' %}
+{% from 'components/ui.html' import badge, stat_card %}
+
+{% block title %}Web Users — ZKTeco Attendance{% endblock %}
+
 {% block content %}
-
-<style>
-.role-badge {
-  display: inline-block; padding: 2px 9px; border-radius: 10px;
-  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
-}
-.role-admin   { background: #eff6ff; color: #1d4ed8; }
-.role-manager { background: #f0fdf4; color: #15803d; }
-.role-viewer  { background: #f9fafb; color: #374151; border: 1px solid #e5e7eb; }
-.status-active   { color: #15803d; font-weight: 600; }
-.status-inactive { color: #b91c1c; font-weight: 600; }
-</style>
-
-<section class="page-head">
+<div class="page-header">
   <div>
-    <p class="eyebrow">Administration</p>
+    <p class="subtitle">Administration</p>
     <h1>Web Users</h1>
   </div>
-  <div class="head-actions" style="gap:8px;display:flex;flex-wrap:wrap">
-    <a class="btn" href="/web-users/audit-log">Audit Log</a>
-    <a class="btn primary" href="/web-users/new">+ New User</a>
+  <div class="page-actions">
+    <a href="/web-users/audit-log" class="btn btn-secondary">Audit Log</a>
+    <a href="/web-users/new" class="btn btn-primary">+ New User</a>
   </div>
-</section>
+</div>
 
-<section class="panel">
-  <div class="panel-head" style="display:flex;align-items:center;gap:12px">
-    <h2 style="margin:0">{{ users | length }} account{{ 's' if users | length != 1 }}</h2>
-    <input data-table-filter="wu-table" placeholder="Search users…" style="max-width:220px">
+{# ── Stat Cards ──────────────────────────────────────────────────────── #}
+{% set active_count = users | selectattr('is_active') | list | length %}
+{% set inactive_count = users | length - active_count %}
+<div class="stat-grid">
+  {{ stat_card('Total Users', users | length, 'blue') }}
+  {{ stat_card('Active', active_count, 'green') }}
+  {{ stat_card('Inactive', inactive_count, 'red') }}
+  {{ stat_card('Admins', users | selectattr('role', 'equalto', 'admin') | list | length, 'purple') }}
+</div>
+
+{# ── User Table ──────────────────────────────────────────────────────── #}
+<div class="card">
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <div class="search-input-wrap" style="flex:1;min-width:200px;max-width:320px">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        <input type="text" class="search-input" data-table-filter="wu-table" placeholder="Search users..." aria-label="Search web users">
+      </div>
+    </div>
+    <div class="toolbar-right">
+      <span class="text-sm text-muted">{{ users | length }} account{{ 's' if users | length != 1 }}</span>
+    </div>
   </div>
-  <div class="table-wrap">
+
+  <div class="table-wrap" style="border:none;border-radius:0">
     <table class="table" id="wu-table">
       <thead>
         <tr>
-          <th>Username</th>
-          <th>Display Name</th>
-          <th>Role</th>
-          <th>Linked Employee</th>
-          <th>Department</th>
-          <th>Status</th>
-          <th>Last Login</th>
-          <th>Last IP</th>
-          <th style="width:120px">Actions</th>
+          <th scope="col">Username</th>
+          <th scope="col">Display Name</th>
+          <th scope="col">Role</th>
+          <th scope="col">Linked Employee</th>
+          <th scope="col">Department</th>
+          <th scope="col">Designation</th>
+          <th scope="col">Status</th>
+          <th scope="col">Last Login</th>
+          <th scope="col">Last IP</th>
+          <th scope="col" style="width:140px">Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -49,47 +62,60 @@
         <tr>
           <td><strong>{{ u.username }}</strong></td>
           <td>{{ u.display_name or '—' }}</td>
-          <td><span class="role-badge role-{{ u.role }}">{{ u.role }}</span></td>
           <td>
-            {% if u.gu_name %}
-            <span title="ATT.ID: {{ u.att_id or '' }}">{{ u.gu_name }}</span>
-            {% if u.att_id %}<br><small class="muted">{{ u.att_id }}</small>{% endif %}
-            {% else %}—{% endif %}
-          </td>
-          <td>{{ u.department_name or '—' }}</td>
-          <td>
-            {% if u.is_active %}
-            <span class="status-active">Active</span>
+            {% if u.role == 'admin' %}
+              {{ badge('Admin', 'info') }}
+            {% elif u.role == 'manager' %}
+              {{ badge('Manager', 'success') }}
             {% else %}
-            <span class="status-inactive">Inactive</span>
+              {{ badge('Viewer', 'default') }}
             {% endif %}
           </td>
           <td>
+            {% if u.gu_name %}
+            <div>
+              <strong>{{ u.gu_name }}</strong>
+              {% if u.att_id %}<br><code style="font-size:var(--text-xs)">{{ u.att_id }}</code>{% endif %}
+            </div>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="text-sm">{{ u.department_name or '—' }}</td>
+          <td class="text-sm">{{ u.designation or '—' }}</td>
+          <td>
+            {% if u.is_active %}
+              {{ badge('Active', 'success') }}
+            {% else %}
+              {{ badge('Inactive', 'danger') }}
+            {% endif %}
+          </td>
+          <td class="text-sm">
             {% if u.last_login_at %}
             <span title="{{ u.last_login_at | fmt_dt }}">
               {{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else '—' }}
             </span>
             {% else %}—{% endif %}
           </td>
-          <td style="font-size:12px;font-family:monospace">{{ u.last_login_ip or '—' }}</td>
-          <td style="white-space:nowrap">
-            <a class="btn ghost" style="padding:3px 8px;font-size:12px"
-               href="/web-users/{{ u.id }}/edit">Edit</a>
-            <form method="post" action="/web-users/{{ u.id }}/toggle-active" style="display:inline">
-              <button class="btn ghost" style="padding:3px 8px;font-size:12px"
-                      type="submit"
-                      onclick="return confirm('{{ 'Disable' if u.is_active else 'Enable' }} this user?')">
-                {{ 'Disable' if u.is_active else 'Enable' }}
-              </button>
-            </form>
+          <td class="text-sm" style="font-family:monospace">{{ u.last_login_ip or '—' }}</td>
+          <td>
+            <div class="actions">
+              <a class="btn btn-sm btn-ghost" href="/web-users/{{ u.id }}/edit">Edit</a>
+              <form method="post" action="/web-users/{{ u.id }}/toggle-active" style="display:inline">
+                <button class="btn btn-sm {{ 'btn-danger' if u.is_active else 'btn-success' }}" type="submit"
+                        aria-label="{{ 'Disable' if u.is_active else 'Enable' }} user {{ u.username }}"
+                        onclick="return confirm('{{ 'Disable' if u.is_active else 'Enable' }} this user?')">
+                  {{ 'Disable' if u.is_active else 'Enable' }}
+                </button>
+              </form>
+            </div>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="9" class="empty">No web users yet. <a href="/web-users/new">Create one</a>.</td></tr>
+        <tr><td colspan="10" class="empty">No web users yet. <a href="/web-users/new">Create one</a>.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-</section>
-
+</div>
 {% endblock %}

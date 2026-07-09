@@ -1,0 +1,198 @@
+{% extends 'base.html' %}
+{% from 'components/ui.html' import stat_card, badge, btn, pagination, empty_state %}
+
+{% block title %}Employees — ZKTeco Attendance{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Employees</h1>
+    <p class="subtitle">Manage employee records across all devices</p>
+  </div>
+</div>
+
+{# ── Stat Cards ──────────────────────────────────────────────────────── #}
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-card-icon blue">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+      </svg>
+    </div>
+    <span class="stat-card-label">Total Employees</span>
+    <span class="stat-card-value">{{ total_employees }}</span>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-icon green">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M20 6L9 17l-5-5"/>
+      </svg>
+    </div>
+    <span class="stat-card-label">Global Linked</span>
+    <span class="stat-card-value">{{ total_linked }}</span>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-icon amber">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+      </svg>
+    </div>
+    <span class="stat-card-label">Device Only</span>
+    <span class="stat-card-value">{{ total_unlinked }}</span>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-icon red">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>
+      </svg>
+    </div>
+    <span class="stat-card-label">Punches Today</span>
+    <span class="stat-card-value">{{ punches_today }}</span>
+  </div>
+</div>
+
+{# ── Filter Bar ──────────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:var(--space-6)">
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <form method="get" action="/employees" style="display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap;width:100%">
+        <div class="search-input-wrap" style="flex:1;min-width:200px;max-width:320px">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+          <input type="text" class="search-input" name="search" placeholder="Search by name or user ID..." value="{{ search }}" aria-label="Search employees by name or user ID">
+        </div>
+        <select class="form-select" name="device_id" aria-label="Filter by device" style="width:auto;min-width:160px">
+          <option value="">All Devices</option>
+          {% for d in devices %}
+          <option value="{{ d.id }}" {{ 'selected' if selected_device_id == d.id|string }}>{{ d.name }}</option>
+          {% endfor %}
+        </select>
+        <select class="form-select" name="link_status" aria-label="Filter by link status" style="width:auto;min-width:140px">
+          <option value="">All Status</option>
+          <option value="linked" {{ 'selected' if link_status == 'linked' }}>Global Linked</option>
+          <option value="unlinked" {{ 'selected' if link_status == 'unlinked' }}>Device Only</option>
+        </select>
+        <select class="form-select" name="department_id" aria-label="Filter by department" style="width:auto;min-width:160px">
+          <option value="">All Departments</option>
+          {% for d in all_departments %}
+          <option value="{{ d.id }}" {{ 'selected' if selected_department_id == d.id|string }}>{{ d.name }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+        {% if search or selected_device_id or link_status or selected_department_id %}
+        <a href="/employees" class="btn btn-ghost btn-sm">Clear</a>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+
+  {# ── Employee Table ────────────────────────────────────────────────── #}
+  <div class="table-wrap" style="border:none;border-radius:0">
+      <table class="table" id="employees-table">
+      <thead>
+        <tr>
+          <th scope="col" style="width:50px">SN</th>
+          <th scope="col">Employee Name</th>
+          <th scope="col">Device</th>
+          <th scope="col">User ID</th>
+          <th scope="col">Emp ID</th>
+          <th scope="col">Department</th>
+          <th scope="col">Section</th>
+          <th scope="col">Designation</th>
+          <th scope="col">Type</th>
+          <th scope="col">Status</th>
+          {% for t in schedule_times %}
+          <th scope="col">{{ t }}</th>
+          {% endfor %}
+          <th scope="col">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in employees %}
+        {% set att = emp_attendance.get((e.device_id, e.user_id), {}) %}
+        <tr>
+          <td class="text-sm text-muted">{{ (page - 1) * 25 + loop.index }}</td>
+          <td><strong>{{ e.name or 'Unknown' }}</strong></td>
+          <td class="text-sm">{{ e.device_name }}</td>
+          <td><code style="font-size:var(--text-xs)">{{ e.user_id }}</code></td>
+          <td class="text-sm">{{ e.employee_id or '—' }}</td>
+          <td class="text-sm">{{ e.department_name or '—' }}</td>
+          <td class="text-sm">{{ e.section_name or '—' }}</td>
+          <td class="text-sm">{{ e.designation or '—' }}</td>
+          <td>
+            {% if e.emp_type %}
+              {{ badge(e.emp_type, 'info') }}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if e.emp_status == 'ACTIVE' %}
+              {{ badge('Active', 'success') }}
+            {% elif e.emp_status == 'INACTIVE' %}
+              {{ badge('Inactive', 'danger') }}
+            {% else %}
+              <span class="text-muted">{{ e.emp_status or '—' }}</span>
+            {% endif %}
+          </td>
+          {% for t in schedule_times %}
+          <td>
+            {% if att %}
+              <span class="text-sm">{{ att.get('Check-In', 0) }}In / {{ att.get('Check-Out', 0) }}Out</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          {% endfor %}
+          <td>
+            {% if e.global_user_id %}
+              {{ badge('Global', 'success') }}
+            {% else %}
+              {{ badge('Device Only', 'warning') }}
+            {% endif %}
+          </td>
+          <td>
+            <div class="actions">
+              <a class="btn btn-sm btn-ghost" href="/employees/{{ e.id }}/edit">Edit</a>
+              <form method="post" action="/employees/{{ e.id }}/delete" style="display:inline">
+                <button class="btn btn-sm btn-danger" type="submit" aria-label="Delete {{ e.name or 'employee' }}" onclick="return confirm('Delete this employee record?')">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="14" class="empty">No employees found matching your filters.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# ── Pagination ────────────────────────────────────────────────────── #}
+  {% if total_pages > 1 %}
+  <div class="pagination">
+    <span class="pagination-info">Showing {{ (page - 1) * 25 + 1 }}–{{ [page * 25, total_filtered] | min }} of {{ total_filtered }}</span>
+    <nav class="pagination-nav" aria-label="Pagination">
+      {% if page > 1 %}
+      <a href="?page={{ page - 1 }}&search={{ search }}&device_id={{ selected_device_id or '' }}&link_status={{ link_status or '' }}&department_id={{ selected_department_id or '' }}" class="pagination-btn">&laquo;</a>
+      {% endif %}
+      {% for p in page_range %}
+        {% if p is none %}
+        <span class="pagination-btn" style="cursor:default;border:none">...</span>
+        {% elif p == page %}
+        <span class="pagination-btn active">{{ p }}</span>
+        {% else %}
+        <a href="?page={{ p }}&search={{ search }}&device_id={{ selected_device_id or '' }}&link_status={{ link_status or '' }}&department_id={{ selected_department_id or '' }}" class="pagination-btn">{{ p }}</a>
+        {% endif %}
+      {% endfor %}
+      {% if page < total_pages %}
+      <a href="?page={{ page + 1 }}&search={{ search }}&device_id={{ selected_device_id or '' }}&link_status={{ link_status or '' }}&department_id={{ selected_department_id or '' }}" class="pagination-btn">&raquo;</a>
+      {% endif %}
+    </nav>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
