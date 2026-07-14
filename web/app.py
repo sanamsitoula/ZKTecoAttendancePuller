@@ -3965,9 +3965,9 @@ async def add_shift_rule(request: Request):
     if not shift_id or not from_date:
         return redirect_with_flash('/settings', 'error', 'Shift and from-date are required.')
 
-    # Collect all target IDs based on type
-    g_user_ids = []
-    dept_id    = dir_id = sec_id = unit_id = None
+    # Collect all target IDs based on type — each type now supports
+    # multiple selections (one shift rule created per selected target).
+    g_user_ids = dept_ids = sec_ids = unit_ids = dir_ids = []
 
     if target_type == 'employee':
         raw = form.getlist('global_user_id[]') or form.getlist('global_user_id')
@@ -3975,40 +3975,57 @@ async def add_shift_rule(request: Request):
         if not g_user_ids:
             return redirect_with_flash('/settings', 'error', 'Select at least one employee.')
     elif target_type == 'department':
-        dept_id = _int_param(form.get('department_id'))
-        if not dept_id:
-            return redirect_with_flash('/settings', 'error', 'Select a department.')
+        raw = form.getlist('department_id[]') or form.getlist('department_id')
+        dept_ids = [_int_param(v) for v in raw if _int_param(v)]
+        if not dept_ids:
+            return redirect_with_flash('/settings', 'error', 'Select at least one department.')
     elif target_type == 'section':
-        sec_id = _int_param(form.get('section_id'))
-        if not sec_id:
-            return redirect_with_flash('/settings', 'error', 'Select a section.')
+        raw = form.getlist('section_id[]') or form.getlist('section_id')
+        sec_ids = [_int_param(v) for v in raw if _int_param(v)]
+        if not sec_ids:
+            return redirect_with_flash('/settings', 'error', 'Select at least one section.')
     elif target_type == 'unit':
-        unit_id = _int_param(form.get('unit_id'))
-        if not unit_id:
-            return redirect_with_flash('/settings', 'error', 'Select a unit.')
+        raw = form.getlist('unit_id[]') or form.getlist('unit_id')
+        unit_ids = [_int_param(v) for v in raw if _int_param(v)]
+        if not unit_ids:
+            return redirect_with_flash('/settings', 'error', 'Select at least one unit.')
     elif target_type == 'directorate':
-        dir_id = _int_param(form.get('directorate_id'))
-        if not dir_id:
-            return redirect_with_flash('/settings', 'error', 'Select a directorate.')
+        raw = form.getlist('directorate_id[]') or form.getlist('directorate_id')
+        dir_ids = [_int_param(v) for v in raw if _int_param(v)]
+        if not dir_ids:
+            return redirect_with_flash('/settings', 'error', 'Select at least one directorate.')
 
     conn = get_connection()
+    total = 0
     try:
         from db import create_shift_rule
         uid_who = _current_user_id(request)
-        if g_user_ids:
-            for gid in g_user_ids:
-                create_shift_rule(conn, shift_id, from_date, to_date, gid,
-                                  None, None, None, None, app_user_id=uid_who)
-        else:
+        for gid in g_user_ids:
+            create_shift_rule(conn, shift_id, from_date, to_date, gid,
+                              None, None, None, None, app_user_id=uid_who)
+            total += 1
+        for did in dept_ids:
             create_shift_rule(conn, shift_id, from_date, to_date, None,
-                              dept_id, dir_id, sec_id, unit_id, app_user_id=uid_who)
+                              did, None, None, None, app_user_id=uid_who)
+            total += 1
+        for sid in sec_ids:
+            create_shift_rule(conn, shift_id, from_date, to_date, None,
+                              None, None, sid, None, app_user_id=uid_who)
+            total += 1
+        for uid_ in unit_ids:
+            create_shift_rule(conn, shift_id, from_date, to_date, None,
+                              None, None, None, uid_, app_user_id=uid_who)
+            total += 1
+        for did_ in dir_ids:
+            create_shift_rule(conn, shift_id, from_date, to_date, None,
+                              None, did_, None, None, app_user_id=uid_who)
+            total += 1
     except Exception as exc:
         return redirect_with_flash('/settings', 'error', str(exc))
     finally:
         conn.close()
-    count = len(g_user_ids) if g_user_ids else 1
     return redirect_with_flash('/settings', 'success',
-                                f"{count} shift rule(s) added.")
+                                f"{total} shift rule(s) added.")
 
 @app.post("/settings/shift-rules/{rule_id}/delete")
 async def delete_shift_rule_route(request: Request, rule_id: int):

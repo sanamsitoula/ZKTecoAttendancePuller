@@ -228,4 +228,10 @@
   } else {
     _init();
   }
+
+  /* Re-scan for .bsdp / [data-bs-target] inputs after replacing part of the
+     DOM (e.g. an AJAX-refreshed panel). Only call this for freshly-inserted
+     elements — re-running on inputs that already have a listener attaches
+     a second one. */
+  window.reinitBsDatePicker = _init;
 })();

@@ -328,7 +328,7 @@
             <td><span class="badge badge-info">{{ ((em - sm) // 60) }}h {{ ((em - sm) % 60) }}m</span></td>
             <td>
               <form method="post" action="/settings/shifts/{{ s.id }}/delete" style="display:inline"
-                    onsubmit="return confirm('Delete shift {{ s.name }}?')">
+                    onsubmit="return confirm('Delete shift {{ s.name }}?') && ajaxShiftsSubmit(this)">
                 <button class="btn btn-sm btn-ghost" style="color:var(--color-danger)" type="submit">Delete</button>
               </form>
             </td>
@@ -340,7 +340,8 @@
       </table>
     </div>
     <div style="padding:var(--space-4) var(--space-5);border-top:1px solid var(--color-border-light)">
-      <form method="post" action="/settings/shifts/add" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+      <form method="post" action="/settings/shifts/add" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap"
+            onsubmit="return ajaxShiftsSubmit(this)">
         <div class="form-group" style="margin-bottom:0;flex:1;max-width:220px">
           <label class="form-label" for="shift-name">Shift Name</label>
           <input type="text" class="form-input" id="shift-name" name="name" placeholder="e.g. General Shift" required>
@@ -404,7 +405,7 @@
             <td class="text-sm">{{ r.to_date or '—' }}</td>
             <td>
               <form method="post" action="/settings/shift-rules/{{ r.id }}/delete" style="display:inline"
-                    onsubmit="return confirm('Delete this shift rule?')">
+                    onsubmit="return confirm('Delete this shift rule?') && ajaxShiftsSubmit(this)">
                 <button class="btn btn-sm btn-ghost" style="color:var(--color-danger)" type="submit">Delete</button>
               </form>
             </td>
@@ -423,7 +424,8 @@
       <h2>Add New Shift Rule</h2>
     </div>
     <div class="card-body">
-      <form method="post" action="/settings/shift-rules/add" id="rule-form" style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-6)">
+      <form method="post" action="/settings/shift-rules/add" id="rule-form" style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-6)"
+            onsubmit="return ajaxShiftsSubmit(this)">
         {# Left column: Shift + Dates #}
         <div style="display:flex;flex-direction:column;gap:var(--space-4)">
           <div class="form-group" style="margin-bottom:0">
@@ -466,7 +468,13 @@
 
           <div id="rule-emp-wrap">
             <div class="form-group" style="margin-bottom:0">
-              <label class="form-label">Employees</label>
+              <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
+                Employees
+                <span style="display:flex;gap:8px">
+                  <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 8px" onclick="ruleEmpSelectAll(true)">Select All</button>
+                  <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 8px" onclick="ruleEmpSelectAll(false)">Clear All</button>
+                </span>
+              </label>
               <div class="emp-tags-picker" style="border:1px solid var(--color-border);border-radius:var(--radius-md);overflow:hidden">
                 <div id="rule-emp-tags" class="emp-tags-display" onclick="document.getElementById('rule-emp-search').focus()"
                      style="display:flex;flex-wrap:wrap;gap:4px;padding:8px;min-height:38px">
@@ -505,9 +513,11 @@
 
           <div id="rule-dept-wrap" style="display:none">
             <div class="form-group" style="margin-bottom:0">
-              <label class="form-label">Department <span class="required">*</span></label>
-              <select class="form-select" name="department_id" id="rule-dept-select">
-                <option value="">— Select —</option>
+              <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
+                Department <span class="required">*</span>
+                <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 8px" onclick="selectAllOptions('rule-dept-select')">Select All</button>
+              </label>
+              <select class="form-select" name="department_id[]" id="rule-dept-select" multiple size="6">
                 {% for d in departments %}
                 <option value="{{ d.id }}">{{ d.name }}{% if d.directorate_name %} ({{ d.directorate_name }}){% endif %}</option>
                 {% endfor %}
@@ -516,9 +526,11 @@
           </div>
           <div id="rule-sec-wrap" style="display:none">
             <div class="form-group" style="margin-bottom:0">
-              <label class="form-label">Section <span class="required">*</span></label>
-              <select class="form-select" name="section_id" id="rule-sec-select">
-                <option value="">— Select —</option>
+              <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
+                Section <span class="required">*</span>
+                <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 8px" onclick="selectAllOptions('rule-sec-select')">Select All</button>
+              </label>
+              <select class="form-select" name="section_id[]" id="rule-sec-select" multiple size="6">
                 {% for s in sections %}
                 <option value="{{ s.id }}">{{ s.name }}{% if s.department_name %} ({{ s.department_name }}){% endif %}</option>
                 {% endfor %}
@@ -527,9 +539,11 @@
           </div>
           <div id="rule-unit-wrap" style="display:none">
             <div class="form-group" style="margin-bottom:0">
-              <label class="form-label">Unit <span class="required">*</span></label>
-              <select class="form-select" name="unit_id" id="rule-unit-select">
-                <option value="">— Select —</option>
+              <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
+                Unit <span class="required">*</span>
+                <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 8px" onclick="selectAllOptions('rule-unit-select')">Select All</button>
+              </label>
+              <select class="form-select" name="unit_id[]" id="rule-unit-select" multiple size="6">
                 {% for u in units %}
                 <option value="{{ u.id }}">{{ u.name }}{% if u.section_name %} ({{ u.section_name }}){% endif %}</option>
                 {% endfor %}
@@ -538,9 +552,11 @@
           </div>
           <div id="rule-dir-wrap" style="display:none">
             <div class="form-group" style="margin-bottom:0">
-              <label class="form-label">Directorate <span class="required">*</span></label>
-              <select class="form-select" name="directorate_id" id="rule-dir-select">
-                <option value="">— Select —</option>
+              <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
+                Directorate <span class="required">*</span>
+                <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 8px" onclick="selectAllOptions('rule-dir-select')">Select All</button>
+              </label>
+              <select class="form-select" name="directorate_id[]" id="rule-dir-select" multiple size="6">
                 {% for dr in directorates %}
                 <option value="{{ dr.id }}">{{ dr.name }}</option>
                 {% endfor %}
@@ -902,6 +918,15 @@ function selectAllMigrate(val) {
   updateMigrateBar();
 }
 
+/* ── Select all options in a <select multiple> ────────────────────────── */
+function selectAllOptions(selectId) {
+  var sel = document.getElementById(selectId);
+  if (!sel) return;
+  Array.from(sel.options).forEach(function (opt) {
+    if (opt.style.display !== 'none') opt.selected = true;
+  });
+}
+
 /* ── Target type toggle ─────────────────────────────────────────────── */
 function ruleTargetChange(v) {
   var map = { employee: 'emp', department: 'dept', section: 'sec', unit: 'unit', directorate: 'dir' };
@@ -972,9 +997,28 @@ function ruleTargetChange(v) {
     ruleEmpDropOpen();
   };
 
+  window.ruleEmpSelectAll = function (on) {
+    if (!on) {
+      Object.keys(selected).forEach(function (id) { window.ruleEmpRemove(id); });
+      return;
+    }
+    document.querySelectorAll('.rule-emp-opt').forEach(function (opt) {
+      var id = opt.getAttribute('data-id');
+      if (!selected[id]) window.ruleEmpToggle(opt);
+    });
+  };
+
   window.ruleEmpDropOpen = function () {
     var d = document.getElementById('rule-emp-dropdown');
     if (d) d.style.display = '';
+  };
+
+  /* Called after an AJAX DOM swap replaces the form with a fresh (empty)
+     copy from the server — clears JS-side selection state so it doesn't
+     desync from the freshly-rendered, unchecked DOM. */
+  window.ruleEmpReset = function () {
+    selected = {};
+    updateTags();
   };
 
   document.addEventListener('click', function (e) {
@@ -993,6 +1037,47 @@ window.secFilterDept = function (dirId) {
   });
   if (sel.selectedOptions.length && sel.selectedOptions[0].hidden) sel.value = '';
 };
+
+/* ── Shifts tab: submit without a full page reload ────────────────────
+   Posts the form via fetch (following the server's redirect to the
+   final rendered /settings page), then swaps in only the refreshed
+   #tab-shifts content — so the page never navigates and the user stays
+   exactly where they were, on the Shifts & Rules tab. ─────────────────── */
+function showShiftsToast(message, kind) {
+  var existing = document.getElementById('shifts-toast');
+  if (existing) existing.remove();
+  var el = document.createElement('div');
+  el.id = 'shifts-toast';
+  el.textContent = message;
+  el.style.cssText =
+    'position:fixed;bottom:24px;right:24px;z-index:1000;padding:10px 18px;' +
+    'border-radius:var(--radius-md);font-size:var(--text-sm);font-weight:500;' +
+    'box-shadow:var(--shadow-lg);color:#fff;' +
+    'background:' + (kind === 'error' ? 'var(--color-danger)' : 'var(--color-success)') + ';';
+  document.body.appendChild(el);
+  setTimeout(function () { el.remove(); }, 3500);
+}
+
+function ajaxShiftsSubmit(form) {
+  var fd = new FormData(form);
+  fetch(form.action, { method: 'POST', body: fd })
+    .then(function (resp) { return resp.text(); })
+    .then(function (html) {
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var newPane = doc.getElementById('tab-shifts');
+      var curPane = document.getElementById('tab-shifts');
+      if (newPane && curPane) {
+        curPane.innerHTML = newPane.innerHTML;
+        if (window.reinitBsDatePicker) window.reinitBsDatePicker();
+        if (window.ruleEmpReset) window.ruleEmpReset();
+      }
+      showShiftsToast('Saved.', 'success');
+    })
+    .catch(function () {
+      showShiftsToast('Something went wrong — please try again.', 'error');
+    });
+  return false;
+}
 </script>
 
 {% endblock %}
