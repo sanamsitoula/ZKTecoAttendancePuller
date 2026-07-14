@@ -467,6 +467,186 @@
   cursor: not-allowed;
 }
 
+/* ── Pagination bar (used by the {% macro paginate %} in _macros.html) ── */
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.pg-info {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.pg-links {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.pg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.pg-btn:hover {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+  border-color: var(--color-primary);
+}
+
+.pg-btn.current {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+  cursor: default;
+}
+
+.pg-btn.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.pg-ellipsis {
+  padding: 0 var(--space-1);
+  color: var(--color-text-muted);
+}
+
+/* ── Panel (section wrapper used across many report/list pages) ───────── */
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+}
+
+.panel-title {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  margin: 0;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.panel-filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border-light);
+  background: var(--color-surface-2);
+}
+
+/* ── Search / filter controls ───────────────────────────────────────────  */
+.filter-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 180px;
+}
+
+.filter-search-wrapper svg {
+  position: absolute;
+  left: var(--space-3);
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.filter-search {
+  width: 100%;
+  height: var(--input-height);
+  padding: 0 var(--space-3) 0 var(--space-8);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.filter-search:focus, .filter-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.filter-select {
+  height: var(--input-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* ── Status pill / dot (device & pull-session status badges) ──────────── */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  background: var(--color-surface-3);
+  color: var(--color-text-secondary);
+}
+
+.status-pill svg { width: 10px; height: 10px; }
+
+.status-pill.success { background: var(--color-success-light); color: var(--color-success); }
+.status-pill.danger  { background: var(--color-danger-light);  color: var(--color-danger); }
+.status-pill.warning { background: var(--color-warning-light); color: var(--color-warning); }
+.status-pill.info    { background: var(--color-info-light);    color: var(--color-info); }
+.status-pill.muted   { background: var(--color-surface-3);     color: var(--color-text-muted); }
+
+.status-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.status-dot::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-dot.success { color: var(--color-success); }
+.status-dot.danger  { color: var(--color-danger); }
+
 /* ── Modal ────────────────────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed;

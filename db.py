@@ -703,6 +703,20 @@ CREATE INDEX IF NOT EXISTS idx_hot_rules_sec  ON payroll_holiday_ot_rules (secti
 """
 
 
+_PHASE15_PULL_SCHEDULE_SQL = """
+-- Phase 15: DB-backed pull schedule (replaces editing SCHEDULE_TIMES in config.py)
+CREATE TABLE IF NOT EXISTS pull_schedule (
+    id         SERIAL PRIMARY KEY,
+    hour       INTEGER NOT NULL CHECK (hour BETWEEN 0 AND 23),
+    minute     INTEGER NOT NULL CHECK (minute BETWEEN 0 AND 59),
+    label      VARCHAR(100),
+    is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (hour, minute)
+);
+"""
+
+
 def init_schema(conn) -> None:
     # Phase 1: core DDL
     with conn.cursor() as cur:
@@ -819,7 +833,79 @@ def init_schema(conn) -> None:
     except Exception as e:
         conn.rollback()
         logger.warning("Phase 14 (holiday OT) migration skipped: %s", e)
+    # Phase 15: DB-backed pull schedule
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE15_PULL_SCHEDULE_SQL)
+        conn.commit()
+        _seed_pull_schedule_from_config(conn)
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 15 (pull schedule) migration skipped: %s", e)
     logger.info("Database schema initialized.")
+
+
+def _seed_pull_schedule_from_config(conn) -> None:
+    """One-time seed: if pull_schedule is empty, copy the existing
+    SCHEDULE_TIMES from config.py so upgrading servers keep their current
+    pull times instead of losing them when the DB table is first created."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM pull_schedule")
+        if cur.fetchone()[0] > 0:
+            return
+    try:
+        from config import SCHEDULE_TIMES as _existing_times
+    except Exception:
+        _existing_times = []
+    if not _existing_times:
+        return
+    with conn.cursor() as cur:
+        for hour, minute in _existing_times:
+            cur.execute(
+                "INSERT INTO pull_schedule (hour, minute) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (hour, minute),
+            )
+    conn.commit()
+
+
+def get_pull_schedule(conn, active_only: bool = False) -> list:
+    where = "WHERE is_active" if active_only else ""
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(f"SELECT * FROM pull_schedule {where} ORDER BY hour, minute")
+        return [dict(row) for row in cur.fetchall()]
+
+
+def add_pull_schedule(conn, hour: int, minute: int, label: str | None = None) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO pull_schedule (hour, minute, label) VALUES (%s, %s, %s) RETURNING id",
+            (hour, minute, label or None),
+        )
+        new_id = cur.fetchone()[0]
+    conn.commit()
+    return new_id
+
+
+def update_pull_schedule(conn, sched_id: int, hour: int, minute: int,
+                          label: str | None = None, is_active: bool = True) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE pull_schedule SET hour=%s, minute=%s, label=%s, is_active=%s WHERE id=%s",
+            (hour, minute, label or None, is_active, sched_id),
+        )
+    conn.commit()
+
+
+def delete_pull_schedule(conn, sched_id: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM pull_schedule WHERE id=%s", (sched_id,))
+    conn.commit()
+
+
+def toggle_pull_schedule(conn, sched_id: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute("UPDATE pull_schedule SET is_active = NOT is_active WHERE id=%s", (sched_id,))
+    conn.commit()
 
 
 def upsert_device(conn, device: DeviceConfig) -> int:
@@ -1219,6 +1305,16 @@ def list_global_users(conn, search: str | None = None,
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(sql, params)
         return [dict(row) for row in cur.fetchall()]
+
+
+def get_global_user_count(conn, include_deleted: bool = False) -> int:
+    """Canonical total employee count — same population shown on the
+    Global Users page. Used by the dashboard and monthly report so all
+    three views agree on one number."""
+    where = "" if include_deleted else "WHERE emp_status IS DISTINCT FROM 'DELETED'"
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT COUNT(*) FROM global_users {where}")
+        return cur.fetchone()[0]
 
 
 def get_global_user(conn, db_id: int) -> dict | None:

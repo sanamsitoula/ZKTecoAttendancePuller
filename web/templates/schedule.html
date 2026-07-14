@@ -1,76 +1,114 @@
 {% extends 'base.html' %}
-{% from 'components/ui.html' import badge, btn %}
+{% from 'components/ui.html' import badge %}
 
-{% block title %}Schedule — ZKTeco Attendance{% endblock %}
+{% block pageTitle %}Schedule{% endblock %}
+{% block pageSubtitle %}Manage the automatic device pull times{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <div>
-    <h1>Schedule Settings</h1>
-    <p class="subtitle">Configure pull times and timezone</p>
-  </div>
-</div>
+<div style="max-width:760px">
 
-<div style="max-width:720px">
-  {# ── Pull Schedule ─────────────────────────────────────────────────── #}
-  <div class="card" style="margin-bottom:var(--space-6)">
+  {# ── Add a new pull time ────────────────────────────────────────────── #}
+  <div class="panel" style="margin-bottom:var(--space-6)">
     <div class="card-header">
-      <h2>Pull Schedule</h2>
-      <span class="subtitle">Nepal Time (Asia/Kathmandu)</span>
+      <h2 class="panel-title">Add Pull Time</h2>
+      <span class="text-sm text-muted">Nepal Time (Asia/Kathmandu)</span>
     </div>
-    <div class="card-body">
-      <form method="post" action="/schedule">
-        <div class="form-group" style="margin-bottom:var(--space-4)">
-          <label class="form-label" for="schedule_text">Schedule Times (Python tuple format)</label>
-          <textarea class="form-input" id="schedule_text" name="schedule_text" rows="6" aria-describedby="schedule-hint" style="font-family:var(--font-mono);font-size:var(--text-sm)">{{ schedule_text }}</textarea>
-          <span id="schedule-hint" class="text-sm text-muted">Format: [(hour, minute), ...] — Example: [(6, 20), (7, 20), (9, 20), (13, 20), (17, 10)]</span>
+    <div class="card-body" style="padding:var(--space-5)">
+      <form method="post" action="/schedule/add" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+        <div class="form-group" style="margin:0">
+          <label class="form-label" for="add-time">Time</label>
+          <input class="form-input" type="time" id="add-time" name="time_hhmm" required>
         </div>
-
-        <div style="display:flex;gap:var(--space-3)">
-          <button type="submit" class="btn btn-primary">Save Schedule</button>
+        <div class="form-group" style="margin:0;flex:1;min-width:180px">
+          <label class="form-label" for="add-label">Label <span class="text-muted">(optional)</span></label>
+          <input class="form-input" type="text" id="add-label" name="label" placeholder="e.g. Morning pull" maxlength="100">
         </div>
+        <button type="submit" class="btn btn-primary">Add</button>
       </form>
     </div>
   </div>
 
-  {# ── Current Schedule Display ───────────────────────────────────────── #}
-  <div class="card" style="margin-bottom:var(--space-6)">
-    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)">
-      <h2>Current Pull Times</h2>
+  {# ── Current schedule — CRUD list ───────────────────────────────────── #}
+  <div class="panel" style="margin-bottom:var(--space-6)">
+    <div class="card-header">
+      <h2 class="panel-title">Pull Schedule</h2>
       <form method="post" action="/schedule/pull-now" style="margin:0" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Pulling…'">
-        <button type="submit" class="btn btn-primary" title="Pull attendance from all devices now">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px">
+        <button type="submit" class="btn btn-primary btn-sm" title="Pull attendance from all devices now">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px">
             <path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/>
           </svg>
           Pull Now
         </button>
       </form>
     </div>
-    <div class="card-body">
-      <div style="display:flex;flex-wrap:wrap;gap:var(--space-3)">
-        {% for t in schedule_times %}
-        <div style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-3) var(--space-4);background:var(--color-surface-2);border-radius:var(--radius-lg);border:1px solid var(--color-border)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--color-primary)">
-            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-          </svg>
-          <strong style="font-size:var(--text-md)">{{ t }}</strong>
-          <span class="text-sm text-muted">NPT</span>
-        </div>
-        {% endfor %}
-      </div>
-      <p class="text-sm text-muted" style="margin-top:var(--space-4)">
-        Timezone: <strong>{{ scheduler_timezone }}</strong> — All times are in Nepal Standard Time (UTC+5:45)
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Time / Label</th>
+            <th scope="col">Status</th>
+            <th scope="col">Next Run</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>
+              <form method="post" action="/schedule/{{ r.id }}/edit" style="display:flex;gap:var(--space-2);align-items:center" onsubmit="return confirm('Save this change to the pull schedule?')">
+                <input type="time" name="time_hhmm" value="{{ '%02d:%02d' % (r.hour, r.minute) }}" class="form-input" style="width:120px" required>
+                <input type="text" name="label" value="{{ r.label or '' }}" placeholder="Label" class="form-input" style="width:140px" maxlength="100">
+                <input type="hidden" name="is_active" value="{{ 'on' if r.is_active else '' }}">
+                <button type="submit" class="btn btn-sm btn-secondary">Save</button>
+              </form>
+            </td>
+            <td>
+              {% if r.is_active %}
+                {{ badge('Active', 'success', dot=True) }}
+              {% else %}
+                {{ badge('Paused', 'neutral', dot=True) }}
+              {% endif %}
+            </td>
+            <td class="text-sm text-muted">
+              {{ next_run_by_time.get('%02d:%02d' % (r.hour, r.minute), '—') }}
+            </td>
+            <td style="white-space:nowrap">
+              <form method="post" action="/schedule/{{ r.id }}/toggle" style="display:inline">
+                <button type="submit" class="btn btn-sm btn-ghost">{{ 'Pause' if r.is_active else 'Resume' }}</button>
+              </form>
+              <form method="post" action="/schedule/{{ r.id }}/delete" style="display:inline" onsubmit="return confirm('Remove this pull time?')">
+                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="4">
+              <div class="empty-state">
+                <div class="empty-state-title">No Pull Times Configured</div>
+                <div class="empty-state-text">Add one above — the scheduler applies changes immediately, no restart needed.</div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-body" style="padding:var(--space-4) var(--space-5) var(--space-5)">
+      <p class="text-sm text-muted" style="margin:0">
+        Timezone: <strong>{{ scheduler_timezone }}</strong> — all times are Nepal Standard Time (UTC+5:45).
+        Changes here are saved to the database and take effect immediately — no restart required.
       </p>
     </div>
   </div>
 
   {# ── Auto-Attend Settings ──────────────────────────────────────────── #}
-  <div class="card">
+  <div class="panel">
     <div class="card-header">
-      <h2>Auto-Attend Service</h2>
+      <h2 class="panel-title">Auto-Attend Service</h2>
       {{ badge('Separate Service', 'info') }}
     </div>
-    <div class="card-body">
+    <div class="card-body" style="padding:var(--space-5)">
       <p class="text-sm" style="margin-bottom:var(--space-3)">
         The auto-attend service runs separately and punches check-in/check-out for configured employees.
       </p>

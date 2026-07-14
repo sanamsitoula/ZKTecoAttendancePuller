@@ -55,9 +55,17 @@ git pull origin master
 
 ## 5. Update Python dependencies
 
+Activate the venv first — installing into system Python on Debian/Ubuntu
+fails with `error: externally-managed-environment`:
+
 ```bash
+source .venv/bin/activate      # .venv\Scripts\activate on Windows
 pip install -r requirements.txt
 ```
+
+`pywin32` (Windows-only, used by the optional Windows Service wrapper) is
+marked `; sys_platform == 'win32'` in `requirements.txt`, so `pip` skips it
+automatically on Linux/Mac — no error expected there anymore.
 
 ## 6. Restart the app
 

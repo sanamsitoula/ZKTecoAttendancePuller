@@ -5,7 +5,7 @@ python-dotenv>=1.0.1
 matplotlib>=3.7.0
 pandas>=2.0.0
 Pillow>=10.0.0
-pywin32>=306
+pywin32>=306; sys_platform == 'win32'
 
 # Web UI dependencies (FastAPI + server-side templates)
 fastapi>=0.95.0

@@ -1075,6 +1075,8 @@ ZKTecePuller/
 | Python package install fails (Ubuntu) | Ensure `source .venv/bin/activate` was run before `pip install` |
 | `lsof` not found (Ubuntu) | `sudo apt install lsof` |
 | `pywin32` error (service only) | Run `python .venv\Scripts\pywin32_postinstall.py -install` as Administrator |
+| `ERROR: No matching distribution found for pywin32` (Ubuntu/Linux) | `pywin32` is Windows-only; `requirements.txt` marks it `; sys_platform == 'win32'` so `pip` skips it elsewhere — make sure you're on a version of `requirements.txt` that includes this marker (`git pull`), then re-run `pip install -r requirements.txt` |
+| `error: externally-managed-environment` on `pip install` (Ubuntu/Debian) | You're installing into system Python, not the venv — run `source .venv/bin/activate` first, then `pip install -r requirements.txt` |
 | New global_users columns missing | Restart the server — `init_schema` adds them automatically via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` |
 
 ---

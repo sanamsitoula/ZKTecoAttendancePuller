@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+
+{% block pageTitle %}Manual Pull{% endblock %}
+{% block pageSubtitle %}Pull attendance from a device for a specific date range{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Manual Pull</p>
+    <h1>{{ device.name }}</h1>
+    <p class="text-muted">{{ device.ip_address }}:{{ device.port }}</p>
+  </div>
+  <div class="action-group">
+    <a class="btn btn-ghost btn-sm" href="/devices">Back to Devices</a>
+  </div>
+</section>
+
+<div class="panel" style="max-width:520px;">
+  <div class="card-header">
+    <h2 class="panel-title">Choose a date range</h2>
+  </div>
+  <div class="card-body">
+    <p class="text-muted text-sm" style="margin-bottom:var(--space-4);">
+      Connects to this device, reads its full attendance memory, and inserts
+      only the punches whose date (Nepal time) falls within the range below.
+      Existing records are never duplicated.
+    </p>
+    <form method="post" action="/devices/{{ device.id }}/manual-pull">
+      <div style="display:flex;gap:var(--space-4);flex-wrap:wrap;margin-bottom:var(--space-4);">
+        <div class="form-group">
+          <label for="mp-from">From</label>
+          <input type="date" id="mp-from" name="from_ad" value="{{ sel_from }}" required>
+        </div>
+        <div class="form-group">
+          <label for="mp-to">To</label>
+          <input type="date" id="mp-to" name="to_ad" value="{{ sel_to }}" required>
+        </div>
+      </div>
+      <button class="btn btn-primary" type="submit">Pull Now</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

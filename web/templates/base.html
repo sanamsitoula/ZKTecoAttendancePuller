@@ -72,11 +72,16 @@
               </svg>
               Employees
             </a>
-            <a href="/users" class="sidebar-link {{ 'active' if request.url.path.startswith('/users') and '/users/add' not in request.url.path }}">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-              </svg>
-              Global Users
+            <a href="/users" class="sidebar-link {{ 'active' if request.url.path.startswith('/users') and '/users/add' not in request.url.path }}" style="display:flex;align-items:center;justify-content:space-between;">
+              <span style="display:flex;align-items:center;gap:var(--space-2);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                </svg>
+                Global Users
+              </span>
+              {% if nav_global_user_count is not none %}
+              <span style="background:var(--bg-muted);color:var(--text-muted);font-size:var(--text-xs);font-weight:600;padding:1px 8px;border-radius:var(--radius-full);">{{ nav_global_user_count }}</span>
+              {% endif %}
             </a>
             <a href="/web-users" class="sidebar-link {{ 'active' if request.url.path.startswith('/web-users') }}">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon">

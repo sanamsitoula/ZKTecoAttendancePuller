@@ -40,6 +40,20 @@ def _get_company_settings():
         return defaults
 
 
+def _get_global_user_count():
+    """Total employee count shown in the sidebar badge — same figure used
+    on the dashboard and /reports/monthly, so the number matches everywhere."""
+    try:
+        from db import get_connection, get_global_user_count
+        conn = get_connection()
+        try:
+            return get_global_user_count(conn)
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
 def render(templates: Jinja2Templates, request: Request, name: str, context: dict | None = None):
     flashes = read_flashes(request)
     session_data = {
@@ -49,7 +63,9 @@ def render(templates: Jinja2Templates, request: Request, name: str, context: dic
         "user_id": request.session.get("user_id"),
     }
     company = _get_company_settings()
-    ctx = {"request": request, "flashes": flashes, "session": session_data, "company": company, **(context or {})}
+    nav_global_user_count = _get_global_user_count()
+    ctx = {"request": request, "flashes": flashes, "session": session_data, "company": company,
+           "nav_global_user_count": nav_global_user_count, **(context or {})}
     response = templates.TemplateResponse(request, name, ctx)
     attach_flash_clear(response, bool(flashes))
     return response

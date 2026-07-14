@@ -6,6 +6,9 @@
       <p class="eyebrow">Pull result</p>
       <h1>{{ device.name }}</h1>
       <p class="muted">{{ device.ip_address }}:{{ device.port }}</p>
+      {% if manual_range %}
+      <p class="muted">Manual pull — {{ manual_range.from_ad }} to {{ manual_range.to_ad }}</p>
+      {% endif %}
     </div>
     <div class="head-actions">
       <a class="btn btn-primary" href="/" aria-label="Go to dashboard">Dashboard</a>

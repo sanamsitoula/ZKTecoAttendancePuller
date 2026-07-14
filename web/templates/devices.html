@@ -160,6 +160,7 @@
               <form method="post" action="/devices/{{ d.id }}/pull" style="display:inline">
                 <button class="btn btn-sm btn-ghost" type="submit">Pull</button>
               </form>
+              <a class="btn btn-sm btn-ghost" href="/devices/{{ d.id }}/manual-pull" title="Pull attendance for a specific date range">Manual Pull</a>
               <form method="post" action="/devices/{{ d.id }}/delete" style="display:inline">
                 <button class="btn btn-sm btn-danger" type="submit" aria-label="Delete device {{ d.name }}" onclick="return confirm('Delete device?')">Delete</button>
               </form>

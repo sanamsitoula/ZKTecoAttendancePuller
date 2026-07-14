@@ -79,9 +79,14 @@ def _restart_web_scheduler():
     global _web_scheduler
     if _web_scheduler and _web_scheduler.running:
         _web_scheduler.shutdown(wait=False)
-    importlib.reload(_cfg_mod)
-    times = _cfg_mod.SCHEDULE_TIMES
-    tz    = _cfg_mod.SCHEDULER_TIMEZONE
+    tz = _cfg_mod.SCHEDULER_TIMEZONE
+
+    conn = get_connection()
+    try:
+        active_times = db_mod.get_pull_schedule(conn, active_only=True)
+    finally:
+        conn.close()
+    times = [(row['hour'], row['minute']) for row in active_times]
 
     sched = BackgroundScheduler(timezone=tz)
     for hour, minute in times:
@@ -575,9 +580,15 @@ def web_users_audit_log(request: Request, uid: int | None = None):
 
 
 def _fmt_schedule() -> list[str]:
+    """Active pull times, DB-backed (see pull_schedule table) — the single
+    source of truth used everywhere a schedule summary is shown."""
     try:
-        importlib.reload(_cfg_mod)
-        return [f"{hour:02d}:{minute:02d}" for hour, minute in _cfg_mod.SCHEDULE_TIMES]
+        conn = get_connection()
+        try:
+            rows = db_mod.get_pull_schedule(conn, active_only=True)
+        finally:
+            conn.close()
+        return [f"{row['hour']:02d}:{row['minute']:02d}" for row in rows]
     except Exception:
         return [f"{hour:02d}:{minute:02d}" for hour, minute in SCHEDULE_TIMES]
 
@@ -622,13 +633,29 @@ def _ping_devices_parallel(devices: list) -> None:
 
 
 def _dashboard_data(conn) -> dict:
+    from db import get_global_user_count
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute("SELECT COUNT(*) FROM devices")
         device_count = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM devices WHERE is_active")
         active_device_count = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM employees")
-        employee_count = cur.fetchone()[0]
+        # Same population as /users (Global Users) and /reports/monthly —
+        # keeps the "employee count" consistent across the whole app.
+        employee_count = get_global_user_count(conn)
+        cur.execute("""
+            SELECT COALESCE(d.name, 'Unassigned') AS department_name, COUNT(*) AS cnt
+            FROM global_users gu
+            LEFT JOIN departments d ON d.id = gu.department_id
+            WHERE gu.emp_status IS DISTINCT FROM 'DELETED'
+            GROUP BY d.name
+            ORDER BY cnt DESC
+            LIMIT 6
+        """)
+        dept_rows = [dict(row) for row in cur.fetchall()]
+        dept_total = sum(r['cnt'] for r in dept_rows) or 1
+        department_distribution = [
+            {**r, 'pct': round(r['cnt'] * 100 / dept_total)} for r in dept_rows
+        ]
         cur.execute("""
             SELECT COUNT(DISTINCT user_id)
             FROM attendance_logs
@@ -684,6 +711,7 @@ def _dashboard_data(conn) -> dict:
         "latest_session": dict(latest) if latest else None,
         "devices": devices,
         "recent_punches": recent_punches,
+        "department_distribution": department_distribution,
     }
 
 
@@ -1874,6 +1902,136 @@ def device_pull(request: Request, device_id: int):
         conn.close()
 
 
+@app.get("/devices/{device_id}/manual-pull")
+def device_manual_pull_form(request: Request, device_id: int):
+    conn = get_connection()
+    try:
+        d = get_device(conn, device_id)
+        if not d:
+            raise HTTPException(status_code=404, detail="Device not found")
+    finally:
+        conn.close()
+    from datetime import date as _sd, timedelta as _std
+    return render(templates, request, "device_manual_pull.html", {
+        "device":   d,
+        "sel_from": (_sd.today() - _std(days=7)).isoformat(),
+        "sel_to":   _sd.today().isoformat(),
+    })
+
+
+@app.post("/devices/{device_id}/manual-pull")
+def device_manual_pull(request: Request, device_id: int,
+                        from_ad: str = Form(...), to_ad: str = Form(...)):
+    conn = get_connection()
+    try:
+        d = get_device(conn, device_id)
+        if not d:
+            raise HTTPException(status_code=404, detail="Device not found")
+        device_cfg = device_config_from_row(d)
+        started_at = datetime.now(timezone.utc)
+        session_id = None
+        error_message = None
+        success = False
+        user_count = 0
+        records_pulled = 0
+        new_inserts = 0
+        completed_at = None
+
+        try:
+            import zoneinfo
+            npt_tz = zoneinfo.ZoneInfo('Asia/Kathmandu')
+        except Exception:
+            npt_tz = timezone.utc
+
+        try:
+            device_db_id = db_mod.upsert_device(conn, device_cfg)
+            conn.commit()
+            session_id = db_mod.start_pull_session(conn, device_db_id, started_at)
+            conn.commit()
+            result = puller_mod.pull_device(device_cfg)
+
+            if not result.success:
+                error_message = result.error
+                db_mod.complete_pull_session(conn, session_id, 0, 0, 'failed',
+                                             result.error, result.error_traceback)
+                conn.commit()
+            else:
+                for user in result.users:
+                    gu = db_mod.find_global_user_by_global_id(conn, str(user.user_id))
+                    if gu:
+                        try:
+                            setattr(user, 'global_user_id', gu['id'])
+                        except Exception:
+                            pass
+                    try:
+                        db_mod.upsert_employee(conn, device_db_id, user)
+                    except Exception:
+                        conn.rollback()
+
+                user_count = len(result.users)
+                employee_map = db_mod.build_employee_map(conn, device_db_id)
+
+                # Only keep records whose Nepal-time calendar date falls in the
+                # requested range — same filtering approach as pull_month.py.
+                all_records = [attendance_to_dict(a) for a in result.attendance]
+                records = []
+                for r in all_records:
+                    ts = r.get('timestamp')
+                    if ts is None:
+                        continue
+                    npt_date = ts.astimezone(npt_tz).date().isoformat()
+                    if from_ad <= npt_date <= to_ad:
+                        records.append(r)
+
+                records_pulled = len(records)
+                new_inserts = db_mod.insert_attendance_batch(conn, device_db_id, records, employee_map) if records else 0
+                db_mod.complete_pull_session(conn, session_id, records_pulled, new_inserts, 'success')
+                conn.commit()
+                success = True
+
+                try:
+                    _sr = db_mod.settle_all_attendance_daily(conn, from_ad, to_ad)
+                    conn.commit()
+                except Exception as _se:
+                    conn.rollback()
+                    import logging as _lg
+                    _lg.getLogger(__name__).warning("attendance_daily settlement failed: %s", _se)
+
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute(
+                    "SELECT completed_at FROM pull_sessions WHERE id = %s",
+                    (session_id,),
+                )
+                row = cur.fetchone()
+                completed_at = row["completed_at"] if row else None
+
+        except Exception as exc:
+            conn.rollback()
+            error_message = str(exc)
+            if session_id:
+                try:
+                    db_mod.complete_pull_session(conn, session_id, 0, 0, 'failed',
+                                                 str(exc), _traceback.format_exc())
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+
+        return render(templates, request, "pull_result.html", {
+            "device": d,
+            "success": success,
+            "session_id": session_id,
+            "user_count": user_count,
+            "records_pulled": records_pulled,
+            "new_inserts": new_inserts,
+            "error_message": error_message,
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "manual_range": {"from_ad": from_ad, "to_ad": to_ad},
+        })
+    finally:
+        conn.close()
+
+
 @app.get("/devices/{device_id}/users")
 def device_users_view(request: Request, device_id: int):
     conn = get_connection()
@@ -2824,12 +2982,15 @@ def reports_monthly_list(
     try:
         from db import (get_employees_for_report as _gef,
                         get_all_departments, get_all_directorates,
-                        get_all_sections, get_all_units)
-        all_emps     = _gef(conn)
-        all_depts    = get_all_departments(conn)
-        all_dirs     = get_all_directorates(conn)
-        all_sections = get_all_sections(conn)
-        all_units_l  = get_all_units(conn)
+                        get_all_sections, get_all_units, get_global_user_count)
+        all_emps        = _gef(conn)
+        all_depts       = get_all_departments(conn)
+        all_dirs        = get_all_directorates(conn)
+        all_sections    = get_all_sections(conn)
+        all_units_l     = get_all_units(conn)
+        # Same canonical total as the dashboard and /users (Global Users) —
+        # keeps "total employees" consistent everywhere it's shown.
+        global_user_total = get_global_user_count(conn)
     finally:
         conn.close()
 
@@ -2868,7 +3029,7 @@ def reports_monthly_list(
         'view':            'list',
         'page_emps':       page_emps,
         'total_employees': total,
-        'total_unfiltered': len(all_emps),
+        'total_unfiltered': global_user_total,
         'page':            page_num,
         'total_pages':     total_pages,
         'sel_bs_year':     sel_year,
@@ -4634,36 +4795,90 @@ def monthly_summary_report(request: Request,
 # ---- Schedule editor ----------------------------------------------------
 
 
+def _parse_hhmm(value: str) -> tuple[int, int]:
+    hh, mm = value.strip().split(':')
+    hour, minute = int(hh), int(mm)
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise ValueError("Time out of range")
+    return hour, minute
+
+
 @app.get("/schedule")
 def schedule_view(request: Request):
-    cfg_path = os.path.join(BASE_DIR, 'config.py')
-    with open(cfg_path, 'r', encoding='utf-8') as f:
-        txt = f.read()
-    m = re.search(r'SCHEDULE_TIMES\s*=\s*(\[[\s\S]*?\])', txt)
-    schedule_text = m.group(1) if m else '[]'
+    conn = get_connection()
+    try:
+        rows = db_mod.get_pull_schedule(conn)
+    finally:
+        conn.close()
+    # Map "HH:MM" -> next_run string so the template can look it up directly
+    next_run_by_time = {}
+    for job in _scheduler_jobs_info():
+        m = re.search(r'(\d{2}:\d{2})$', job['name'])
+        if m:
+            next_run_by_time[m.group(1)] = job['next_run']
     return render(templates, request, 'schedule.html', {
-        'schedule_text': schedule_text,
-        'jobs': _scheduler_jobs_info(),
+        'rows': rows,
+        'next_run_by_time': next_run_by_time,
+        'scheduler_timezone': SCHEDULER_TIMEZONE,
     })
 
 
-@app.post("/schedule")
-def schedule_update(request: Request, schedule_text: str = Form(...)):
-    cfg_path = os.path.join(BASE_DIR, 'config.py')
-    with open(cfg_path, 'r', encoding='utf-8') as f:
-        txt = f.read()
-    new_txt = re.sub(r"SCHEDULE_TIMES\s*=\s*\[[\s\S]*?\]",
-                     f"SCHEDULE_TIMES = {schedule_text}", txt)
-    with open(cfg_path, 'w', encoding='utf-8') as f:
-        f.write(new_txt)
+@app.post("/schedule/add")
+def schedule_add(request: Request, time_hhmm: str = Form(...), label: str = Form('')):
     try:
+        hour, minute = _parse_hhmm(time_hhmm)
+        conn = get_connection()
+        try:
+            db_mod.add_pull_schedule(conn, hour, minute, label.strip() or None)
+        finally:
+            conn.close()
         _restart_web_scheduler()
-        jobs = _scheduler_jobs_info()
-        msg = 'Schedule saved and applied immediately.'
+        return redirect_with_flash("/schedule", "success", f"Added pull time {hour:02d}:{minute:02d}.")
+    except psycopg2.IntegrityError:
+        return redirect_with_flash("/schedule", "error", "That time is already in the schedule.")
     except Exception as exc:
-        jobs = []
-        msg = f'Schedule saved to config.py but scheduler reload failed: {exc}'
-    return render(templates, request, 'schedule_result.html', {'message': msg, 'jobs': jobs})
+        return redirect_with_flash("/schedule", "error", f"Could not add time: {exc}")
+
+
+@app.post("/schedule/{sched_id}/edit")
+def schedule_edit(request: Request, sched_id: int, time_hhmm: str = Form(...),
+                   label: str = Form(''), is_active: str = Form(None)):
+    try:
+        hour, minute = _parse_hhmm(time_hhmm)
+        conn = get_connection()
+        try:
+            db_mod.update_pull_schedule(conn, sched_id, hour, minute,
+                                        label.strip() or None, bool(is_active))
+        finally:
+            conn.close()
+        _restart_web_scheduler()
+        return redirect_with_flash("/schedule", "success", "Pull time updated.")
+    except psycopg2.IntegrityError:
+        return redirect_with_flash("/schedule", "error", "That time is already in the schedule.")
+    except Exception as exc:
+        return redirect_with_flash("/schedule", "error", f"Could not update time: {exc}")
+
+
+@app.post("/schedule/{sched_id}/toggle")
+def schedule_toggle(request: Request, sched_id: int):
+    conn = get_connection()
+    try:
+        db_mod.toggle_pull_schedule(conn, sched_id)
+    finally:
+        conn.close()
+    _restart_web_scheduler()
+    return redirect_with_flash("/schedule", "success", "Pull time updated.")
+
+
+@app.post("/schedule/{sched_id}/delete")
+def schedule_delete(request: Request, sched_id: int):
+    conn = get_connection()
+    try:
+        db_mod.delete_pull_schedule(conn, sched_id)
+    finally:
+        conn.close()
+    _restart_web_scheduler()
+    return redirect_with_flash("/schedule", "success", "Pull time removed.")
 
 
 @app.post("/schedule/pull-now")

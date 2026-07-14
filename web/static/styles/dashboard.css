@@ -2,6 +2,145 @@
    DASHBOARD SPECIFIC STYLES
    ============================================ */
 
+/* ── Hover lift (shared utility used on dashboard cards) ──── */
+.hover-lift {
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+/* ── Quick Stats strip ─────────────────────────────────────── */
+.quick-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.quick-stat {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-4) var(--space-5);
+  box-shadow: var(--shadow-xs);
+}
+
+.quick-stat-icon {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-lg);
+  background: var(--primary-lighter);
+  color: var(--primary);
+}
+
+.quick-stat-icon svg { width: 20px; height: 20px; }
+
+.quick-stat-content { min-width: 0; }
+
+.quick-stat-label {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  font-weight: var(--font-medium);
+  margin-bottom: 2px;
+}
+
+.quick-stat-value {
+  font-size: var(--font-2xl);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+/* ── Dashboard stat-card grid + color variants ────────────── */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.dashboard-grid .stat-card {
+  display: flex;
+  flex-direction: column;
+  border-top: 3px solid var(--border);
+}
+
+.dashboard-grid .stat-card .stat-card-icon {
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+}
+
+.dashboard-grid .stat-card.primary { border-top-color: var(--primary); }
+.dashboard-grid .stat-card.primary .stat-card-icon { background: var(--primary-lighter); color: var(--primary); }
+.dashboard-grid .stat-card.success { border-top-color: var(--success); }
+.dashboard-grid .stat-card.success .stat-card-icon { background: var(--success-light); color: var(--success); }
+.dashboard-grid .stat-card.warning { border-top-color: var(--warning); }
+.dashboard-grid .stat-card.warning .stat-card-icon { background: var(--warning-light); color: var(--warning); }
+.dashboard-grid .stat-card.info { border-top-color: var(--info); }
+.dashboard-grid .stat-card.info .stat-card-icon { background: var(--info-bg); color: var(--info); }
+
+.stat-card-change {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  margin-top: var(--space-2);
+}
+
+/* ── Chart cards (class names as used by dashboard.html) ──── */
+.chart-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+  gap: var(--space-4);
+}
+
+.chart-card-title {
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.chart-card-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.chart-period-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.chart-period-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+.chart-period-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.chart-placeholder {
+  background: var(--bg-muted);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
 /* ── KPI Grid ────────────────────────────────────────────── */
 .kpi-grid {
   display: grid;

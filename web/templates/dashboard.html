@@ -44,17 +44,17 @@
       <div class="quick-stat-value">{{ stats.active_device_count if stats else 0 }}</div>
     </div>
   </div>
-  <div class="quick-stat hover-lift">
+  <a href="/users" class="quick-stat hover-lift" style="text-decoration:none;">
     <div class="quick-stat-icon" style="background: var(--warning-bg); color: var(--warning);">
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
     </div>
     <div class="quick-stat-content">
-      <div class="quick-stat-label">Employees</div>
+      <div class="quick-stat-label">Global Users</div>
       <div class="quick-stat-value">{{ stats.employee_count if stats else 0 }}</div>
     </div>
-  </div>
+  </a>
   <div class="quick-stat hover-lift">
     <div class="quick-stat-icon" style="background: var(--info-bg); color: var(--info);">
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -105,18 +105,18 @@
   </div>
 
   <!-- Total Employees -->
-  <div class="stat-card warning">
+  <a href="/users" class="stat-card warning" style="text-decoration:none;color:inherit;">
     <div class="stat-card-icon">
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" width="24" height="24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
     </div>
-    <div class="stat-card-label">Total Employees</div>
+    <div class="stat-card-label">Global Users</div>
     <div class="stat-card-value">{{ stats.employee_count if stats else 0 }}</div>
     <div class="stat-card-change neutral">
-      Imported from devices
+      Same count as the Global Users page
     </div>
-  </div>
+  </a>
 
   <!-- Today's Punches -->
   <div class="stat-card info">
@@ -168,38 +168,26 @@
       </div>
     </div>
     <div class="chart-placeholder">
-      <!-- Simple visual representation -->
       <div style="padding: var(--space-5);">
+        {% set dept_colors = ['var(--primary)', 'var(--success)', 'var(--warning)', 'var(--info)', 'var(--danger)', 'var(--gray-500)'] %}
+        {% if stats and stats.department_distribution %}
         <div style="display: flex; flex-direction: column; gap: var(--space-3);">
+          {% for d in stats.department_distribution %}
           <div style="display: flex; align-items: center; gap: var(--space-3);">
-            <div style="width: 120px; font-size: var(--text-sm); color: var(--text-secondary);">IT Department</div>
+            <div style="width: 120px; font-size: var(--text-sm); color: var(--text-secondary); overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ d.department_name }}">{{ d.department_name }}</div>
             <div style="flex: 1; height: 8px; background: var(--bg-muted); border-radius: var(--radius-full); overflow: hidden;">
-              <div style="width: 35%; height: 100%; background: var(--primary); border-radius: var(--radius-full);"></div>
+              <div style="width: {{ d.pct }}%; height: 100%; background: {{ dept_colors[loop.index0 % dept_colors|length] }}; border-radius: var(--radius-full);"></div>
             </div>
-            <div style="font-size: var(--text-xs); font-weight: 600; width: 40px; text-align: right;">35%</div>
+            <div style="font-size: var(--text-xs); font-weight: 600; width: 40px; text-align: right;">{{ d.pct }}%</div>
           </div>
-          <div style="display: flex; align-items: center; gap: var(--space-3);">
-            <div style="width: 120px; font-size: var(--text-sm); color: var(--text-secondary);">Administration</div>
-            <div style="flex: 1; height: 8px; background: var(--bg-muted); border-radius: var(--radius-full); overflow: hidden;">
-              <div style="width: 25%; height: 100%; background: var(--success); border-radius: var(--radius-full);"></div>
-            </div>
-            <div style="font-size: var(--text-xs); font-weight: 600; width: 40px; text-align: right;">25%</div>
-          </div>
-          <div style="display: flex; align-items: center; gap: var(--space-3);">
-            <div style="width: 120px; font-size: var(--text-sm); color: var(--text-secondary);">Operations</div>
-            <div style="flex: 1; height: 8px; background: var(--bg-muted); border-radius: var(--radius-full); overflow: hidden;">
-              <div style="width: 20%; height: 100%; background: var(--warning); border-radius: var(--radius-full);"></div>
-            </div>
-            <div style="font-size: var(--text-xs); font-weight: 600; width: 40px; text-align: right;">20%</div>
-          </div>
-          <div style="display: flex; align-items: center; gap: var(--space-3);">
-            <div style="width: 120px; font-size: var(--text-sm); color: var(--text-secondary);">Sales</div>
-            <div style="flex: 1; height: 8px; background: var(--bg-muted); border-radius: var(--radius-full); overflow: hidden;">
-              <div style="width: 20%; height: 100%; background: var(--info); border-radius: var(--radius-full);"></div>
-            </div>
-            <div style="font-size: var(--text-xs); font-weight: 600; width: 40px; text-align: right;">20%</div>
-          </div>
+          {% endfor %}
         </div>
+        {% else %}
+        <div class="empty-state" style="padding: var(--space-6) 0;">
+          <div class="empty-state-title">No Departments Yet</div>
+          <div class="empty-state-text">Add employees to Global Users with a department to see the breakdown here</div>
+        </div>
+        {% endif %}
       </div>
     </div>
   </div>

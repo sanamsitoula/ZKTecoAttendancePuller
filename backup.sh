@@ -33,10 +33,15 @@ print('DBNAME=' + str(c.get('dbname', 'zkteco')))
 
 TODAY="$(date +%Y%m%d)"
 BACKUP_FILE="db_backup/${DBNAME}_${TODAY}.sql"
+TMP_FILE="/tmp/${DBNAME}_${TODAY}_$$.sql"
 
 echo "Backing up database \"$DBNAME\" to $BACKUP_FILE ..."
 
-sudo -u postgres pg_dump -d "$DBNAME" -f "$BACKUP_FILE"
+# dump to /tmp first — the postgres user can always write there, regardless
+# of who owns db_backup/ — then move it back and hand ownership to us
+sudo -u postgres pg_dump -d "$DBNAME" -f "$TMP_FILE"
+sudo mv "$TMP_FILE" "$BACKUP_FILE"
+sudo chown "$(id -un)":"$(id -gn)" "$BACKUP_FILE"
 
 echo ""
 echo "Backup complete: $BACKUP_FILE"
