@@ -151,7 +151,7 @@ def _current_user_id(request: Request) -> int:
 
 _ADMIN_ONLY_PREFIXES = (
     '/devices', '/sync', '/migrate', '/schedule',
-    '/pull-sessions', '/settings', '/web-users', '/payroll',
+    '/pull-sessions', '/settings', '/web-users', '/payroll', '/audit-log',
 )
 _VIEWER_ALLOWED_PREFIXES = (
     '/', '/attendance', '/reports/daily', '/reports/absent',
@@ -385,6 +385,47 @@ def profile_change_password(request: Request,
 
 
 # ─── Web User Management (admin only) ─────────────────────────────────────────
+
+
+@app.get("/audit-log")
+def audit_log_view(
+    request: Request,
+    table_name: str | None = None,
+    action: str | None = None,
+    changed_by: str | None = None,
+    record_id: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+):
+    from db import get_audit_log, get_audited_tables, get_audit_log_count
+    conn = get_connection()
+    try:
+        rows = get_audit_log(
+            conn,
+            table_name=table_name or None,
+            action=action or None,
+            changed_by=_int_param(changed_by),
+            record_id=_int_param(record_id),
+            from_date=from_date or None,
+            to_date=to_date or None,
+            limit=300,
+        )
+        total = get_audit_log_count(conn)
+        tables = get_audited_tables()
+    finally:
+        conn.close()
+    return render(templates, request, "audit_log.html", {
+        "rows":        rows,
+        "total":       total,
+        "tables":      tables,
+        "f_table":     table_name or '',
+        "f_action":    action or '',
+        "f_changed_by": changed_by or '',
+        "f_record_id": record_id or '',
+        "f_from":      from_date or '',
+        "f_to":        to_date or '',
+        "COMPANY_NAME": COMPANY_NAME,
+    })
 
 
 @app.get("/web-users")

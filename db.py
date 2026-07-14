@@ -717,6 +717,81 @@ CREATE TABLE IF NOT EXISTS pull_schedule (
 """
 
 
+_PHASE17_AUDIT_LOG_SQL = """
+-- Phase 17: generic audit log — one table + one trigger function, attached
+-- to every administrative/HR/config table so every insert/update/delete is
+-- traceable to a user, with before/after values.
+--
+-- Deliberately NOT attached to attendance_logs, attendance_daily, employees,
+-- or pull_sessions: these are bulk-written by every device pull (thousands
+-- of rows, several times a day) and already have their own tracking
+-- (pull_sessions IS the audit trail for pulls; attendance rows carry their
+-- own created_at/source). Row-level auditing there would balloon storage
+-- and slow down the pull hot path for little practical benefit.
+CREATE TABLE IF NOT EXISTS audit_log (
+    id          SERIAL PRIMARY KEY,
+    table_name  VARCHAR(100) NOT NULL,
+    record_id   INTEGER,
+    action      VARCHAR(10)  NOT NULL,
+    changed_by  INTEGER,
+    old_data    JSONB,
+    new_data    JSONB,
+    changed_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_log_table_record ON audit_log (table_name, record_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_changed_at    ON audit_log (changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_changed_by    ON audit_log (changed_by);
+
+CREATE OR REPLACE FUNCTION fn_audit_log() RETURNS TRIGGER AS $body$
+DECLARE
+    v_old JSONB;
+    v_new JSONB;
+    v_record_id INTEGER;
+    v_changed_by INTEGER;
+BEGIN
+    BEGIN
+        IF TG_OP = 'DELETE' THEN
+            v_old := to_jsonb(OLD);
+            v_record_id  := NULLIF(v_old->>'id', '')::INTEGER;
+            v_changed_by := COALESCE(NULLIF(v_old->>'deleted_by', '')::INTEGER,
+                                      NULLIF(v_old->>'updated_by', '')::INTEGER,
+                                      NULLIF(v_old->>'created_by', '')::INTEGER);
+            INSERT INTO audit_log (table_name, record_id, action, changed_by, old_data, new_data)
+            VALUES (TG_TABLE_NAME, v_record_id, TG_OP, v_changed_by, v_old, NULL);
+        ELSIF TG_OP = 'UPDATE' THEN
+            v_old := to_jsonb(OLD);
+            v_new := to_jsonb(NEW);
+            v_record_id  := NULLIF(v_new->>'id', '')::INTEGER;
+            v_changed_by := COALESCE(NULLIF(v_new->>'updated_by', '')::INTEGER,
+                                      NULLIF(v_new->>'created_by', '')::INTEGER);
+            INSERT INTO audit_log (table_name, record_id, action, changed_by, old_data, new_data)
+            VALUES (TG_TABLE_NAME, v_record_id, TG_OP, v_changed_by, v_old, v_new);
+        ELSE
+            v_new := to_jsonb(NEW);
+            v_record_id  := NULLIF(v_new->>'id', '')::INTEGER;
+            v_changed_by := COALESCE(NULLIF(v_new->>'created_by', '')::INTEGER,
+                                      NULLIF(v_new->>'updated_by', '')::INTEGER);
+            INSERT INTO audit_log (table_name, record_id, action, changed_by, old_data, new_data)
+            VALUES (TG_TABLE_NAME, v_record_id, TG_OP, v_changed_by, NULL, v_new);
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        -- Audit logging must never break the actual write.
+        NULL;
+    END;
+    RETURN COALESCE(NEW, OLD);
+END;
+$body$ LANGUAGE plpgsql;
+"""
+
+_AUDITED_TABLES = [
+    'devices', 'global_users', 'departments', 'sections', 'units', 'directorates',
+    'shifts', 'shift_rules', 'leave_types', 'leave_balances', 'leave_applications',
+    'holidays', 'holiday_types', 'kaaj_records', 'attendance_day_remarks',
+    'company_settings', 'web_users', 'pull_schedule', 'auto_attend_rules',
+    'payroll_salary_structures', 'payroll_runs', 'payroll_items', 'payroll_holiday_ot_rules',
+]
+
+
 _PHASE16_EMPLOYEE_PROFILE_SQL = """
 -- Phase 16: extended identity / profile fields on global_users, matched
 -- against the external HR "employee" table schema (adds the fields that
@@ -870,6 +945,22 @@ def init_schema(conn) -> None:
     except Exception as e:
         conn.rollback()
         logger.warning("Phase 16 (employee profile fields) migration skipped: %s", e)
+    # Phase 17: generic audit log — table + trigger function + attach to
+    # every administrative/HR/config table (see _AUDITED_TABLES).
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE17_AUDIT_LOG_SQL)
+            for tbl in _AUDITED_TABLES:
+                cur.execute(f"DROP TRIGGER IF EXISTS trg_audit_log ON {tbl}")
+                cur.execute(f"""
+                    CREATE TRIGGER trg_audit_log
+                    AFTER INSERT OR UPDATE OR DELETE ON {tbl}
+                    FOR EACH ROW EXECUTE FUNCTION fn_audit_log()
+                """)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 17 (audit log) migration skipped: %s", e)
     logger.info("Database schema initialized.")
 
 
@@ -3391,6 +3482,57 @@ def create_employee_login(conn, gu_id: int, created_by: int = 0) -> dict:
         'employee', gu_id, created_by, must_change_pwd=True,
     )
     return {'created': True, 'id': new_id, 'username': username}
+
+
+def get_audited_tables() -> list:
+    """Table names covered by the generic audit trigger (see init_schema
+    Phase 17) — used to populate the audit log viewer's table filter."""
+    return list(_AUDITED_TABLES)
+
+
+def get_audit_log(conn, table_name: str | None = None, action: str | None = None,
+                   changed_by: int | None = None, record_id: int | None = None,
+                   from_date: str | None = None, to_date: str | None = None,
+                   limit: int = 200) -> list:
+    where = []
+    params = []
+    if table_name:
+        where.append("al.table_name = %s")
+        params.append(table_name)
+    if action:
+        where.append("al.action = %s")
+        params.append(action.upper())
+    if changed_by:
+        where.append("al.changed_by = %s")
+        params.append(changed_by)
+    if record_id:
+        where.append("al.record_id = %s")
+        params.append(record_id)
+    if from_date:
+        where.append("al.changed_at >= %s")
+        params.append(from_date)
+    if to_date:
+        where.append("al.changed_at < (%s::date + INTERVAL '1 day')")
+        params.append(to_date)
+    w = f"WHERE {' AND '.join(where)}" if where else ""
+    sql = f"""
+        SELECT al.*, wu.username AS changed_by_username, wu.display_name AS changed_by_name
+        FROM audit_log al
+        LEFT JOIN web_users wu ON wu.id = al.changed_by
+        {w}
+        ORDER BY al.changed_at DESC
+        LIMIT %s
+    """
+    params.append(limit)
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(sql, params)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_audit_log_count(conn) -> int:
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM audit_log")
+        return cur.fetchone()[0]
 
 
 def update_web_user(conn, user_id: int, updated_by: int, **fields) -> None:

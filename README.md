@@ -42,6 +42,7 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 | **Pull Sessions** | History of every pull run (start, end, rows, status, full error traceback); diagnostic table explaining common timeout causes |
 | **Schedule** | View and edit the pull schedule — applies immediately, no restart |
 | **Settings** | Three tabs: Org Hierarchy (Directorates → Departments → Sections → Units), Shifts & Shift Rules, Employee Org Assignment |
+| **Audit Log** | Who changed what and when, across every administrative table (devices, Global Users, org hierarchy, shifts/shift rules, leave types/balances/applications, holidays, kaaj, company settings, web users, payroll, pull schedule, auto-attend rules) — filter by table, action, user, record ID, or date range; expand any row to see before/after values |
 
 ### Bikram Sambat (BS) Calendar
 
@@ -951,6 +952,7 @@ pg_dump -U postgres -d zkteco -f ~/backups/zkteco_$(date +%F).sql
 | `attendance_daily` | id, global_user_id, work_date, status_code, display_code, first_in, last_out, work_minutes, ot_minutes, late_in_minutes, early_out_min, source ('device'/'manual'), note, computed_at |
 | `kaaj_records` | id, global_user_id, ad_date, bs_date, is_paid, reason, approved_by, created_by, created_at, updated_at — UNIQUE (global_user_id, ad_date) |
 | `attendance_day_remarks` | id, global_user_id, ad_date, bs_date, remark_text, created_by, created_at — UNIQUE (global_user_id, ad_date) |
+| `audit_log` | id, table_name, record_id, action (INSERT/UPDATE/DELETE), changed_by, old_data (JSONB), new_data (JSONB), changed_at — see **Audit Log** section below |
 
 **Bold** columns were added in extended migrations (auto-applied on startup). All tables store a BS date column (`bs_date`, `created_bs`, etc.) alongside AD timestamps.
 
@@ -977,6 +979,59 @@ SELECT column_name FROM information_schema.columns
 WHERE table_name = 'global_users'
 ORDER BY ordinal_position;
 ```
+
+---
+
+## Audit Log
+
+Every write (insert, update, delete) to the administrative/HR/config tables is
+automatically recorded — table name, record ID, action, **who made the
+change**, and the full before/after row as JSON. View it in the web UI under
+**System → Audit Log**, filterable by table, action, user, record ID, or date
+range; expand any row's **View** link to see the before/after values side by
+side.
+
+### How it works
+
+This is implemented at the **database level** with a single generic trigger
+function (`fn_audit_log`), not scattered across application code — so it
+catches every write regardless of *how* it happened (web UI, a CLI script
+like `create_employee_logins.py`, or a manual `psql` session), and it's
+impossible to forget to add logging when a new mutation is added later.
+
+- One shared `audit_log` table stores every entry.
+- `fn_audit_log()` is attached as an `AFTER INSERT OR UPDATE OR DELETE`
+  trigger to each covered table. It captures the old row (for updates/
+  deletes), the new row (for inserts/updates), and figures out "who" from
+  the row's own `created_by` / `updated_by` / `deleted_by` columns — so no
+  extra plumbing is needed to tell the trigger which user is acting.
+- Audit logging is wrapped in its own exception handler: if anything about
+  logging an entry ever fails, the triggering write still succeeds. Audit
+  logging can never break or roll back a real operation.
+
+### Covered tables
+
+`devices`, `global_users`, `departments`, `sections`, `units`, `directorates`,
+`shifts`, `shift_rules`, `leave_types`, `leave_balances`, `leave_applications`,
+`holidays`, `holiday_types`, `kaaj_records`, `attendance_day_remarks`,
+`company_settings`, `web_users`, `pull_schedule`, `auto_attend_rules`,
+`payroll_salary_structures`, `payroll_runs`, `payroll_items`,
+`payroll_holiday_ot_rules`.
+
+**Deliberately not row-audited:** `attendance_logs`, `attendance_daily`,
+`employees`, and `pull_sessions`. These are bulk-written by every device pull
+(potentially thousands of rows, several times a day) — row-level auditing
+there would balloon `audit_log`'s size and add trigger overhead to the pull
+hot path for little practical benefit. `pull_sessions` already **is** the
+audit trail for pulls (see the Pull Sessions page), and attendance rows carry
+their own `created_at`/`source` columns.
+
+### Adding audit coverage to a new table
+
+Since this is fully automatic once wired up, extending it to a new table is
+a one-line addition — add the table name to `_AUDITED_TABLES` in `db.py`,
+and the next server restart (`init_schema`) attaches the trigger
+automatically. No new INSERT/UPDATE/DELETE code needs to change.
 
 ---
 

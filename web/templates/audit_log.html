@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+
+{% block pageTitle %}Audit Log{% endblock %}
+{% block pageSubtitle %}Who changed what, and when — across every administrative table{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">System</p>
+    <h1>Audit Log</h1>
+  </div>
+</section>
+
+<div class="panel" style="margin-bottom:var(--space-6)">
+  <form method="get" action="/audit-log" class="panel-filters" style="flex-wrap:wrap">
+    <select class="filter-select" name="table_name">
+      <option value="">Table — all</option>
+      {% for t in tables %}
+      <option value="{{ t }}" {{ 'selected' if f_table == t else '' }}>{{ t }}</option>
+      {% endfor %}
+    </select>
+    <select class="filter-select" name="action">
+      <option value="">Action — all</option>
+      {% for a in ['INSERT', 'UPDATE', 'DELETE'] %}
+      <option value="{{ a }}" {{ 'selected' if f_action == a else '' }}>{{ a.title() }}</option>
+      {% endfor %}
+    </select>
+    <input type="number" class="filter-select" name="changed_by" placeholder="Changed by (user id)" value="{{ f_changed_by }}" style="max-width:170px">
+    <input type="number" class="filter-select" name="record_id" placeholder="Record id" value="{{ f_record_id }}" style="max-width:130px">
+    <input type="date" class="filter-select" name="from_date" value="{{ f_from }}" title="From date">
+    <input type="date" class="filter-select" name="to_date" value="{{ f_to }}" title="To date">
+    <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+    <a href="/audit-log" class="btn btn-sm btn-ghost">Reset</a>
+  </form>
+  <div class="card-body" style="padding:var(--space-3) var(--space-5);border-top:1px solid var(--color-border-light)">
+    <span class="text-sm text-muted">
+      Showing {{ rows|length }} of {{ total }} total entries (most recent 300 matching the filter above).
+      Covers: {{ tables|join(', ') }}.
+      Bulk-written tables (attendance, employees, pull sessions) are intentionally not row-audited here —
+      see the Pull Sessions page for the pull history instead.
+    </span>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="table-responsive">
+    <table class="table compact">
+      <thead>
+        <tr>
+          <th scope="col">When</th>
+          <th scope="col">Table</th>
+          <th scope="col">Record ID</th>
+          <th scope="col">Action</th>
+          <th scope="col">Changed By</th>
+          <th scope="col">Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="text-sm">{{ r.changed_at | fmt_dt }}</td>
+          <td><code style="font-size:var(--text-xs)">{{ r.table_name }}</code></td>
+          <td class="text-sm">{{ r.record_id or '—' }}</td>
+          <td>
+            {% if r.action == 'INSERT' %}<span class="status-pill success">Insert</span>
+            {% elif r.action == 'UPDATE' %}<span class="status-pill warning">Update</span>
+            {% elif r.action == 'DELETE' %}<span class="status-pill danger">Delete</span>
+            {% else %}<span class="status-pill">{{ r.action }}</span>
+            {% endif %}
+          </td>
+          <td class="text-sm">
+            {% if r.changed_by_name or r.changed_by_username %}
+              <strong>{{ r.changed_by_name or r.changed_by_username }}</strong>
+              {% if r.changed_by_username %}<span class="text-muted"> ({{ r.changed_by_username }})</span>{% endif %}
+            {% elif r.changed_by %}
+              <span class="text-muted">user #{{ r.changed_by }}</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <details>
+              <summary class="text-sm" style="cursor:pointer;color:var(--color-primary)">View</summary>
+              <div style="display:flex;gap:var(--space-3);margin-top:var(--space-2);flex-wrap:wrap">
+                {% if r.old_data %}
+                <div style="flex:1;min-width:220px">
+                  <div class="text-xs text-muted" style="margin-bottom:2px">Before</div>
+                  <pre style="font-size:11px;background:var(--color-surface-2);padding:8px;border-radius:var(--radius-md);overflow-x:auto;max-width:100%">{{ r.old_data | tojson(indent=2) }}</pre>
+                </div>
+                {% endif %}
+                {% if r.new_data %}
+                <div style="flex:1;min-width:220px">
+                  <div class="text-xs text-muted" style="margin-bottom:2px">After</div>
+                  <pre style="font-size:11px;background:var(--color-surface-2);padding:8px;border-radius:var(--radius-md);overflow-x:auto;max-width:100%">{{ r.new_data | tojson(indent=2) }}</pre>
+                </div>
+                {% endif %}
+              </div>
+            </details>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">No audit log entries match these filters.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
