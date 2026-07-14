@@ -1,0 +1,85 @@
+@app.get("/reports/holiday/<int:global_id>")
+def holiday_report(
+    request: Request,
+    global_id: int,
+    fiscal_year: str | None = None
+):
+    """Generate holiday/leave report for an employee."""
+    from db import get_global_user, get_leave_balances, get_leave_applications
+    from nepali_utils import NEPALI_MONTHS
+    from collections import defaultdict
+    from datetime import date
+
+    conn = get_connection()
+    try:
+        # Get employee info
+        employee = get_global_user(conn, global_id)
+        if not employee:
+            raise HTTPException(status_code=404, detail="Employee not found")
+
+        # Determine fiscal year (if not provided, use current)
+        if not fiscal_year:
+            from nepali_utils import ad_to_bs_tuple
+            today = date.today()
+            bs_tuple = ad_to_bs_tuple(today.isoformat())
+            fiscal_year = str(bs_tuple[0]) if bs_tuple else "2083"
+        else:
+            fiscal_year = str(fiscal_year)
+
+        # Get leave balances for the year
+        balances = get_leave_balances(conn, int(fiscal_year))
+        emp_balances = {b['leave_type_id']: b for b in balances if b['global_user_id'] == global_id}
+
+        # Get leave applications for the year (approved only)
+        from nepali_utils import bs_to_ad
+        bs_year_start = bs_to_ad(f"{fiscal_year}-01-01")
+        bs_year_end = bs_to_ad(f"{fiscal_year}-12-31")
+        applications = get_leave_applications(
+            conn,
+            global_user_id=global_id,
+            status='approved',
+            from_ad=bs_year_start,
+            to_ad=bs_year_end
+        )
+
+        # Process data for template (simplified - full implementation would include proper month mapping)
+        monthly_data = []
+        month_names = NEPALI_MONTHS[1:]  # Skip index 0
+        totals = defaultdict(float)
+        balances_summary = defaultdict(float)
+
+        for month_num in range(1, 13):
+            month_data = {
+                'month_name': month_names[month_num-1],
+                'casual_taken': 0, 'casual_allocated': 0, 'casual_balance': 0,
+                'extraordinary_taken': 0, 'extraordinary_allocated': 0, 'extraordinary_balance': 0,
+                'earned_taken': 0, 'earned_allocated': 0, 'earned_balance': 0,
+                'medical_taken': 0, 'medical_allocated': 0, 'medical_balance': 0,
+                'maternity_paternity_taken': 0, 'maternity_paternity_allocated': 0, 'maternity_paternity_balance': 0,
+                'accumulated': 0, 'sanctioned': 0, 'balance': 0,
+                'remarks': ''
+            }
+            monthly_data.append(month_data)
+
+        # In a full implementation, you would:
+        # 1. Apply leave allocations from emp_balances to appropriate months
+        # 2. Apply taken leave from applications to appropriate months
+        # 3. Calculate balances and totals
+
+        return render(templates, request, 'holiday_report_dynamic.html', {
+            'employee_name': employee['name'],
+            'employee_id': employee['global_user_id'] or '(Not Assigned)',
+            'position': employee.get('designation', 'Not Specified'),
+            'fiscal_year': fiscal_year,
+            'monthly_data': monthly_data,
+            'totals': dict(totals),
+            'balances': dict(balances_summary),
+            'preparation_date': date.today().strftime('%Y-%m-%d'),
+            'COMPANY_NAME': COMPANY_NAME
+        })
+
+    except Exception as exc:
+        logger.error(f"Error generating holiday report: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        conn.close()

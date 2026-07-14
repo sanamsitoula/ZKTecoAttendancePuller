@@ -1,0 +1,184 @@
+# ADD THIS TO web/app.py along with other report routes
+
+@app.get("/reports/holiday/<int:global_id>")
+def holiday_report(
+    request: Request,
+    global_id: int,
+    fiscal_year: str | None = None
+):
+    """Generate holiday/leave report for an employee."""
+    from db import get_global_user, get_leave_balances, get_leave_applications
+    from nepali_utils import NEPALI_MONTHS
+    from collections import defaultdict
+    from datetime import date
+
+    conn = get_connection()
+    try:
+        # Get employee info
+        employee = get_global_user(conn, global_id)
+        if not employee:
+            raise HTTPException(status_code=404, detail="Employee not found")
+
+        # Determine fiscal year (if not provided, use current)
+        if not fiscal_year:
+            from nepali_utils import ad_to_bs_tuple
+            today = date.today()
+            bs_tuple = ad_to_bs_tuple(today.isoformat())
+            fiscal_year = str(bs_tuple[0]) if bs_tuple else "2083"
+        else:
+            fiscal_year = str(fiscal_year)
+
+        # Get leave balances for the year
+        balances = get_leave_balances(conn, int(fiscal_year))
+        emp_balances = {b['leave_type_id']: b for b in balances if b['global_user_id'] == global_id}
+
+        # Get leave applications for the year (approved only)
+        from nepali_utils import bs_to_ad
+        bs_year_start = bs_to_ad(f"{fiscal_year}-01-01")
+        bs_year_end = bs_to_ad(f"{fiscal_year}-12-31")
+        # Simplified - in reality would need proper BS year start/end
+
+        applications = get_leave_applications(
+            conn,
+            global_user_id=global_id,
+            status='approved',
+            from_ad=bs_year_start,
+            to_ad=bs_year_end
+        )
+
+        # Organize data by month and leave type
+        monthly_data = []
+        month_names = NEPALI_MONTHS[1:]  # Skip index 0
+
+        # Initialize monthly structure
+        for month_num in range(1, 13):
+            monthly_data.append({
+                'month_num': month_num,
+                'month_name': month_names[month_num-1],
+                'leave_types': defaultdict(lambda: {'allocated': 0, 'taken': 0, 'balance': 0})
+            })
+
+        # Process allocations from balances
+        for bal in emp_balances.values():
+            lt_id = bal['leave_type_id']
+            # Map leave type ID to category (simplified mapping)
+            # In reality, you'd have a leave_types lookup
+            category = map_leave_type_to_category(lt_id)  # Helper function needed
+
+            for month_struct in monthly_data:
+                month_struct['leave_types'][category]['allocated'] += bal['days_earned']
+                month_struct['leave_types'][category]['balance'] += (bal['opening_balance'] + bal['days_earned'] - bal['days_taken'])
+
+        # Process taken leave from applications
+        for app in applications:
+            # Calculate which months this leave spans
+            # Simplified - assuming leave is within one month for now
+            from_date = app['from_ad']
+            to_date = app['to_ad']
+            days = float(app['days'] or 0)
+
+            # Determine month (simplified)
+            month_num = from_date.month if hasattr(from_date, 'month') else 1
+            if 1 <= month_num <= 12:
+                category = map_leave_type_to_category(app['leave_type_id'])
+                for month_struct in monthly_data:
+                    if month_struct['month_num'] == month_num:
+                        month_struct['leave_types'][category]['taken'] += days
+                        break
+
+        # Calculate final balances and prepare for template
+        template_monthly_data = []
+        totals = defaultdict(float)
+        balances_summary = defaultdict(float)
+
+        for month_struct in monthly_data:
+            month_data = {
+                'month_name': month_struct['month_name'],
+                'remarks': ''  # Could add specific remarks here
+            }
+
+            # Map to the template structure
+            categories = ['casual', 'extraordinary', 'earned', 'medical', 'maternity_paternity']
+            for cat in categories:
+                taken = month_struct['leave_types'][cat]['taken']
+                allocated = month_struct['leave_types'][cat]['allocated']
+                balance = month_struct['leave_types'][cat]['balance']
+
+                month_data[f'{cat}_taken'] = taken
+                month_data[f'{cat}_allocated'] = allocated
+                month_data[f'{cat}_balance'] = balance
+
+                totals[f'{cat}_taken'] += taken
+                totals[f'{cat}_allocated'] += allocated
+                balances_summary[cat] += balance
+
+            # Additional fields (simplified)
+            month_data['accumulated'] = 0  # Would calculate from previous years
+            month_data['sanctioned'] = month_data['earned_taken']  # Simplified
+            month_data['balance'] = month_data['earned_balance']
+
+            template_monthly_data.append(month_data)
+
+        # Prepare totals for template
+        template_totals = {
+            'casual_taken': totals['casual_taken'],
+            'extraordinary_taken': totals['extraordinary_taken'],
+            'earned_allocated': totals['earned_allocated'],
+            'earned_taken': totals['earned_taken'],
+            'earned_balance': balances_summary['earned'],
+            'medical_allocated': totals['medical_allocated'],
+            'medical_taken': totals['medical_taken'],
+            'medical_balance': balances_summary['medical'],
+            'maternity_paternity_allocated': totals['maternity_paternity_allocated'],
+            'maternity_paternity_taken': totals['maternity_paternity_taken'],
+            'maternity_paternity_balance': balances_summary['maternity_paternity'],
+            'accumulated': sum(balances_summary.values()),  # Simplified
+            'sanctioned': totals['earned_taken'],  # Simplified
+            'balance': balances_summary['earned'],
+            'remarks': 'See detailed leave application records for notes'
+        }
+
+        # Prepare balance summary
+        template_balances = {
+            'casual': balances_summary['casual'],
+            'extraordinary': balances_summary['extraordinary'],
+            'earned': balances_summary['earned'],
+            'medical': balances_summary['medical'],
+            'maternity_paternity': balances_summary['maternity_paternity']
+        }
+
+        return render(templates, request, 'holiday_report_dynamic.html', {
+            'employee_name': employee['name'],
+            'employee_id': employee['global_user_id'] or '(Not Assigned)',
+            'position': employee.get('designation', 'Not Specified'),
+            'fiscal_year': fiscal_year,
+            'monthly_data': template_monthly_data,
+            'totals': template_totals,
+            'balances': template_balances,
+            'preparation_date': date.today().strftime('%Y-%m-%d'),
+            'COMPANY_NAME': COMPANY_NAME
+        })
+
+    except Exception as exc:
+        logger.error(f"Error generating holiday report: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        conn.close()
+
+# Helper function (would need to be implemented properly)
+def map_leave_type_to_category(leave_type_id):
+    """Map leave type ID to report category."""
+    # This is a simplified mapping - in reality you'd look up the leave type
+    # and map based on its code or name
+    mappings = {
+        # These would be looked up from leave_types table
+        # For now, returning a default
+        'default': 'earned'
+    }
+    # In real implementation:
+    # lt = get_leave_type_by_id(conn, leave_type_id)
+    # code = lt['code']
+    # if code in ['CASUAL']: return 'casual'
+    # elif code in ['SICK']: return 'medical'
+    # etc.
+    return 'earned'  # Placeholder

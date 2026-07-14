@@ -1,0 +1,36 @@
+# ADD THESE CSS RULES TO THE <style> SECTION IN web/templates/reports_mysql.html
+# INSERT AFTER THE .signature RULE
+
+.remark-absent{
+    color:#dc3545;
+    font-weight:600;
+}
+
+.remark-present{
+    color:#28a745;
+    font-weight:600;
+}
+
+.remark-weekend{
+    color:#6c757d;
+    font-weight:600;
+}
+
+.remark-holiday{
+    color:#ffc107;
+    font-weight:600;
+}
+
+.remark-festival{
+    color:#e83e8c;
+    font-weight:600;
+}
+
+# OPTIONAL: ADD HOVER EFFECTS OR OTHER STYLING
+.remark-absent:hover,
+.remark-present:hover,
+.remark-weekend:hover,
+.remark-holiday:hover,
+.remark-festival:hover{
+    opacity:0.8;
+}

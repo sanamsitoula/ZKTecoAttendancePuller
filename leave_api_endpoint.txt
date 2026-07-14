@@ -1,0 +1,104 @@
+# ADD THIS TO web/app.py as an API endpoint for leave data
+
+@app.get("/api/leave-summary/<int:global_id>")
+def api_leave_summary(
+    request: Request,
+    global_id: int,
+    fiscal_year: str | None = None
+):
+    """API endpoint to get leave summary data for an employee."""
+    from db import get_global_user, get_leave_balances, get_leave_applications
+    from nepali_utils import ad_to_bs
+    from datetime import date
+
+    conn = get_connection()
+    try:
+        # Verify employee exists
+        employee = get_global_user(conn, global_id)
+        if not employee:
+            raise HTTPException(status_code=404, detail="Employee not found")
+
+        # Determine fiscal year
+        if not fiscal_year:
+            today = date.today()
+            bs_tuple = ad_to_bs(today.isoformat())
+            fiscal_year = str(bs_tuple[0]) if bs_tuple else "2083"
+
+        # Get leave balances
+        balances = get_leave_balances(conn, int(fiscal_year))
+        emp_balances = [b for b in balances if b['global_user_id'] == global_id]
+
+        # Get leave applications (approved)
+        # Simplified date range - would need proper BS year calculation
+        from nepali_utils import bs_to_ad
+        try:
+            year_start = bs_to_ad(f"{fiscal_year}-01-01")
+            year_end = bs_to_ad(f"{fiscal_year}-12-31")
+        except:
+            # Fallback to approximate date range
+            year_start = date(int(fiscal_year) - 57, 1, 1)  # Rough BS to AD conversion
+            year_end = date(int(fiscal_year) - 57, 12, 31)
+
+        applications = get_leave_applications(
+            conn,
+            global_user_id=global_id,
+            status='approved',
+            from_ad=year_start,
+            to_ad=year_end
+        )
+
+        # Calculate totals
+        leave_summary = {
+            'employee_id': employee['global_user_id'],
+            'employee_name': employee['name'],
+            'fiscal_year': fiscal_year,
+            'leave_types': {},
+            'totals': {
+                'allocated': 0,
+                'taken': 0,
+                'balance': 0
+            },
+            'applications': []
+        }
+
+        # Process balances
+        for bal in emp_balances:
+            leave_type_id = bal['leave_type_id']
+            # In real implementation, get leave type name from DB
+            leave_type_name = f"Leave Type {leave_type_id}"  # Placeholder
+
+            allocated = bal['days_earned']
+            taken = bal['days_taken']
+            balance = bal['opening_balance'] + allocated - taken
+
+            leave_summary['leave_types'][leave_type_id] = {
+                'name': leave_type_name,
+                'allocated': allocated,
+                'taken': taken,
+                'balance': balance,
+                'opening_balance': bal['opening_balance']
+            }
+
+            leave_summary['totals']['allocated'] += allocated
+            leave_summary['totals']['taken'] += taken
+            leave_summary['totals']['balance'] += balance
+
+        # Process applications
+        for app in applications:
+            leave_summary['applications'].append({
+                'id': app['id'],
+                'from_date': app['from_bs'] or app['from_ad'].isoformat() if app['from_ad'] else None,
+                'to_date': app['to_bs'] or app['to_ad'].isoformat() if app['to_ad'] else None,
+                'days': float(app['days'] or 0),
+                'leave_type_id': app['leave_type_id'],
+                'reason': app['reason'] or '',
+                'approved_on': app['applied_bs'] or app['applied_ad'].isoformat() if app['applied_ad'] else None
+            })
+
+        return JSONResponse(leave_summary)
+
+    except Exception as exc:
+        logger.error(f"Error in leave summary API: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        conn.close()

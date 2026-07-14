@@ -1,0 +1,21 @@
+# MODIFICATION TO ADD IN web/templates/reports_monthly.html
+# In the individual report view section, inside the {% if report %} block in .head-actions
+
+# ADD THIS BUTTON AFTER THE EXISTING BUTTONS:
+<a class="btn" href="/reports/holiday/{{ report.global_id }}" target="_blank">छुट्टी रिपोर्ट</a>
+
+# OR WITH TOOLTIP/ICON:
+<a class="btn" href="/reports/holiday/{{ report.global_id }}" target="_blank" title="Generate Holiday/Leave Report">
+  <i class="fas fa-file-alt"></i> छुट्टी रिपोर्ट
+</a>
+
+# OR AS A DROPDOWN OPTION IN THE ACTIONS:
+# <div class="btn-group">
+#   <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+#     अधिक देखنو
+#   </button>
+#   <ul class="dropdown-menu">
+#     <li><a class="dropdown-item" href="/reports/holiday/{{ report.global_id }}" target="_blank">छुट्टी रिपोर्ट देख्नुहोस्</a></li>
+#     <!-- Other options -->
+#   </ul>
+# </div>
