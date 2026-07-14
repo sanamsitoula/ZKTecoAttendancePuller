@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% from 'components/ui.html' import badge, btn %}
+{% from '_macros.html' import paginate %}
 
 {% block title %}Global Users — ZKTeco Attendance{% endblock %}
 
@@ -39,26 +40,74 @@
 <div class="card" style="margin-bottom:var(--space-6)">
   <div class="card-header">
     <h2>Global Users</h2>
-    <span class="subtitle">{{ users|length }} users</span>
+    <span class="subtitle">{{ total_users }} users</span>
+    <div class="panel-actions">
+      <a class="btn btn-sm btn-secondary" href="/users/global-export?{{ gu_qs }}" title="Download CSV">CSV</a>
+      <a class="btn btn-sm btn-secondary" href="/users/global-export/excel?{{ gu_qs }}" title="Download Excel">Excel</a>
+      <a class="btn btn-sm btn-secondary" href="/users/global-print?{{ gu_qs }}" target="_blank" title="Print-friendly view / Download PDF">Print / PDF</a>
+    </div>
   </div>
-  {# ── Status Filter ────────────────────────────────────────────────── #}
-  <div style="padding:var(--space-3) var(--space-5);border-bottom:1px solid var(--color-border-light);display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap">
-    <span class="text-sm text-muted">Filter by status:</span>
-    <a href="/users?tab=global" class="btn btn-sm {{ 'btn-primary' if not gu_status else 'btn-ghost' }}">All</a>
-    {% for st_val, st_label in [('ACTIVE','Active'),('INACTIVE','Inactive'),('RETIRED','Retired'),('DELETED','Deleted'),('PENDING','Pending'),('EDUCATION_LEAVE','Edu Leave'),('MEDICAL_LEAVE','Med Leave')] %}
-    <a href="/users?tab=global&gu_status={{ st_val }}"
-       class="btn btn-sm {{ 'btn-primary' if gu_status == st_val else 'btn-ghost' }}">{{ st_label }}</a>
-    {% endfor %}
-  </div>
+
+  {# ── Filters ──────────────────────────────────────────────────────── #}
+  <form method="get" action="/users" class="panel-filters" style="flex-wrap:wrap">
+    <input type="hidden" name="tab" value="global">
+    <div class="filter-search-wrapper" style="flex:2;min-width:200px">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+      <input type="text" name="gu_search" class="filter-search" placeholder="Search name, ID, email, phone…" value="{{ gu_search }}">
+    </div>
+    <select class="filter-select" name="gu_directorate">
+      <option value="">Organisation — all</option>
+      {% for dr in directorates %}
+      <option value="{{ dr.id }}" {{ 'selected' if gu_directorate == dr.id|string else '' }}>{{ dr.name }}</option>
+      {% endfor %}
+    </select>
+    <select class="filter-select" name="gu_department">
+      <option value="">Department — none —</option>
+      {% for d in departments %}
+      <option value="{{ d.id }}" {{ 'selected' if gu_department == d.id|string else '' }}>{{ d.name }}</option>
+      {% endfor %}
+    </select>
+    <select class="filter-select" name="gu_section">
+      <option value="">Section — none —</option>
+      {% for s in sections %}
+      <option value="{{ s.id }}" {{ 'selected' if gu_section == s.id|string else '' }}>{{ s.name }}</option>
+      {% endfor %}
+    </select>
+    <select class="filter-select" name="gu_unit">
+      <option value="">Unit — none —</option>
+      {% for u in units %}
+      <option value="{{ u.id }}" {{ 'selected' if gu_unit == u.id|string else '' }}>{{ u.name }}</option>
+      {% endfor %}
+    </select>
+    <select class="filter-select" name="gu_shift">
+      <option value="">Default Shift — none —</option>
+      {% for s in shifts %}
+      <option value="{{ s.id }}" {{ 'selected' if gu_shift == s.id|string else '' }}>{{ s.name }}</option>
+      {% endfor %}
+    </select>
+    <select class="filter-select" name="gu_status">
+      <option value="">Status — all</option>
+      {% for st_val, st_label in [('ACTIVE','Active'),('INACTIVE','Inactive'),('RETIRED','Retired'),('DELETED','Deleted'),('PENDING','Pending'),('EDUCATION_LEAVE','Edu Leave'),('MEDICAL_LEAVE','Med Leave')] %}
+      <option value="{{ st_val }}" {{ 'selected' if gu_status == st_val else '' }}>{{ st_label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+    <a href="/users?tab=global" class="btn btn-sm btn-ghost">Reset</a>
+  </form>
+
   <div class="table-wrap" style="border:none;border-radius:0">
       <table class="table">
       <thead>
         <tr>
-          <th scope="col">Name</th>
+          {% set gu_base_qs = gu_qs %}
+          <th scope="col"><a href="/users?{{ gu_base_qs }}&gu_sort_by=name&gu_sort_dir={{ 'desc' if gu_sort_by=='name' and gu_sort_dir=='asc' else 'asc' }}">Name</a></th>
           <th scope="col">Global ID</th>
-          <th scope="col">Employee ID</th>
-          <th scope="col">Department</th>
+          <th scope="col"><a href="/users?{{ gu_base_qs }}&gu_sort_by=emp_id&gu_sort_dir={{ 'desc' if gu_sort_by=='emp_id' and gu_sort_dir=='asc' else 'asc' }}">Employee ID</a></th>
+          <th scope="col"><a href="/users?{{ gu_base_qs }}&gu_sort_by=department&gu_sort_dir={{ 'desc' if gu_sort_by=='department' and gu_sort_dir=='asc' else 'asc' }}">Department</a></th>
           <th scope="col">Designation</th>
+          <th scope="col"><a href="/users?{{ gu_base_qs }}&gu_sort_by=shift&gu_sort_dir={{ 'desc' if gu_sort_by=='shift' and gu_sort_dir=='asc' else 'asc' }}">Default Shift</a></th>
           <th scope="col">Status</th>
           <th scope="col">Actions</th>
         </tr>
@@ -66,11 +115,15 @@
       <tbody>
         {% for u in users %}
         <tr>
-          <td><strong>{{ u.name }}</strong></td>
+          <td>
+            <strong>{{ u.name }}</strong>
+            {% if u.name_nep %}<br><span class="text-sm text-muted">{{ u.name_nep }}</span>{% endif %}
+          </td>
           <td><code style="font-size:var(--text-xs)">{{ u.global_user_id }}</code></td>
           <td class="text-sm">{{ u.employee_id or '—' }}</td>
           <td class="text-sm">{{ u.department_name or '—' }}</td>
           <td class="text-sm">{{ u.designation or '—' }}</td>
+          <td class="text-sm">{{ u.shift_name or '—' }}</td>
           <td>
             {% set st = u.emp_status or 'ACTIVE' %}
             {% if st == 'ACTIVE' %}
@@ -110,11 +163,12 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="empty">No global users yet. Import from a device to start.</td></tr>
+        <tr><td colspan="8" class="empty">No global users match these filters.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {{ paginate(page, total_pages, total_users, '/users?' + gu_qs, page_range, per_page=25) }}
 </div>
 
 {# ── Device Employees ────────────────────────────────────────────────── #}

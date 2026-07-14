@@ -717,6 +717,26 @@ CREATE TABLE IF NOT EXISTS pull_schedule (
 """
 
 
+_PHASE16_EMPLOYEE_PROFILE_SQL = """
+-- Phase 16: extended identity / profile fields on global_users, matched
+-- against the external HR "employee" table schema (adds the fields that
+-- table has and global_users didn't).
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS name_nep VARCHAR(200);
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS citizenship_no VARCHAR(100);
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS national_id_card_no VARCHAR(100);
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS full_address TEXT;
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS local_body VARCHAR(100);
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS state VARCHAR(100);
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS ward_no VARCHAR(20);
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS pan_no VARCHAR(50);
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS bank_name VARCHAR(100);
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS bank_branch VARCHAR(100);
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS initial_appointment_date DATE;
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS retirement_date DATE;
+ALTER TABLE global_users ADD COLUMN IF NOT EXISTS is_technical BOOLEAN NOT NULL DEFAULT FALSE;
+"""
+
+
 def init_schema(conn) -> None:
     # Phase 1: core DDL
     with conn.cursor() as cur:
@@ -842,6 +862,14 @@ def init_schema(conn) -> None:
     except Exception as e:
         conn.rollback()
         logger.warning("Phase 15 (pull schedule) migration skipped: %s", e)
+    # Phase 16: extended employee profile fields (name_nep, citizenship, bank, etc.)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE16_EMPLOYEE_PROFILE_SQL)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 16 (employee profile fields) migration skipped: %s", e)
     logger.info("Database schema initialized.")
 
 
@@ -1248,6 +1276,7 @@ def list_global_users(conn, search: str | None = None,
                       department_id: int | None = None,
                       section_id: int | None = None,
                       unit_id: int | None = None,
+                      shift_id: int | None = None,
                       emp_status: str | None = None,
                       include_deleted: bool = False):
     where = []
@@ -1259,12 +1288,12 @@ def list_global_users(conn, search: str | None = None,
         params.append(emp_status)
     if search:
         where.append("""(
-            gu.name ILIKE %s OR gu.global_user_id ILIKE %s OR gu.employee_id ILIKE %s
+            gu.name ILIKE %s OR gu.name_nep ILIKE %s OR gu.global_user_id ILIKE %s OR gu.employee_id ILIKE %s
             OR gu.email ILIKE %s OR gu.phone ILIKE %s OR gu.bank_number ILIKE %s
             OR d.name ILIKE %s OR dr.name ILIKE %s OR s.name ILIKE %s OR u.name ILIKE %s
         )""")
         p = f'%{search}%'
-        params += [p, p, p, p, p, p, p, p, p, p]
+        params += [p, p, p, p, p, p, p, p, p, p, p]
     if directorate_id:
         where.append("d.directorate_id = %s")
         params.append(directorate_id)
@@ -1277,12 +1306,20 @@ def list_global_users(conn, search: str | None = None,
     if unit_id:
         where.append("gu.unit_id = %s")
         params.append(unit_id)
+    if shift_id:
+        where.append("gu.shift_id = %s")
+        params.append(shift_id)
     w = f"WHERE {' AND '.join(where)}" if where else ""
     sql = f"""
         SELECT
-            gu.id, gu.global_user_id, gu.employee_id, gu.name,
+            gu.id, gu.global_user_id, gu.employee_id, gu.name, gu.name_nep,
             gu.privilege, gu.card, gu.bank_number, gu.email, gu.phone,
-            gu.emp_status, gu.emp_type, gu.join_date, gu.designation,
+            gu.emp_status, gu.emp_type, gu.join_date, gu.designation, gu.level_grade,
+            gu.citizenship_no, gu.national_id_card_no, gu.full_address,
+            gu.local_body, gu.state, gu.ward_no, gu.pan_no,
+            gu.bank_name, gu.bank_branch,
+            gu.initial_appointment_date, gu.retirement_date, gu.appointment_date,
+            gu.dob, gu.gender, gu.is_technical,
             gu.shift_id, sh.name AS shift_name,
             to_char(sh.start_time,'HH24:MI') AS shift_start,
             to_char(sh.end_time,  'HH24:MI') AS shift_end,
@@ -1320,8 +1357,14 @@ def get_global_user_count(conn, include_deleted: bool = False) -> int:
 def get_global_user(conn, db_id: int) -> dict | None:
     sql = """
         SELECT
-            gu.id, gu.global_user_id, gu.employee_id, gu.name,
+            gu.id, gu.global_user_id, gu.employee_id, gu.name, gu.name_nep,
             gu.privilege, gu.card, gu.bank_number, gu.email, gu.phone,
+            gu.emp_type, gu.emp_status, gu.join_date, gu.designation, gu.level_grade, gu.usertype,
+            gu.citizenship_no, gu.national_id_card_no, gu.full_address,
+            gu.local_body, gu.state, gu.ward_no, gu.pan_no,
+            gu.bank_name, gu.bank_branch,
+            gu.initial_appointment_date, gu.retirement_date, gu.appointment_date,
+            gu.dob, gu.gender, gu.is_technical, gu.profilepic_url,
             gu.shift_id, sh.name AS shift_name,
             gu.department_id, d.name AS department_name,
             d.directorate_id, dr.name AS directorate_name,
@@ -1370,11 +1413,16 @@ def create_global_user(conn, global_user_id: str, name: str, privilege: int = 0,
 
 
 def update_global_user(conn, db_id: int, data: dict, app_user_id: int = 0) -> None:
+    # Merge partial updates (e.g. soft-delete/restore only pass emp_status)
+    # on top of the current row so unspecified fields are preserved.
+    current = get_global_user(conn, db_id) or {}
+    merged = {**current, **data}
     sql = """
         UPDATE global_users SET
             global_user_id   = %s,
             employee_id      = %s,
             name             = %s,
+            name_nep         = %s,
             privilege        = %s,
             card             = %s,
             bank_number      = %s,
@@ -1394,6 +1442,18 @@ def update_global_user(conn, db_id: int, data: dict, app_user_id: int = 0) -> No
             dob              = %s,
             gender           = %s,
             profilepic_url   = %s,
+            citizenship_no   = %s,
+            national_id_card_no = %s,
+            full_address     = %s,
+            local_body       = %s,
+            state            = %s,
+            ward_no          = %s,
+            pan_no           = %s,
+            bank_name        = %s,
+            bank_branch      = %s,
+            initial_appointment_date = %s,
+            retirement_date  = %s,
+            is_technical     = %s,
             updated_at       = NOW(),
             updated_bs       = %s,
             updated_by       = %s
@@ -1401,28 +1461,41 @@ def update_global_user(conn, db_id: int, data: dict, app_user_id: int = 0) -> No
     """
     with conn.cursor() as cur:
         cur.execute(sql, (
-            data.get('global_user_id'),
-            data.get('employee_id') or None,
-            data.get('name'),
-            int(data.get('privilege', 0)),
-            data.get('card') or None,
-            data.get('bank_number') or None,
-            data.get('email') or None,
-            data.get('phone') or None,
-            data.get('department_id') or None,
-            data.get('section_id') or None,
-            data.get('unit_id') or None,
-            data.get('shift_id') or None,
-            data.get('emp_type') or 'PERMANENT',
-            data.get('emp_status') or 'ACTIVE',
-            data.get('join_date') or None,
-            data.get('level_grade') or None,
-            data.get('designation') or None,
-            data.get('usertype') or 'PERMANENT',
-            data.get('appointment_date') or None,
-            data.get('dob') or None,
-            data.get('gender') or None,
-            data.get('profilepic_url') or None,
+            merged.get('global_user_id'),
+            merged.get('employee_id') or None,
+            merged.get('name'),
+            merged.get('name_nep') or None,
+            int(merged.get('privilege') or 0),
+            merged.get('card') or None,
+            merged.get('bank_number') or None,
+            merged.get('email') or None,
+            merged.get('phone') or None,
+            merged.get('department_id') or None,
+            merged.get('section_id') or None,
+            merged.get('unit_id') or None,
+            merged.get('shift_id') or None,
+            merged.get('emp_type') or 'PERMANENT',
+            merged.get('emp_status') or 'ACTIVE',
+            merged.get('join_date') or None,
+            merged.get('level_grade') or None,
+            merged.get('designation') or None,
+            merged.get('usertype') or 'PERMANENT',
+            merged.get('appointment_date') or None,
+            merged.get('dob') or None,
+            merged.get('gender') or None,
+            merged.get('profilepic_url') or None,
+            merged.get('citizenship_no') or None,
+            merged.get('national_id_card_no') or None,
+            merged.get('full_address') or None,
+            merged.get('local_body') or None,
+            merged.get('state') or None,
+            merged.get('ward_no') or None,
+            merged.get('pan_no') or None,
+            merged.get('bank_name') or None,
+            merged.get('bank_branch') or None,
+            merged.get('initial_appointment_date') or None,
+            merged.get('retirement_date') or None,
+            bool(merged.get('is_technical') or False),
             _today_bs(),
             app_user_id or None,
             db_id,

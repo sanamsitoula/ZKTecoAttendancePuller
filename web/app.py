@@ -955,6 +955,24 @@ def _gu_sort_key(u, sort_by: str):
     return _num(u.get('global_user_id'))
 
 
+def _gu_query_string(gu_search, gu_directorate, gu_department, gu_section,
+                      gu_unit, gu_shift, gu_status) -> str:
+    """Filter-only query string (no page/sort) so pagination and sort links
+    can append their own &page=/&gu_sort_by= safely."""
+    from urllib.parse import urlencode
+    parts = {
+        'tab': 'global',
+        'gu_search': gu_search or '',
+        'gu_directorate': gu_directorate or '',
+        'gu_department': gu_department or '',
+        'gu_section': gu_section or '',
+        'gu_unit': gu_unit or '',
+        'gu_shift': gu_shift or '',
+        'gu_status': gu_status or '',
+    }
+    return urlencode({k: v for k, v in parts.items() if v})
+
+
 @app.get("/users")
 def users_index(
     request: Request,
@@ -965,6 +983,7 @@ def users_index(
     gu_department:    str | None = None,
     gu_section:       str | None = None,
     gu_unit:          str | None = None,
+    gu_shift:         str | None = None,
     gu_status:        str | None = None,
     gu_sort_by:       str = 'att_id',
     gu_sort_dir:      str = 'asc',
@@ -993,6 +1012,7 @@ def users_index(
             department_id=_int_param(gu_department),
             section_id=_int_param(gu_section),
             unit_id=_int_param(gu_unit),
+            shift_id=_int_param(gu_shift),
             emp_status=gu_status or None,
         )
         all_users.sort(key=lambda u: _gu_sort_key(u, gu_sort_by),
@@ -1041,9 +1061,12 @@ def users_index(
             "gu_department":  gu_department or '',
             "gu_section":     gu_section or '',
             "gu_unit":        gu_unit or '',
+            "gu_shift":       gu_shift or '',
             "gu_status":      gu_status or '',
             "gu_sort_by":     gu_sort_by,
             "gu_sort_dir":    gu_sort_dir,
+            "gu_qs":          _gu_query_string(gu_search, gu_directorate, gu_department,
+                                                gu_section, gu_unit, gu_shift, gu_status),
             "employees":      employees,
             "total_employees": total_employees,
             "emp_page":       emp_page_num,
@@ -1125,6 +1148,30 @@ def user_add_form(request: Request):
         conn.close()
 
 
+_EXTRA_PROFILE_FIELDS = [
+    'name_nep', 'citizenship_no', 'national_id_card_no', 'full_address',
+    'local_body', 'state', 'ward_no', 'pan_no', 'bank_name', 'bank_branch',
+    'initial_appointment_date', 'retirement_date',
+    'dob', 'gender', 'designation', 'level_grade', 'emp_type', 'emp_status',
+    'join_date',
+]
+
+
+def _extract_profile_fields(form) -> dict:
+    """Only include fields actually present in the submission — update_global_user
+    merges onto the current row, so a field genuinely absent from the form
+    (vs. present-but-cleared) must not overwrite existing data with None."""
+    out = {}
+    for f in _EXTRA_PROFILE_FIELDS:
+        if f in form:
+            v = (form.get(f) or '').strip()
+            out[f] = v or None
+    # Checkboxes are always rendered on this form; unlike text fields, an
+    # absent checkbox means "unchecked", not "field not on this form".
+    out['is_technical'] = bool(form.get('is_technical'))
+    return out
+
+
 @app.post("/users/add")
 async def user_add(request: Request):
     form            = await request.form()
@@ -1155,6 +1202,9 @@ async def user_add(request: Request):
             department_id=department_id, section_id=section_id,
             unit_id=unit_id, shift_id=shift_id,
         )
+        conn.commit()
+        extra = _extract_profile_fields(form)
+        update_global_user(conn, gid, extra, app_user_id=_current_user_id(request))
         conn.commit()
         if enroll_devices:
             ids = [int(x) for x in enroll_devices.split(",") if x.strip()]
@@ -1214,6 +1264,7 @@ async def user_edit(request: Request, global_id: int):
         'unit_id':        _int_param(form.get('unit_id')),
         'shift_id':       _int_param(form.get('shift_id')),
     }
+    data.update(_extract_profile_fields(form))
     if not data['global_user_id'] or not data['name']:
         return redirect_with_flash(f'/users/{global_id}/edit', 'error', 'Attendance ID and name are required.')
     conn = get_connection()
@@ -1645,7 +1696,54 @@ async def employee_migrate(request: Request, emp_id: int):
         conn.close()
 
 
-# ---- Global users CSV export --------------------------------------------
+# ---- Global users CSV / Excel / Print export -----------------------------
+
+
+def _filtered_global_users(gu_search, gu_directorate, gu_department,
+                            gu_section, gu_unit, gu_shift, gu_status):
+    conn = get_connection()
+    try:
+        return list_global_users(
+            conn,
+            search=gu_search or None,
+            directorate_id=_int_param(gu_directorate),
+            department_id=_int_param(gu_department),
+            section_id=_int_param(gu_section),
+            unit_id=_int_param(gu_unit),
+            shift_id=_int_param(gu_shift),
+            emp_status=gu_status or None,
+        )
+    finally:
+        conn.close()
+
+
+_GU_EXPORT_COLUMNS = [
+    ('SN',            None),
+    ('Employee ID',   'employee_id'),
+    ('Att. Device ID','global_user_id'),
+    ('Name',          'name'),
+    ('Nepali Name',   'name_nep'),
+    ('Directorate',   'directorate_name'),
+    ('Department',    'department_name'),
+    ('Section',       'section_name'),
+    ('Unit',          'unit_name'),
+    ('Default Shift', 'shift_name'),
+    ('Designation',   'designation'),
+    ('Emp. Type',     'emp_type'),
+    ('Status',        'emp_status'),
+    ('Email',         'email'),
+    ('Phone',         'phone'),
+    ('Gender',        'gender'),
+    ('DOB',           'dob'),
+    ('Join Date',     'join_date'),
+    ('Citizenship No.', 'citizenship_no'),
+    ('National ID No.', 'national_id_card_no'),
+    ('PAN No.',       'pan_no'),
+    ('Bank Name',     'bank_name'),
+    ('Bank Branch',   'bank_branch'),
+    ('Bank Number',   'bank_number'),
+    ('Full Address',  'full_address'),
+]
 
 
 @app.get("/users/global-export")
@@ -1655,38 +1753,19 @@ def global_users_export(
     gu_department:  str | None = None,
     gu_section:     str | None = None,
     gu_unit:        str | None = None,
+    gu_shift:       str | None = None,
+    gu_status:      str | None = None,
 ):
-    conn = get_connection()
-    try:
-        rows = list_global_users(
-            conn,
-            search=gu_search or None,
-            directorate_id=_int_param(gu_directorate),
-            department_id=_int_param(gu_department),
-            section_id=_int_param(gu_section),
-            unit_id=_int_param(gu_unit),
-        )
-    finally:
-        conn.close()
+    rows = _filtered_global_users(gu_search, gu_directorate, gu_department,
+                                   gu_section, gu_unit, gu_shift, gu_status)
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(['SN', 'Employee ID', 'Att. Device ID', 'Name', 'Email', 'Phone',
-                     'Bank Number', 'Directorate', 'Department', 'Section', 'Unit', 'Shift'])
+    writer.writerow([label for label, _ in _GU_EXPORT_COLUMNS])
     for i, r in enumerate(rows, 1):
         writer.writerow([
-            i,
-            r.get('employee_id') or '',
-            r.get('global_user_id') or '',
-            r.get('name') or '',
-            r.get('email') or '',
-            r.get('phone') or '',
-            r.get('bank_number') or '',
-            r.get('directorate_name') or '',
-            r.get('department_name') or '',
-            r.get('section_name') or '',
-            r.get('unit_name') or '',
-            r.get('shift_name') or '',
+            (i if key is None else (r.get(key) or ''))
+            for _, key in _GU_EXPORT_COLUMNS
         ])
 
     fname = f"global_users_{date.today().isoformat()}.csv"
@@ -1695,6 +1774,81 @@ def global_users_export(
         media_type='text/csv',
         headers={'Content-Disposition': f'attachment; filename="{fname}"'},
     )
+
+
+@app.get("/users/global-export/excel")
+def global_users_export_excel(
+    gu_search:      str | None = None,
+    gu_directorate: str | None = None,
+    gu_department:  str | None = None,
+    gu_section:     str | None = None,
+    gu_unit:        str | None = None,
+    gu_shift:       str | None = None,
+    gu_status:      str | None = None,
+):
+    rows = _filtered_global_users(gu_search, gu_directorate, gu_department,
+                                   gu_section, gu_unit, gu_shift, gu_status)
+
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Global Users"
+
+    headers = [label for label, _ in _GU_EXPORT_COLUMNS]
+    ws.append(headers)
+    header_fill = PatternFill(start_color="1a73e8", end_color="1a73e8", fill_type="solid")
+    for col_idx, _ in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    for i, r in enumerate(rows, 1):
+        ws.append([
+            (i if key is None else (r.get(key) or ''))
+            for _, key in _GU_EXPORT_COLUMNS
+        ])
+
+    for col_idx in range(1, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 18
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"global_users_{date.today().isoformat()}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={'Content-Disposition': f'attachment; filename="{fname}"'},
+    )
+
+
+@app.get("/users/global-print")
+def global_users_print(
+    request: Request,
+    gu_search:      str | None = None,
+    gu_directorate: str | None = None,
+    gu_department:  str | None = None,
+    gu_section:     str | None = None,
+    gu_unit:        str | None = None,
+    gu_shift:       str | None = None,
+    gu_status:      str | None = None,
+):
+    rows = _filtered_global_users(gu_search, gu_directorate, gu_department,
+                                   gu_section, gu_unit, gu_shift, gu_status)
+    return render(templates, request, 'users_print.html', {
+        'rows':        rows,
+        'total':       len(rows),
+        'now_str':     _npt_now_str(),
+        'COMPANY_NAME': COMPANY_NAME,
+        'filters': {
+            'search': gu_search or '', 'status': gu_status or '',
+        },
+    })
 
 
 # ---- Device backup download ---------------------------------------------

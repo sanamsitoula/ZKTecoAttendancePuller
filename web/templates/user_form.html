@@ -71,10 +71,29 @@
                    value="{{ user.phone if user else '' }}"
                    placeholder="98XXXXXXXX">
           </div>
+          <div class="form-group">
+            <label class="form-label" for="name_nep">Nepali Name <span class="text-muted">(Unicode)</span></label>
+            <input class="form-input" id="name_nep" name="name_nep"
+                   value="{{ user.name_nep if user else '' }}"
+                   placeholder="कर्मचारीको नाम">
+          </div>
         </div>
 
         <h3 class="form-section-title" style="margin-top:var(--space-6)">Organisation</h3>
         <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="form-dir">Organisation (Directorate)</label>
+            <select class="form-select" id="form-dir" name="directorate_id_ui">
+              <option value="">— none —</option>
+              {% for dr in directorates %}
+              <option value="{{ dr.id }}"
+                      {{ 'selected' if user and user.directorate_id == dr.id else '' }}>
+                {{ dr.name }}
+              </option>
+              {% endfor %}
+            </select>
+            <span class="form-hint">Narrows the Department list below.</span>
+          </div>
           <div class="form-group">
             <label class="form-label" for="form-dept">Department</label>
             <select class="form-select" id="form-dept" name="department_id">
@@ -128,6 +147,107 @@
           </div>
         </div>
 
+        <h3 class="form-section-title" style="margin-top:var(--space-6)">Employment</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="designation">Designation</label>
+            <input class="form-input" id="designation" name="designation" value="{{ user.designation if user else '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="level_grade">Level / Grade</label>
+            <input class="form-input" id="level_grade" name="level_grade" value="{{ user.level_grade if user else '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="emp_type">Employment Type</label>
+            <select class="form-select" id="emp_type" name="emp_type">
+              {% for t in ['PERMANENT', 'CONTRACT', 'DAILY_WAGES'] %}
+              <option value="{{ t }}" {{ 'selected' if user and user.emp_type == t else '' }}>{{ t.replace('_',' ').title() }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="emp_status">Employment Status</label>
+            <select class="form-select" id="emp_status" name="emp_status">
+              {% for st in ['ACTIVE', 'INACTIVE', 'RETIRED', 'PENDING', 'EDUCATION_LEAVE', 'MEDICAL_LEAVE'] %}
+              <option value="{{ st }}" {{ 'selected' if user and user.emp_status == st else ('selected' if not user and st == 'ACTIVE' else '') }}>{{ st.replace('_',' ').title() }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="join_date">Join Date</label>
+            <input class="form-input" id="join_date" name="join_date" type="date" value="{{ user.join_date if user else '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="initial_appointment_date">Initial Appointment Date</label>
+            <input class="form-input" id="initial_appointment_date" name="initial_appointment_date" type="date" value="{{ user.initial_appointment_date if user else '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="retirement_date">Retirement Date</label>
+            <input class="form-input" id="retirement_date" name="retirement_date" type="date" value="{{ user.retirement_date if user else '' }}">
+          </div>
+          <div class="form-group" style="display:flex;align-items:center;gap:var(--space-2);padding-top:var(--space-6)">
+            <input type="checkbox" id="is_technical" name="is_technical" {{ 'checked' if user and user.is_technical else '' }}>
+            <label class="form-label" for="is_technical" style="margin:0">Technical Post</label>
+          </div>
+        </div>
+
+        <h3 class="form-section-title" style="margin-top:var(--space-6)">Personal &amp; Identity</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="dob">Date of Birth</label>
+            <input class="form-input" id="dob" name="dob" type="date" value="{{ user.dob if user else '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="gender">Gender</label>
+            <select class="form-select" id="gender" name="gender">
+              <option value="">— unspecified —</option>
+              {% for g in ['MALE', 'FEMALE', 'OTHER'] %}
+              <option value="{{ g }}" {{ 'selected' if user and user.gender == g else '' }}>{{ g.title() }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="citizenship_no">Citizenship No.</label>
+            <input class="form-input" id="citizenship_no" name="citizenship_no" value="{{ user.citizenship_no if user else '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="national_id_card_no">National ID Card No.</label>
+            <input class="form-input" id="national_id_card_no" name="national_id_card_no" value="{{ user.national_id_card_no if user else '' }}">
+          </div>
+          <div class="form-group" style="grid-column:1/-1">
+            <label class="form-label" for="full_address">Full Address</label>
+            <input class="form-input" id="full_address" name="full_address" value="{{ user.full_address if user else '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="local_body">Local Body</label>
+            <input class="form-input" id="local_body" name="local_body" value="{{ user.local_body if user else '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="state">Province / State</label>
+            <input class="form-input" id="state" name="state" value="{{ user.state if user else '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="ward_no">Ward No.</label>
+            <input class="form-input" id="ward_no" name="ward_no" value="{{ user.ward_no if user else '' }}">
+          </div>
+        </div>
+
+        <h3 class="form-section-title" style="margin-top:var(--space-6)">Bank &amp; Tax</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="pan_no">PAN No.</label>
+            <input class="form-input" id="pan_no" name="pan_no" value="{{ user.pan_no if user else '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="bank_name">Bank Name</label>
+            <input class="form-input" id="bank_name" name="bank_name" value="{{ user.bank_name if user else '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="bank_branch">Bank Branch</label>
+            <input class="form-input" id="bank_branch" name="bank_branch" value="{{ user.bank_branch if user else '' }}">
+          </div>
+        </div>
+
         {% if not user %}
         <h3 class="form-section-title" style="margin-top:var(--space-6)">Push to Devices</h3>
         <div class="form-group">
@@ -159,8 +279,16 @@
     });
     if (sel.selectedOptions[0] && sel.selectedOptions[0].hidden) sel.value = '';
   }
+  var dirSel  = document.getElementById('form-dir');
   var deptSel = document.getElementById('form-dept');
   var secSel  = document.getElementById('form-sec');
+  if (dirSel) {
+    dirSel.addEventListener('change', function () {
+      filterOptions('form-dept', 'data-dir', this.value);
+      filterOptions('form-sec',  'data-dept', '');
+      filterOptions('form-unit', 'data-sec',  '');
+    });
+  }
   if (deptSel) {
     deptSel.addEventListener('change', function () {
       filterOptions('form-sec',  'data-dept', this.value);
@@ -172,6 +300,7 @@
       filterOptions('form-unit', 'data-sec', this.value);
     });
   }
+  if (dirSel  && dirSel.value)  filterOptions('form-dept', 'data-dir',  dirSel.value);
   if (deptSel && deptSel.value) filterOptions('form-sec', 'data-dept', deptSel.value);
   if (secSel  && secSel.value)  filterOptions('form-unit', 'data-sec', secSel.value);
 })();
