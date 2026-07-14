@@ -37,8 +37,11 @@ details[open] > summary::before { content: '▼ '; }
         <label class="form-label" for="rpt-dept-date">Date (BS)</label>
         <input class="form-input bsdp" id="rpt-dept-date" name="date_bs" value="{{ sel_date_bs }}" data-ad-target="date_ad_h"
                autocomplete="off" placeholder="YYYY-MM-DD">
-        <input type="hidden" name="date_ad" id="date_ad_h" value="{{ sel_date_ad }}">
-        {% if sel_date_ad %}<span class="form-hint">AD: {{ sel_date_ad }}</span>{% endif %}
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:160px">
+        <label class="form-label" for="date_ad_h">Date (AD)</label>
+        <input type="date" class="form-input" id="date_ad_h" name="date_ad" value="{{ sel_date_ad }}"
+               data-bs-target="rpt-dept-date">
       </div>
       <div style="display:flex;gap:6px">
         <button class="btn btn-primary btn-sm" type="submit">View</button>
