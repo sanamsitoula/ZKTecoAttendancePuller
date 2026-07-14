@@ -50,13 +50,14 @@
         <div class="form-group">
           <label class="form-label" for="role">Role <span class="required">*</span></label>
           <select class="form-select" id="role" name="role">
-            {% for r in ('admin', 'manager', 'viewer') %}
+            {% for r in ('admin', 'manager', 'viewer', 'employee') %}
             <option value="{{ r }}"
                     {{ 'selected' if (is_edit and form_user.role == r) or (not is_edit and r == 'viewer') }}>
               {{ r | capitalize }}
               {% if r == 'admin' %} — full access{% endif %}
               {% if r == 'manager' %} — attendance, reports, leaves, calendar{% endif %}
               {% if r == 'viewer' %} — attendance & daily reports only{% endif %}
+              {% if r == 'employee' %} — self-service: own attendance & leaves only{% endif %}
             </option>
             {% endfor %}
           </select>
@@ -242,7 +243,7 @@
             <div class="form-group">
               <label class="form-label" for="gu_emp_type">Employment Type</label>
               <select class="form-select" id="gu_emp_type" name="gu_emp_type">
-                {% for t in ('PERMANENT','CONFIRMED','PROBATION','CONTRACT','INTERN') %}
+                {% for t in ('PERMANENT','CONFIRMED','PROBATION','CONTRACT','INTERN','DAILY_WAGES','SEASONAL_WORKER') %}
                 <option value="{{ t }}" {{ 'selected' if form_user.emp_type == t }}>{{ t }}</option>
                 {% endfor %}
               </select>
@@ -250,7 +251,7 @@
             <div class="form-group">
               <label class="form-label" for="gu_emp_status">Status</label>
               <select class="form-select" id="gu_emp_status" name="gu_emp_status">
-                {% for s in ('ACTIVE','INACTIVE','TERMINATED','RESIGNED') %}
+                {% for s in ('ACTIVE','INACTIVE','TERMINATED','RESIGNED','RETIRED','ON_LEAVE','ON_PAID_LEAVE','PAID_LEAVE','DECEASED') %}
                 <option value="{{ s }}" {{ 'selected' if form_user.emp_status == s }}>{{ s }}</option>
                 {% endfor %}
               </select>

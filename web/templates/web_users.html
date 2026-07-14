@@ -11,6 +11,10 @@
   </div>
   <div class="page-actions">
     <a href="/web-users/audit-log" class="btn btn-secondary">Audit Log</a>
+    <form method="post" action="/web-users/backfill-employees" style="display:inline"
+          onsubmit="return confirm('Create an employee self-service login (username = attendance ID) for every Global User that doesn\'t have one yet?')">
+      <button type="submit" class="btn btn-secondary" title="Create a login for every Global User missing one">Create Missing Employee Logins</button>
+    </form>
     <a href="/web-users/new" class="btn btn-primary">+ New User</a>
   </div>
 </div>
@@ -67,6 +71,8 @@
               {{ badge('Admin', 'info') }}
             {% elif u.role == 'manager' %}
               {{ badge('Manager', 'success') }}
+            {% elif u.role == 'employee' %}
+              {{ badge('Employee', 'warning') }}
             {% else %}
               {{ badge('Viewer', 'default') }}
             {% endif %}

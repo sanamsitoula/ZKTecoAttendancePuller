@@ -160,7 +160,7 @@
           <div class="form-group">
             <label class="form-label" for="emp_type">Employment Type</label>
             <select class="form-select" id="emp_type" name="emp_type">
-              {% for t in ['PERMANENT', 'CONTRACT', 'DAILY_WAGES'] %}
+              {% for t in ['PERMANENT', 'CONTRACT', 'DAILY_WAGES', 'SEASONAL_WORKER'] %}
               <option value="{{ t }}" {{ 'selected' if user and user.emp_type == t else '' }}>{{ t.replace('_',' ').title() }}</option>
               {% endfor %}
             </select>
@@ -168,7 +168,7 @@
           <div class="form-group">
             <label class="form-label" for="emp_status">Employment Status</label>
             <select class="form-select" id="emp_status" name="emp_status">
-              {% for st in ['ACTIVE', 'INACTIVE', 'RETIRED', 'PENDING', 'EDUCATION_LEAVE', 'MEDICAL_LEAVE'] %}
+              {% for st in ['ACTIVE', 'INACTIVE', 'RETIRED', 'PENDING', 'EDUCATION_LEAVE', 'MEDICAL_LEAVE', 'ON_LEAVE', 'ON_PAID_LEAVE', 'PAID_LEAVE', 'RESIGNED', 'DECEASED'] %}
               <option value="{{ st }}" {{ 'selected' if user and user.emp_status == st else ('selected' if not user and st == 'ACTIVE' else '') }}>{{ st.replace('_',' ').title() }}</option>
               {% endfor %}
             </select>

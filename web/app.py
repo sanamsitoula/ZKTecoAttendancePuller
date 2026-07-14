@@ -157,6 +157,9 @@ _VIEWER_ALLOWED_PREFIXES = (
     '/', '/attendance', '/reports/daily', '/reports/absent',
     '/profile', '/logout',
 )
+_EMPLOYEE_ALLOWED_PREFIXES = (
+    '/my-attendance', '/my-leaves', '/profile', '/logout',
+)
 
 
 async def _auth_gate_dispatch(request: Request, call_next):
@@ -188,6 +191,17 @@ async def _auth_gate_dispatch(request: Request, call_next):
             if path.startswith("/api/"):
                 return JSONResponse({"error": "Access denied"}, status_code=403)
             return RedirectResponse(url="/attendance", status_code=302)
+
+    # employee: can only see their own daily attendance report + profile
+    if role == "employee":
+        allowed = any(
+            path == p or path.startswith(p + '/') or path.startswith(p + '?')
+            for p in _EMPLOYEE_ALLOWED_PREFIXES
+        )
+        if not allowed:
+            if path.startswith("/api/"):
+                return JSONResponse({"error": "Access denied"}, status_code=403)
+            return RedirectResponse(url="/my-attendance", status_code=302)
 
     return await call_next(request)
 
@@ -240,7 +254,11 @@ def login_post(request: Request,
             update_web_user_login(conn, db_user["id"], ip)
             add_web_audit_log(conn, db_user["id"], db_user["username"],
                               "login", ip, ua)
-            dest = next if next and next not in ("/login", "") else "/"
+            default_dest = "/my-attendance" if db_user.get("role") == "employee" else "/"
+            dest = next if next and next not in ("/login", "") else default_dest
+            if db_user.get("must_change_pwd"):
+                return redirect_with_flash("/profile", "warning",
+                    "For security, please change your password — it's currently set to your attendance ID.")
             return RedirectResponse(url=dest, status_code=302)
         if db_user:
             # Username matched but wrong password
@@ -380,6 +398,28 @@ def web_users_list(request: Request):
         "users":        users,
         "COMPANY_NAME": COMPANY_NAME,
     })
+
+
+@app.post("/web-users/backfill-employees")
+def web_users_backfill_employees(request: Request):
+    """One-time/occasional bulk action: create an 'employee' self-service
+    login for every Global User that doesn't have a web login yet."""
+    from db import get_global_user_ids_without_web_login, create_employee_login
+    conn = get_connection()
+    created, skipped = 0, 0
+    try:
+        gu_ids = get_global_user_ids_without_web_login(conn)
+        for gu_id in gu_ids:
+            result = create_employee_login(conn, gu_id, created_by=_current_user_id(request))
+            conn.commit()
+            if result.get('created'):
+                created += 1
+            else:
+                skipped += 1
+    finally:
+        conn.close()
+    return redirect_with_flash("/web-users", "success",
+        f"Created {created} employee login(s); skipped {skipped} (already had a login or no attendance ID).")
 
 
 @app.get("/web-users/new")
@@ -1221,7 +1261,21 @@ async def user_add(request: Request):
                     )
                 except Exception:
                     pass
-        return redirect_with_flash("/users", "success", f'User "{name}" was created.')
+
+        # Auto-create a self-service "employee" web login for this user
+        # (username = their attendance device ID). Never blocks user creation.
+        login_msg = ''
+        try:
+            from db import create_employee_login
+            result = create_employee_login(conn, gid, created_by=_current_user_id(request))
+            conn.commit()
+            if result.get('created'):
+                login_msg = (f' Web login created — username "{result["username"]}", '
+                             f'temporary password same as the username (must be changed on first login).')
+        except Exception:
+            conn.rollback()
+
+        return redirect_with_flash("/users", "success", f'User "{name}" was created.{login_msg}')
     finally:
         conn.close()
 
@@ -3323,6 +3377,160 @@ def reports_monthly_view(
         'now_str':          _npt_now_str(),
         'COMPANY_NAME':     COMPANY_NAME,
     })
+
+
+# ---- Employee self-service: own attendance + leaves ----------------------
+
+
+def _session_global_user_id(request: Request) -> int | None:
+    """The global_users.id linked to the logged-in web_user, if any."""
+    return request.session.get("global_user_id")
+
+
+@app.get("/my-attendance")
+def my_attendance(request: Request, bs_year: str | None = None, bs_month: str | None = None):
+    g_id = _session_global_user_id(request)
+    def_year, def_month = _bs_defaults()
+    bs_y = _int_param(bs_year)  or def_year
+    bs_m = _int_param(bs_month) or def_month
+    SI_MIN, SO_MIN = 600, 1020
+
+    if not g_id:
+        return render(templates, request, 'my_attendance.html', {
+            'report': None, 'error': 'Your login is not linked to an employee record. Contact an administrator.',
+            'sel_bs_year': bs_y, 'sel_bs_month': bs_m,
+            'def_year': def_year, 'def_month': def_month,
+            'COMPANY_NAME': COMPANY_NAME,
+        })
+
+    conn = get_connection()
+    try:
+        gu = get_global_user(conn, g_id)
+        with conn.cursor() as cur:
+            cur.execute("SELECT device_id, user_id FROM employees WHERE global_user_id = %s", (g_id,))
+            pairs = [(row[0], row[1]) for row in cur.fetchall()]
+
+        from nepali_utils import bs_month_info as _bsmi
+        mi = _bsmi(bs_y, bs_m)
+        error = None
+        report = None
+        if mi is None:
+            error = "Invalid BS year/month"
+        else:
+            from_ad = mi['first_ad']
+            to_ad   = mi['last_ad']
+            from db import get_employee_daily_attendance_multi as _multi
+            from db import get_shift_calendar as _gsc
+            from db import get_holidays as _ghols
+            from db import get_leave_applications as _gleaveapps
+            from datetime import date as _ddate, timedelta as _dtd
+            daily       = _multi(conn, pairs, from_ad, to_ad) if pairs else []
+            shift_cal   = _gsc(conn, g_id, from_ad, to_ad)
+            holiday_map = {
+                (h['holiday_ad'].isoformat() if hasattr(h['holiday_ad'], 'isoformat') else str(h['holiday_ad'])): h
+                for h in _ghols(conn, from_ad, to_ad)
+            }
+            leave_dates: set = set()
+            for la in _gleaveapps(conn, global_user_id=g_id, status='approved',
+                                  from_ad=from_ad, to_ad=to_ad):
+                ld = la['from_ad'] if isinstance(la['from_ad'], _ddate) else _ddate.fromisoformat(str(la['from_ad']))
+                le = la['to_ad']   if isinstance(la['to_ad'],   _ddate) else _ddate.fromisoformat(str(la['to_ad']))
+                while ld <= le:
+                    leave_dates.add(ld.isoformat())
+                    ld += _dtd(days=1)
+            days   = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN,
+                                             shift_cal, holiday_map, leave_dates)
+            totals = _monthly_totals(days)
+            report = {
+                'days': days, 'totals': totals,
+                'emp_name': gu.get('name') if gu else '',
+                'department': gu.get('department_name') if gu else '',
+                'bs_year': bs_y, 'bs_month': bs_m, 'month_name': mi['month_name'],
+                'from_ad': from_ad, 'to_ad': to_ad,
+            }
+    finally:
+        conn.close()
+
+    return render(templates, request, 'my_attendance.html', {
+        'report': report, 'error': error,
+        'sel_bs_year': bs_y, 'sel_bs_month': bs_m,
+        'def_year': def_year, 'def_month': def_month,
+        'now_str': _npt_now_str(),
+        'COMPANY_NAME': COMPANY_NAME,
+    })
+
+
+@app.get("/my-leaves")
+def my_leaves(request: Request):
+    g_id = _session_global_user_id(request)
+    if not g_id:
+        return render(templates, request, 'my_leaves.html', {
+            'error': 'Your login is not linked to an employee record. Contact an administrator.',
+            'applications': [], 'balances': [], 'leave_types': [],
+            'COMPANY_NAME': COMPANY_NAME,
+        })
+    conn = get_connection()
+    try:
+        from db import get_employee_leave_balance, get_leave_applications, get_all_leave_types
+        bs_year = _bs_defaults()[0]
+        applications = get_leave_applications(conn, global_user_id=g_id, limit=100)
+        balances     = get_employee_leave_balance(conn, g_id, bs_year)
+        leave_types  = get_all_leave_types(conn)
+    finally:
+        conn.close()
+    return render(templates, request, 'my_leaves.html', {
+        'error': None,
+        'applications': applications,
+        'balances': balances,
+        'leave_types': leave_types,
+        'bs_year': bs_year,
+        'COMPANY_NAME': COMPANY_NAME,
+    })
+
+
+@app.post("/my-leaves/apply")
+async def my_leaves_apply(request: Request):
+    from db import create_leave_application, get_holidays, count_leave_working_days
+    from nepali_utils import bs_to_ad
+
+    g_id = _session_global_user_id(request)
+    if not g_id:
+        return redirect_with_flash('/my-leaves', 'error', 'Your login is not linked to an employee record.')
+
+    form = await request.form()
+    leave_type_id = _int_param(form.get('leave_type_id'))
+    from_bs = (form.get('from_bs') or '').strip()
+    to_bs   = (form.get('to_bs') or '').strip()
+    reason  = (form.get('reason') or '').strip()
+
+    if not leave_type_id or not from_bs or not to_bs:
+        return redirect_with_flash('/my-leaves', 'error', 'Leave type and dates are required.')
+
+    from_ad = bs_to_ad(from_bs)
+    to_ad   = bs_to_ad(to_bs)
+    if not from_ad or not to_ad:
+        return redirect_with_flash('/my-leaves', 'error', 'Invalid BS dates.')
+    if from_ad > to_ad:
+        return redirect_with_flash('/my-leaves', 'error', 'From date must be before to date.')
+
+    conn = get_connection()
+    try:
+        hols = get_holidays(conn, from_ad, to_ad)
+        days_val = count_leave_working_days(from_ad, to_ad, hols)
+        if days_val <= 0:
+            return redirect_with_flash('/my-leaves', 'error',
+                                       'No working days in selected range (check for holidays/weekend).')
+        # Self-service applications always start pending — employees cannot self-approve.
+        create_leave_application(conn, g_id, leave_type_id,
+                                  from_bs, to_bs, from_ad, to_ad,
+                                  days_val, reason, _today_bs(), 'pending',
+                                  app_user_id=_current_user_id(request))
+    except Exception as exc:
+        return redirect_with_flash('/my-leaves', 'error', str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash('/my-leaves', 'success',
+                               f'Leave application submitted ({days_val} days) — pending approval.')
 
 
 @app.get("/reports/monthly/print-all")

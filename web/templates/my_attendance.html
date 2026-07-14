@@ -1,0 +1,128 @@
+{% extends 'base.html' %}
+
+{% block pageTitle %}My Attendance{% endblock %}
+{% block pageSubtitle %}Your own daily and monthly attendance record{% endblock %}
+
+{% block head %}
+<style>
+@media print {
+  .no-print { display: none !important; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="page-head no-print">
+  <div>
+    <p class="eyebrow">My Attendance</p>
+    <h1>{{ report.emp_name if report else 'My Attendance' }}</h1>
+    {% if report %}<p class="text-muted">{{ report.department or '' }}</p>{% endif %}
+  </div>
+  <div class="action-group">
+    <button class="btn btn-secondary btn-sm" onclick="window.print()">Print</button>
+  </div>
+</section>
+
+<div class="panel no-print" style="margin-bottom:var(--space-6)">
+  <div class="card-body" style="padding:var(--space-4) var(--space-5)">
+    <form method="get" action="/my-attendance" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="margin:0">
+        <label class="form-label" for="bs_year">BS Year</label>
+        <input class="form-input" style="width:110px" type="number" id="bs_year" name="bs_year" value="{{ sel_bs_year }}">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label class="form-label" for="bs_month">BS Month</label>
+        <select class="form-select" id="bs_month" name="bs_month">
+          {% for m in range(1, 13) %}
+          <option value="{{ m }}" {{ 'selected' if sel_bs_month == m else '' }}>{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">View</button>
+      <a href="/my-attendance" class="btn btn-ghost btn-sm">This Month</a>
+    </form>
+  </div>
+</div>
+
+{% if error %}
+<div class="panel" style="color:#b91c1c;padding:16px 20px">{{ error }}</div>
+{% elif report %}
+
+<div class="quick-stats no-print">
+  <div class="quick-stat">
+    <div class="quick-stat-content">
+      <div class="quick-stat-label">Present</div>
+      <div class="quick-stat-value">{{ report.totals.counts.Present }}</div>
+    </div>
+  </div>
+  <div class="quick-stat">
+    <div class="quick-stat-content">
+      <div class="quick-stat-label">Absent</div>
+      <div class="quick-stat-value">{{ report.totals.counts.Absent }}</div>
+    </div>
+  </div>
+  <div class="quick-stat">
+    <div class="quick-stat-content">
+      <div class="quick-stat-label">Leave</div>
+      <div class="quick-stat-value">{{ report.totals.counts.Leave }}</div>
+    </div>
+  </div>
+  <div class="quick-stat">
+    <div class="quick-stat-content">
+      <div class="quick-stat-label">Holiday / Festival</div>
+      <div class="quick-stat-value">{{ report.totals.counts.Holiday + report.totals.counts.Festival }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="card-header">
+    <h2 class="panel-title">{{ report.month_name }} {{ report.bs_year }} BS</h2>
+    <span class="text-sm text-muted">Print Time: {{ now_str }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table compact">
+      <thead>
+        <tr>
+          <th scope="col">Date (BS)</th>
+          <th scope="col">Day</th>
+          <th scope="col">Time In</th>
+          <th scope="col">Time Out</th>
+          <th scope="col">Worked</th>
+          <th scope="col">OT</th>
+          <th scope="col">Late In</th>
+          <th scope="col">Early Out</th>
+          <th scope="col">Remark</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for day in report.days %}
+        <tr>
+          <td>{{ day.bs_date }}</td>
+          <td>{{ day.day_name }}</td>
+          <td>{{ day.time_in or '—' }}</td>
+          <td>{{ day.time_out or '—' }}</td>
+          <td>{{ day.actual or '—' }}</td>
+          <td>{{ day.ot or '—' }}</td>
+          <td>{{ day.late_in or '—' }}</td>
+          <td>{{ day.early_out or '—' }}</td>
+          <td>
+            {% if day.remark == 'Present' %}<span class="status-pill success">Present</span>
+            {% elif day.remark == 'Absent' %}<span class="status-pill danger">Absent</span>
+            {% elif day.remark == 'Leave' %}<span class="status-pill info">Leave</span>
+            {% elif day.remark in ('Holiday','Festival') %}<span class="status-pill warning">{{ day.remark }}</span>
+            {% elif day.remark == 'Weekend' %}<span class="status-pill muted">Weekend</span>
+            {% else %}<span class="status-pill">{{ day.remark }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% else %}
+<div class="panel" style="padding:24px;text-align:center;color:var(--text-muted)">No attendance data found for this month.</div>
+{% endif %}
+{% endblock %}

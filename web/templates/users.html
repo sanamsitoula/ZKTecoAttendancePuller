@@ -89,7 +89,7 @@
     </select>
     <select class="filter-select" name="gu_status">
       <option value="">Status — all</option>
-      {% for st_val, st_label in [('ACTIVE','Active'),('INACTIVE','Inactive'),('RETIRED','Retired'),('DELETED','Deleted'),('PENDING','Pending'),('EDUCATION_LEAVE','Edu Leave'),('MEDICAL_LEAVE','Med Leave')] %}
+      {% for st_val, st_label in [('ACTIVE','Active'),('INACTIVE','Inactive'),('RETIRED','Retired'),('DELETED','Deleted'),('PENDING','Pending'),('EDUCATION_LEAVE','Edu Leave'),('MEDICAL_LEAVE','Med Leave'),('ON_LEAVE','On Leave'),('ON_PAID_LEAVE','On Paid Leave'),('PAID_LEAVE','Paid Leave'),('RESIGNED','Resigned'),('DECEASED','Deceased')] %}
       <option value="{{ st_val }}" {{ 'selected' if gu_status == st_val else '' }}>{{ st_label }}</option>
       {% endfor %}
     </select>
@@ -142,6 +142,16 @@
               <span class="badge badge-info">Edu Leave</span>
             {% elif st == 'MEDICAL_LEAVE' %}
               <span class="badge badge-info">Med Leave</span>
+            {% elif st == 'ON_LEAVE' %}
+              <span class="badge badge-info">On Leave</span>
+            {% elif st == 'ON_PAID_LEAVE' %}
+              <span class="badge badge-info">On Paid Leave</span>
+            {% elif st == 'PAID_LEAVE' %}
+              <span class="badge badge-info">Paid Leave</span>
+            {% elif st == 'RESIGNED' %}
+              <span class="badge badge-warning">Resigned</span>
+            {% elif st == 'DECEASED' %}
+              <span class="badge badge-danger">Deceased</span>
             {% else %}
               <span class="badge">{{ st }}</span>
             {% endif %}

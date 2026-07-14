@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+
+{% block pageTitle %}My Leaves{% endblock %}
+{% block pageSubtitle %}Your leave balance and applications{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">My Leaves</p>
+    <h1>Leave Balance &amp; Applications</h1>
+  </div>
+</section>
+
+{% if error %}
+<div class="panel" style="color:#b91c1c;padding:16px 20px">{{ error }}</div>
+{% else %}
+
+{# ── Leave Balance ────────────────────────────────────────────────────── #}
+<div class="panel" style="margin-bottom:var(--space-6)">
+  <div class="card-header">
+    <h2 class="panel-title">Leave Balance — {{ bs_year }} BS</h2>
+  </div>
+  <div class="table-responsive">
+    <table class="table compact">
+      <thead>
+        <tr>
+          <th scope="col">Leave Type</th>
+          <th scope="col">Opening</th>
+          <th scope="col">Earned</th>
+          <th scope="col">Taken</th>
+          <th scope="col">Available</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in balances %}
+        <tr>
+          <td><strong>{{ b.leave_type_name }}</strong> <span class="text-muted">({{ b.code }})</span></td>
+          <td>{{ b.opening_balance }}</td>
+          <td>{{ b.days_earned }}</td>
+          <td>{{ b.days_taken }}</td>
+          <td><strong>{{ b.available }}</strong></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">No leave balance set up yet — contact an administrator.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── Apply for Leave ─────────────────────────────────────────────────── #}
+<div class="panel" style="margin-bottom:var(--space-6);max-width:640px">
+  <div class="card-header">
+    <h2 class="panel-title">Apply for Leave</h2>
+  </div>
+  <div class="card-body" style="padding:var(--space-5)">
+    <form method="post" action="/my-leaves/apply">
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label" for="leave_type_id">Leave Type <span class="required">*</span></label>
+          <select class="form-select" id="leave_type_id" name="leave_type_id" required>
+            <option value="">— select —</option>
+            {% for lt in leave_types %}
+            <option value="{{ lt.id }}">{{ lt.name }} ({{ lt.code }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="from_bs">From (BS) <span class="required">*</span></label>
+          <input class="form-input bsdp" id="from_bs" name="from_bs" required placeholder="YYYY-MM-DD">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="to_bs">To (BS) <span class="required">*</span></label>
+          <input class="form-input bsdp" id="to_bs" name="to_bs" required placeholder="YYYY-MM-DD">
+        </div>
+        <div class="form-group" style="grid-column:1/-1">
+          <label class="form-label" for="reason">Reason</label>
+          <input class="form-input" id="reason" name="reason" placeholder="Optional">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary" style="margin-top:var(--space-4)">Submit Application</button>
+      <p class="text-sm text-muted" style="margin-top:var(--space-3)">
+        Applications start as <strong>Pending</strong> and need admin/manager approval before they count against your balance.
+      </p>
+    </form>
+  </div>
+</div>
+
+{# ── My Applications ─────────────────────────────────────────────────── #}
+<div class="panel">
+  <div class="card-header">
+    <h2 class="panel-title">My Applications</h2>
+  </div>
+  <div class="table-responsive">
+    <table class="table compact">
+      <thead>
+        <tr>
+          <th scope="col">Leave Type</th>
+          <th scope="col">From</th>
+          <th scope="col">To</th>
+          <th scope="col">Days</th>
+          <th scope="col">Reason</th>
+          <th scope="col">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in applications %}
+        <tr>
+          <td>{{ a.leave_type_name }}</td>
+          <td>{{ a.from_bs }}</td>
+          <td>{{ a.to_bs }}</td>
+          <td>{{ a.days }}</td>
+          <td class="text-sm">{{ a.reason or '—' }}</td>
+          <td>
+            {% if a.status == 'approved' %}<span class="status-pill success">Approved</span>
+            {% elif a.status == 'rejected' %}<span class="status-pill danger">Rejected</span>
+            {% else %}<span class="status-pill warning">Pending</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">No leave applications yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}

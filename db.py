@@ -3338,19 +3338,59 @@ def get_all_web_users(conn) -> list:
 
 
 def create_web_user(conn, username: str, password_hash: str, display_name: str,
-                    role: str, global_user_id, created_by: int) -> int:
+                    role: str, global_user_id, created_by: int,
+                    must_change_pwd: bool = False) -> int:
     sql = """
         INSERT INTO web_users (username, password_hash, display_name, role,
-                               global_user_id, created_by, updated_by)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                               global_user_id, must_change_pwd, created_by, updated_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """
     with conn.cursor() as cur:
         cur.execute(sql, (username, password_hash, display_name, role,
-                          global_user_id or None, created_by, created_by))
+                          global_user_id or None, must_change_pwd, created_by, created_by))
         uid = cur.fetchone()[0]
     conn.commit()
     return uid
+
+
+def get_global_user_ids_without_web_login(conn) -> list:
+    """global_users.id for every active employee who has no linked web_users
+    row yet — used to backfill employee logins in bulk."""
+    sql = """
+        SELECT gu.id
+        FROM global_users gu
+        LEFT JOIN web_users wu ON wu.global_user_id = gu.id
+        WHERE gu.emp_status IS DISTINCT FROM 'DELETED'
+          AND wu.id IS NULL
+        ORDER BY gu.id
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        return [row[0] for row in cur.fetchall()]
+
+
+def create_employee_login(conn, gu_id: int, created_by: int = 0) -> dict:
+    """Create a 'employee' role web login for a global user, username =
+    their attendance device ID (global_user_id), default password = the
+    same ID (forced to change on first login). Returns a status dict;
+    skips (does not raise) if a web_user with that username already exists,
+    since web_users.username has no DB-level UNIQUE constraint."""
+    gu = get_global_user(conn, gu_id)
+    if not gu:
+        return {'created': False, 'reason': 'global user not found'}
+    username = (gu.get('global_user_id') or '').strip()
+    if not username:
+        return {'created': False, 'reason': 'employee has no attendance device ID'}
+    if get_web_user_by_username(conn, username):
+        return {'created': False, 'reason': 'username already in use', 'username': username}
+    from web.auth import hash_password
+    pw_hash = hash_password(username)
+    new_id = create_web_user(
+        conn, username, pw_hash, gu.get('name') or username,
+        'employee', gu_id, created_by, must_change_pwd=True,
+    )
+    return {'created': True, 'id': new_id, 'username': username}
 
 
 def update_web_user(conn, user_id: int, updated_by: int, **fields) -> None:
