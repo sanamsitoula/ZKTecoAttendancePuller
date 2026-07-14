@@ -3441,12 +3441,24 @@ def my_attendance(request: Request, bs_year: str | None = None, bs_month: str | 
             days   = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN,
                                              shift_cal, holiday_map, leave_dates)
             totals = _monthly_totals(days)
+            device_name = ''
+            if pairs:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT name FROM devices WHERE id = ANY(%s)", ([p[0] for p in pairs],))
+                    device_name = ', '.join(r[0] for r in cur.fetchall())
             report = {
-                'days': days, 'totals': totals,
-                'emp_name': gu.get('name') if gu else '',
-                'department': gu.get('department_name') if gu else '',
-                'bs_year': bs_y, 'bs_month': bs_m, 'month_name': mi['month_name'],
-                'from_ad': from_ad, 'to_ad': to_ad,
+                'days':         days,
+                'totals':       totals,
+                'emp_name':     gu.get('name') if gu else '',
+                'emp_user_id':  gu.get('global_user_id') if gu else '',
+                'device_name':  device_name,
+                'department':   gu.get('department_name') if gu else '',
+                'directorate':  gu.get('directorate_name') if gu else '',
+                'section':      gu.get('section_name') if gu else '',
+                'unit':         gu.get('unit_name') if gu else '',
+                'bs_year':      bs_y, 'bs_month': bs_m, 'month_name': mi['month_name'],
+                'from_ad':      from_ad, 'to_ad': to_ad,
+                'global_id':    g_id,
             }
     finally:
         conn.close()
