@@ -578,10 +578,14 @@ CREATE TABLE IF NOT EXISTS company_settings (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Insert default company settings if not exists
+-- Insert default company settings only if the table is truly empty.
+-- (ON CONFLICT DO NOTHING has no effect here since there's no unique
+-- constraint to conflict against — this WHERE NOT EXISTS guard is what
+-- actually makes this a one-time seed instead of inserting a fresh
+-- duplicate default row on every server restart.)
 INSERT INTO company_settings (company_name, address, phone, email, website)
-VALUES ('Janak Education', 'Kathmandu, Nepal', '+977-XXXXXXXX', 'info@janakeducation.edu.np', 'https://janakeducation.edu.np')
-ON CONFLICT DO NOTHING;
+SELECT 'Janak Education', 'Kathmandu, Nepal', '+977-XXXXXXXX', 'info@janakeducation.edu.np', 'https://janakeducation.edu.np'
+WHERE NOT EXISTS (SELECT 1 FROM company_settings);
 """
 
 
@@ -3649,8 +3653,9 @@ def update_company_settings(conn, updated_by: int, **fields) -> int:
         sql = f"INSERT INTO company_settings ({', '.join(cols)}) VALUES ({', '.join(placeholders)}) RETURNING id"
         with conn.cursor() as cur:
             cur.execute(sql, vals)
+            new_id = cur.fetchone()[0]
         conn.commit()
-        return cur.fetchone()[0]
+        return new_id
 
 
 # ─── Leave with type info ─────────────────────────────────────────────────────
