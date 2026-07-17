@@ -3638,7 +3638,12 @@ def reports_monthly_print_all(
                 reports.append({
                     'emp_name':    emp['display_name'],
                     'emp_user_id': emp['company_id'] or (emp['devices'][0]['user_id'] if emp['devices'] else ''),
+                    'global_id':   emp.get('global_id'),
                     'device_name': ', '.join(dv['device_name'] for dv in emp['devices']),
+                    'department':  emp.get('department_name', ''),
+                    'directorate': emp.get('directorate_name', ''),
+                    'section':     emp.get('section_name', ''),
+                    'unit':        emp.get('unit_name', ''),
                     'days':        days,
                     'totals':      totals,
                     'month_name':  mi['month_name'],
