@@ -401,6 +401,20 @@
               <span class="form-hint">Auto-filled from dates. Edit for half-days.</span>
             </div>
             <div class="form-group">
+              <label class="form-label">&nbsp;</label>
+              <div style="display:flex;align-items:center;gap:var(--space-3);height:38px">
+                <label style="display:flex;align-items:center;gap:6px;font-weight:500;cursor:pointer">
+                  <input type="checkbox" name="is_half_day" id="add-half-day" value="1">
+                  Half Day
+                </label>
+                <select class="form-select" name="half_day_part" id="add-half-day-part" style="display:none;width:auto">
+                  <option value="first_half">First Half</option>
+                  <option value="second_half">Second Half</option>
+                </select>
+              </div>
+              <span class="form-hint">Only valid when From and To Date are the same day.</span>
+            </div>
+            <div class="form-group">
               <label class="form-label">Status</label>
               <select class="form-select" name="status">
                 <option value="approved">Approved</option>
@@ -703,6 +717,25 @@
 
   watchHidden('from_ad_h');
   watchHidden('to_ad_h');
+
+  /* ── Half-day leave toggle ── */
+  (function () {
+    var halfChk  = document.getElementById('add-half-day');
+    var halfPart = document.getElementById('add-half-day-part');
+    var daysEl   = document.getElementById('add-days');
+    if (!halfChk || !halfPart || !daysEl) return;
+    halfChk.addEventListener('change', function () {
+      if (halfChk.checked) {
+        halfPart.style.display = '';
+        daysEl.value = '0.5';
+        daysEl.readOnly = true;
+      } else {
+        halfPart.style.display = 'none';
+        daysEl.readOnly = false;
+        calcDays();
+      }
+    });
+  })();
 
   /* ── Balance table filter ── */
   window.filterBalances = function(q) {

@@ -133,7 +133,13 @@
         {{ dcell(day.early_out,   absent, 'border-right:1px solid #e5e7eb') }}
         {{ dcell(day.early_in,    absent, 'border-right:1px solid #e5e7eb') }}
         {{ dcell(day.late_out,    absent, 'border-right:1px solid #e5e7eb') }}
-        <td style="padding:4px 6px;border-bottom:1px solid #e5e7eb;text-align:center">{{ day.remark }}</td>
+        <td style="padding:4px 6px;border-bottom:1px solid #e5e7eb;text-align:center">
+          {%- if day.remark == 'Leave' and day.leave_type_name -%}
+            {{ day.leave_type_name }}{% if day.leave_is_half_day %} (Half{{ ' ' ~ day.leave_half_day_part if day.leave_half_day_part }}){% endif %}
+          {%- else -%}
+            {{ day.remark }}
+          {%- endif -%}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
@@ -160,7 +166,7 @@
         <td style="padding:4px 6px;text-align:center">W = {{ report.totals.counts.Weekend }}</td>
         <td style="padding:4px 6px;text-align:center;border-right:1px solid #e5e7eb;color:#b45309">H = {{ report.totals.counts.Holiday }}</td>
         <td style="padding:4px 6px;text-align:center;color:#7c3aed">F = {{ report.totals.counts.Festival }}</td>
-        <td style="padding:4px 6px;text-align:center;border-right:1px solid #e5e7eb" colspan="2">L = {{ report.totals.counts.Leave }}</td>
+        <td style="padding:4px 6px;text-align:center;border-right:1px solid #e5e7eb" colspan="2">L = {{ '%g'|format(report.totals.counts.Leave) }}</td>
         <td style="padding:4px 6px;text-align:center">M = {{ report.totals.counts.Misc }}</td>
         <td style="padding:4px 6px;text-align:center" colspan="2">Total = {{ report.totals.total_days }}</td>
         <td style="padding:4px 6px;text-align:center"></td>

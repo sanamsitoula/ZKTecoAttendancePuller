@@ -2976,7 +2976,7 @@ def set_employee_org(conn, global_user_id: int, department_id=None,
         """, (department_id or None, section_id or None, unit_id or None, global_user_id))
     conn.commit()
 
-def get_all_global_users_with_dept(conn) -> list:
+def get_all_global_users_with_dept(conn, include_deleted: bool = False) -> list:
     sql = """
         SELECT gu.id, gu.global_user_id, gu.global_user_id AS company_id,
                gu.employee_id, gu.name,
@@ -2989,8 +2989,9 @@ def get_all_global_users_with_dept(conn) -> list:
         LEFT JOIN directorates dr ON dr.id = d.directorate_id
         LEFT JOIN sections     s  ON s.id  = gu.section_id
         LEFT JOIN units        u  ON u.id  = gu.unit_id
+        {where}
         ORDER BY LOWER(COALESCE(gu.name, gu.global_user_id, ''))
-    """
+    """.format(where="" if include_deleted else "WHERE gu.emp_status IS DISTINCT FROM 'DELETED'")
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(sql)
         return [dict(r) for r in cur.fetchall()]

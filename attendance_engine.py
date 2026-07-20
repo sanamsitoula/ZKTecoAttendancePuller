@@ -45,12 +45,17 @@ def compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
                             default_si_min: int = 600, default_so_min: int = 1020,
                             shift_calendar: dict = None,
                             holiday_map: dict = None,
-                            leave_map: set = None) -> list:
+                            leave_map: dict = None) -> list:
     """Build per-day dicts matching the 16-column ZKBioTime periodic attendance format.
 
     Columns: Work Date | Planned In | Planned Out | Work Time |
              Time In | Time Out | Break In | Break Out | Time |
              Actual | OT | LateIn | EarlyOut | EarlyIn | LateOut | Remark
+
+    `leave_map` maps ISO date string -> leave info dict (leave_type_name, code,
+    is_half_day, half_day_part) as returned by db.get_leaves_with_type_for_month /
+    get_leaves_with_type_batch. A plain set of date strings is also accepted for
+    backward compatibility (no leave-type detail will be available in that case).
     """
     punch_map = {r['work_date']: r for r in daily_rows}
     start = date.fromisoformat(from_ad)
@@ -129,7 +134,8 @@ def compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
         if not is_off_day and work_min and work_min > planned_work:
             ot = fmt_min(work_min - planned_work)
 
-        is_on_leave = (not row) and (d.isoformat() in (leave_map or set()))
+        leave_entry = (leave_map or {}).get(d.isoformat()) if hasattr(leave_map, 'get') else None
+        is_on_leave = (not row) and (d.isoformat() in (leave_map or {}))
 
         if is_weekend:
             remark = 'Weekend'
@@ -141,6 +147,9 @@ def compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
             remark = 'Leave'
         else:
             remark = 'Absent'
+
+        leave_is_half = bool((leave_entry or {}).get('is_half_day')) if is_on_leave else False
+        leave_type_name = (leave_entry or {}).get('leave_type_name', '') if is_on_leave else ''
 
         days.append({
             'bs_date': bs_str,
@@ -164,6 +173,11 @@ def compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
             'late_out': late_out,
             'remark': remark,
             'work_min': work_min or 0,
+            'leave_type_name': leave_type_name,
+            'leave_type_code': (leave_entry or {}).get('code', '') if is_on_leave else '',
+            'leave_is_half_day': leave_is_half,
+            'leave_half_day_part': (leave_entry or {}).get('half_day_part', '') if is_on_leave else '',
+            'leave_days': (0.5 if leave_is_half else 1.0) if is_on_leave else 0.0,
         })
         d += timedelta(days=1)
 
@@ -195,7 +209,9 @@ def monthly_totals(days: list, planned_work: int = 0) -> dict:
         tot_early_in += _parse(d['early_in'])
         tot_late_out += _parse(d['late_out'])
         r = d['remark']
-        if r in counts:
+        if r == 'Leave':
+            counts['Leave'] += d.get('leave_days', 1.0)
+        elif r in counts:
             counts[r] += 1
 
     working_days = len(days) - counts['Weekend'] - counts['Holiday'] - counts['Festival']

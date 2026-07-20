@@ -39,17 +39,33 @@
 
         {# Global User Linking #}
         <div class="form-group">
-          <label class="form-label" for="global_user_id">Link to Global User ID</label>
-          <select class="form-select" id="global_user_id" name="global_user_id">
+          <label class="form-label" for="global_user_id_search">Link to Global User ID</label>
+          <input type="text" class="form-input" id="global_user_id_search" placeholder="Search by ID or name…" autocomplete="off" style="margin-bottom:var(--space-2)">
+          <select class="form-select" id="global_user_id" name="global_user_id" size="8" style="height:auto">
             <option value="">— None (Device Only) —</option>
             {% for gu in global_users %}
-            <option value="{{ gu.id }}" {{ 'selected' if employee.global_user_id == gu.id }}>
+            <option value="{{ gu.id }}" data-search="{{ (gu.global_user_id ~ ' ' ~ (gu.name or ''))|lower }}" {{ 'selected' if employee.global_user_id == gu.id }}>
               {{ gu.global_user_id }} — {{ gu.name }}
             </option>
             {% endfor %}
           </select>
           <span class="text-sm text-muted">Linking to a global user ensures this employee has a single identity across all devices.</span>
         </div>
+        <script>
+        (function () {
+          var searchBox = document.getElementById('global_user_id_search');
+          var select = document.getElementById('global_user_id');
+          if (!searchBox || !select) return;
+          searchBox.addEventListener('input', function () {
+            var q = searchBox.value.trim().toLowerCase();
+            Array.prototype.forEach.call(select.options, function (opt) {
+              if (!opt.value) { opt.hidden = false; return; }
+              var haystack = opt.getAttribute('data-search') || '';
+              opt.hidden = q.length > 0 && haystack.indexOf(q) === -1;
+            });
+          });
+        })();
+        </script>
 
         <div style="display:flex;gap:var(--space-3);margin-top:var(--space-4)">
           <button type="submit" class="btn btn-primary">Save Changes</button>

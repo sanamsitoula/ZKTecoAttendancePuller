@@ -1681,11 +1681,15 @@ def employee_edit_page(request: Request, emp_id: int):
 
 @app.post("/employees/{emp_id}/edit")
 async def employee_edit_post(request: Request, emp_id: int):
-    """Update employee name on device and in DB."""
+    """Update employee name, user_id, and global user link in DB."""
     form = await request.form()
     new_name = (form.get('name') or '').strip()
+    new_user_id = (form.get('user_id') or '').strip()
+    global_user_id_raw = (form.get('global_user_id') or '').strip()
     if not new_name:
         return redirect_with_flash(f"/employees/{emp_id}/edit", "error", "Name is required.")
+    if not new_user_id:
+        return redirect_with_flash(f"/employees/{emp_id}/edit", "error", "User ID is required.")
 
     conn = get_connection()
     try:
@@ -1693,9 +1697,19 @@ async def employee_edit_post(request: Request, emp_id: int):
         if not emp:
             return redirect_with_flash("/employees", "error", "Employee not found.")
 
+        global_user_id = int(global_user_id_raw) if global_user_id_raw else None
+        if global_user_id is not None:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM global_users WHERE id = %s", (global_user_id,))
+                if not cur.fetchone():
+                    return redirect_with_flash(f"/employees/{emp_id}/edit", "error", "Selected global user does not exist.")
+
         # Update in DB
         with conn.cursor() as cur:
-            cur.execute("UPDATE employees SET name = %s WHERE id = %s", (new_name, emp_id))
+            cur.execute(
+                "UPDATE employees SET name = %s, user_id = %s, global_user_id = %s WHERE id = %s",
+                (new_name, new_user_id, global_user_id, emp_id),
+            )
         conn.commit()
 
         return redirect_with_flash(f"/employees/{emp_id}/edit", "success", f"Employee updated to '{new_name}'.")
@@ -3178,24 +3192,16 @@ def reports_monthly_view(
                 from db import get_employee_daily_attendance_multi as _multi
                 from db import get_shift_calendar as _gsc
                 from db import get_holidays as _ghols
-                from db import get_leave_applications as _gleaveapps
-                from datetime import date as _ddate, timedelta as _dtd
+                from db import get_leaves_with_type_for_month as _gleavetypes
                 daily       = _multi(conn, pairs, from_ad, to_ad)
                 shift_cal   = _gsc(conn, g_id, from_ad, to_ad)
                 holiday_map = {
                     (h['holiday_ad'].isoformat() if hasattr(h['holiday_ad'], 'isoformat') else str(h['holiday_ad'])): h
                     for h in _ghols(conn, from_ad, to_ad)
                 }
-                leave_dates: set = set()
-                for la in _gleaveapps(conn, global_user_id=g_id, status='approved',
-                                      from_ad=from_ad, to_ad=to_ad):
-                    ld = la['from_ad'] if isinstance(la['from_ad'], _ddate) else _ddate.fromisoformat(str(la['from_ad']))
-                    le = la['to_ad']   if isinstance(la['to_ad'],   _ddate) else _ddate.fromisoformat(str(la['to_ad']))
-                    while ld <= le:
-                        leave_dates.add(ld.isoformat())
-                        ld += _dtd(days=1)
+                leave_map = _gleavetypes(conn, g_id, from_ad, to_ad)
                 days   = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN,
-                                                 shift_cal, holiday_map, leave_dates)
+                                                 shift_cal, holiday_map, leave_map)
                 totals = _monthly_totals(days)
 
                 report = {
@@ -3288,24 +3294,16 @@ def my_attendance(request: Request, bs_year: str | None = None, bs_month: str | 
             from db import get_employee_daily_attendance_multi as _multi
             from db import get_shift_calendar as _gsc
             from db import get_holidays as _ghols
-            from db import get_leave_applications as _gleaveapps
-            from datetime import date as _ddate, timedelta as _dtd
+            from db import get_leaves_with_type_for_month as _gleavetypes
             daily       = _multi(conn, pairs, from_ad, to_ad) if pairs else []
             shift_cal   = _gsc(conn, g_id, from_ad, to_ad)
             holiday_map = {
                 (h['holiday_ad'].isoformat() if hasattr(h['holiday_ad'], 'isoformat') else str(h['holiday_ad'])): h
                 for h in _ghols(conn, from_ad, to_ad)
             }
-            leave_dates: set = set()
-            for la in _gleaveapps(conn, global_user_id=g_id, status='approved',
-                                  from_ad=from_ad, to_ad=to_ad):
-                ld = la['from_ad'] if isinstance(la['from_ad'], _ddate) else _ddate.fromisoformat(str(la['from_ad']))
-                le = la['to_ad']   if isinstance(la['to_ad'],   _ddate) else _ddate.fromisoformat(str(la['to_ad']))
-                while ld <= le:
-                    leave_dates.add(ld.isoformat())
-                    ld += _dtd(days=1)
+            leave_map = _gleavetypes(conn, g_id, from_ad, to_ad)
             days   = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN,
-                                             shift_cal, holiday_map, leave_dates)
+                                             shift_cal, holiday_map, leave_map)
             totals = _monthly_totals(days)
             device_name = ''
             if pairs:
@@ -3434,29 +3432,18 @@ def reports_monthly_print_all(
             from_ad, to_ad = mi['first_ad'], mi['last_ad']
             from db import get_shift_calendar as _gsc
             from db import get_holidays as _ghols
-            from db import get_leave_applications as _gleaveapps
-            from datetime import date as _ddate, timedelta as _dtd
+            from db import get_leaves_with_type_batch as _gleavetypesbatch
             holiday_map = {
                 (h['holiday_ad'].isoformat() if hasattr(h['holiday_ad'], 'isoformat') else str(h['holiday_ad'])): h
                 for h in _ghols(conn, from_ad, to_ad)
             }
-            # Build per-employee leave date sets for the month
-            all_la = _gleaveapps(conn, status='approved', from_ad=from_ad, to_ad=to_ad, limit=50000)
-            _leave_by_emp: dict = {}
-            for la in all_la:
-                gid = la['global_user_id']
-                ld  = la['from_ad'] if isinstance(la['from_ad'], _ddate) else _ddate.fromisoformat(str(la['from_ad']))
-                le  = la['to_ad']   if isinstance(la['to_ad'],   _ddate) else _ddate.fromisoformat(str(la['to_ad']))
-                if gid not in _leave_by_emp:
-                    _leave_by_emp[gid] = set()
-                while ld <= le:
-                    _leave_by_emp[gid].add(ld.isoformat())
-                    ld += _dtd(days=1)
+            # Build per-employee leave date -> leave-type maps for the month
+            _leave_by_emp = _gleavetypesbatch(conn, from_ad, to_ad)
             for emp in all_emps:
                 pairs     = [(dv['device_id'], dv['user_id']) for dv in emp['devices']]
                 daily     = _multi(conn, pairs, from_ad, to_ad)
                 shift_cal = _gsc(conn, emp.get('global_id'), from_ad, to_ad)
-                leave_map = _leave_by_emp.get(emp.get('global_id'), set())
+                leave_map = _leave_by_emp.get(emp.get('global_id'), {})
                 days      = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN,
                                                     shift_cal, holiday_map, leave_map)
                 totals    = _monthly_totals(days)
@@ -4137,6 +4124,8 @@ async def add_leave(request: Request):
     to_bs          = _fp('to_bs')
     reason         = _fp('reason')
     status         = _fp('status') or 'approved'
+    is_half_day    = (form.get('is_half_day') or '').strip() in ('1', 'true', 'on')
+    half_day_part  = (_fp('half_day_part') or '') if is_half_day else ''
 
     if not global_user_id or not leave_type_id or not from_bs or not to_bs:
         return redirect_with_flash('/leaves', 'error',
@@ -4148,18 +4137,24 @@ async def add_leave(request: Request):
         return redirect_with_flash('/leaves', 'error', 'Invalid BS dates.')
     if from_ad > to_ad:
         return redirect_with_flash('/leaves', 'error', 'From date must be before to date.')
+    if is_half_day and from_ad != to_ad:
+        return redirect_with_flash('/leaves', 'error',
+                                   'Half-day leave requires From and To Date to be the same day.')
 
-    try:
-        days_val = float(_fp('days') or '0')
-    except ValueError:
-        days_val = 0.0
-    if days_val <= 0:
-        conn = get_connection()
+    if is_half_day:
+        days_val = 0.5
+    else:
         try:
-            hols = get_holidays(conn, from_ad, to_ad)
-        finally:
-            conn.close()
-        days_val = count_leave_working_days(from_ad, to_ad, hols)
+            days_val = float(_fp('days') or '0')
+        except ValueError:
+            days_val = 0.0
+        if days_val <= 0:
+            conn = get_connection()
+            try:
+                hols = get_holidays(conn, from_ad, to_ad)
+            finally:
+                conn.close()
+            days_val = count_leave_working_days(from_ad, to_ad, hols)
     if days_val <= 0:
         return redirect_with_flash('/leaves', 'error',
                                    'No working days in selected range (check for holidays/weekend).')
@@ -4170,7 +4165,8 @@ async def add_leave(request: Request):
         create_leave_application(conn, global_user_id, leave_type_id,
                                   from_bs, to_bs, from_ad, to_ad,
                                   days_val, reason, today_bs, status,
-                                  app_user_id=_current_user_id(request))
+                                  app_user_id=_current_user_id(request),
+                                  is_half_day=is_half_day, half_day_part=half_day_part)
     except Exception as exc:
         return redirect_with_flash('/leaves', 'error', str(exc))
     finally:
