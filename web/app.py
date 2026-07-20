@@ -25,6 +25,12 @@ from db import (get_employee_with_device, get_employees_with_device,
                 get_all_departments)
 import db as db_mod
 import puller as puller_mod
+from attendance_engine import (
+    fmt_min as _fmt_min,
+    time_to_min as _time_to_min,
+    compute_monthly_report as _compute_monthly_report,
+    monthly_totals as _monthly_totals,
+)
 import re
 import time as _time
 import concurrent.futures
@@ -969,6 +975,14 @@ def _int_param(v) -> int | None:
         return None
     s = str(v).strip()
     return int(s) if s else None
+
+
+def _float_or_none(v) -> float | None:
+    """Convert a form value to float, returning None for empty / None inputs."""
+    if v is None:
+        return None
+    s = str(v).strip()
+    return float(s) if s else None
 
 
 def _build_emp_query(device_id, search, date_str, sort_by, sort_dir, limit=1000, offset=0):
@@ -2970,199 +2984,10 @@ def api_bs_month_info(year: int = 2082, month: int = 1):
 # ---- Monthly attendance report ------------------------------------------
 
 
-def _fmt_min(minutes: int | None) -> str:
-    if minutes is None or minutes <= 0:
-        return ''
-    h, m = divmod(int(minutes), 60)
-    return f"{h:02d}:{m:02d}"
-
-
-def _time_to_min(t) -> int | None:
-    """Convert a datetime.time or HH:MM string to minutes since midnight."""
-    if t is None:
-        return None
-    try:
-        if hasattr(t, 'hour'):
-            return t.hour * 60 + t.minute
-        parts = str(t).split(':')
-        return int(parts[0]) * 60 + int(parts[1])
-    except Exception:
-        return None
-
-
-def _compute_monthly_report(daily_rows: list, from_ad: str, to_ad: str,
-                              default_si_min: int = 600, default_so_min: int = 1020,
-                              shift_calendar: dict = None,
-                              holiday_map: dict = None,
-                              leave_map: set = None) -> list:
-    """Build per-day dicts matching the 16-column ZKBioTime periodic attendance format.
-
-    Columns: Work Date | Planned In | Planned Out | Work Time |
-             Time In | Time Out | Break In | Break Out | Time |
-             Actual | OT | LateIn | EarlyOut | EarlyIn | LateOut | Remark
-    """
-    from datetime import date, timedelta
-    from nepali_utils import ad_to_bs_tuple
-
-    NEPAL_DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
-
-    punch_map = {r['work_date']: r for r in daily_rows}
-    start = date.fromisoformat(from_ad)
-    end   = date.fromisoformat(to_ad)
-
-    def _pstr(pd) -> str:
-        if not pd:
-            return ''
-        t = pd.get('time')
-        return t.strftime('%H:%M') if hasattr(t, 'strftime') else str(t)[:5]
-
-    days = []
-    d = start
-    while d <= end:
-        bs_t = ad_to_bs_tuple(d)
-        bs_str = f"{bs_t[2]:02d}/{bs_t[1]:02d}/{bs_t[0]}" if bs_t else ''
-        nepal_dow = d.isoweekday() % 7
-        day_name  = NEPAL_DAYS[nepal_dow]
-        is_weekend = (nepal_dow == 6)
-
-        # Per-day shift lookup (employee-specific or department-level via shift_calendar)
-        shift_info   = (shift_calendar or {}).get(d)
-        si_min       = shift_info['start_min'] if shift_info else default_si_min
-        so_min       = shift_info['end_min']   if shift_info else default_so_min
-        shift_name   = shift_info['name']      if shift_info else ''
-        planned_work = so_min - si_min
-
-        holiday_entry = (holiday_map or {}).get(d.isoformat())
-        is_holiday    = bool(holiday_entry)
-        holiday_type  = (holiday_entry or {}).get('holiday_type', 'public') if is_holiday else ''
-        is_off_day    = is_weekend or is_holiday
-
-        row = punch_map.get(d)
-
-        pts = []
-        if row:
-            if row.get('all_punches_with_device'):
-                pts = [p for p in row['all_punches_with_device'] if p]
-            elif row.get('all_punch_times'):
-                pts = [{'time': p, 'device_name': ''} for p in row['all_punch_times'] if p]
-
-        first_punch = row['first_punch'] if row else None
-        last_punch  = row['last_punch']  if row else None
-
-        # 1 punch: Time In only
-        # 2 punches: Time In + Break Out
-        # 3 punches: Time In + Time Out + Break Out
-        # 4+:        Time In + Time Out + Break In + Break Out
-        time_in   = _pstr(pts[0])  if len(pts) >= 1 else ''
-        time_out  = _pstr(pts[1])  if len(pts) >= 3 else ''
-        break_in  = _pstr(pts[2])  if len(pts) >= 4 else ''
-        break_out = _pstr(pts[-1]) if len(pts) >= 2 else ''
-
-        ci_min = _time_to_min(first_punch)
-        co_min = _time_to_min(last_punch) if (last_punch and first_punch and last_punch != first_punch) else None
-
-        work_min = (co_min - ci_min) if (ci_min is not None and co_min is not None and co_min > ci_min) else None
-        if work_min is not None:
-            time_col = _fmt_min(work_min)
-        elif len(pts) == 1:
-            time_col = _pstr(pts[0])
-        else:
-            time_col = ''
-
-        late_in = early_out = early_in = late_out = ot = ''
-        if not is_off_day and ci_min is not None:
-            if ci_min > si_min:
-                late_in  = _fmt_min(ci_min - si_min)
-            elif ci_min < si_min:
-                early_in = _fmt_min(si_min - ci_min)
-        if not is_off_day and co_min is not None:
-            if co_min < so_min:
-                early_out = _fmt_min(so_min - co_min)
-            elif co_min > so_min:
-                late_out  = _fmt_min(co_min - so_min)
-        if not is_off_day and work_min and work_min > planned_work:
-            ot = _fmt_min(work_min - planned_work)
-
-        is_on_leave = (not row) and (d.isoformat() in (leave_map or set()))
-
-        if is_weekend:
-            remark = 'Weekend'
-        elif is_holiday:
-            remark = 'Festival' if holiday_type == 'festival' else 'Holiday'
-        elif row:
-            remark = 'Present'
-        elif is_on_leave:
-            remark = 'Leave'
-        else:
-            remark = 'Absent'
-
-        days.append({
-            'bs_date':      bs_str,
-            'ad_date':      d.isoformat(),
-            'day_name':     day_name,
-            'shift_name':   shift_name,
-            'planned_in':   _fmt_min(si_min)       if not is_off_day else '00:00',
-            'planned_out':  _fmt_min(so_min)        if not is_off_day else '00:00',
-            'planned_work': _fmt_min(planned_work)  if not is_off_day else '',
-            'planned_min':  planned_work             if not is_off_day else 0,
-            'time_in':      time_in,
-            'time_out':     time_out,
-            'break_in':     break_in,
-            'break_out':    break_out,
-            'time_col':     time_col,
-            'actual':       time_col,
-            'ot':           ot,
-            'late_in':      late_in,
-            'early_out':    early_out,
-            'early_in':     early_in,
-            'late_out':     late_out,
-            'remark':       remark,
-            'work_min':     work_min or 0,
-        })
-        d += timedelta(days=1)
-
-    return days
-
-
-def _monthly_totals(days: list, planned_work: int = 0) -> dict:
-    tot_actual = tot_ot = tot_late_in = tot_early_out = tot_early_in = tot_late_out = 0
-    tot_planned = 0
-
-    counts = {'Present': 0, 'Absent': 0, 'Weekend': 0, 'Holiday': 0, 'Festival': 0, 'Leave': 0, 'Misc': 0}
-    for d in days:
-        tot_actual    += d.get('work_min', 0)
-        # Sum per-day planned for all workdays (not off-days or leaves)
-        if d['remark'] not in ('Weekend', 'Holiday', 'Festival', 'Leave'):
-            tot_planned += d.get('planned_min', 0)
-        def _parse(s):
-            if not s: return 0
-            try:
-                p = str(s).split(':')
-                return int(p[0]) * 60 + int(p[1])
-            except Exception:
-                return 0
-        tot_ot        += _parse(d['ot'])
-        tot_late_in   += _parse(d['late_in'])
-        tot_early_out += _parse(d['early_out'])
-        tot_early_in  += _parse(d['early_in'])
-        tot_late_out  += _parse(d['late_out'])
-        r = d['remark']
-        if r in counts:
-            counts[r] += 1
-
-    working_days = len(days) - counts['Weekend'] - counts['Holiday'] - counts['Festival']
-    return {
-        'planned':      _fmt_min(tot_planned),
-        'actual':       _fmt_min(tot_actual),
-        'ot':           _fmt_min(tot_ot),
-        'late_in':      _fmt_min(tot_late_in),
-        'early_out':    _fmt_min(tot_early_out),
-        'early_in':     _fmt_min(tot_early_in),
-        'late_out':     _fmt_min(tot_late_out),
-        'counts':       counts,
-        'working_days': working_days,
-        'total_days':   len(days),
-    }
+# _fmt_min, _time_to_min, _compute_monthly_report, _monthly_totals moved to
+# attendance_engine.py (payroll_plan.md Phase 7, imported at top of file) so
+# payroll generation and these report routes compute attendance from the
+# exact same code path.
 
 
 def _bs_defaults():
@@ -3313,10 +3138,10 @@ def reports_monthly_view(
     def_year, def_month = _bs_defaults()
     bs_y = _int_param(bs_year)  or def_year
     bs_m = _int_param(bs_month) or def_month
-    SI_MIN, SO_MIN = 600, 1020   # default 10:00–17:00 if no shift rule found
 
     conn = get_connection()
     try:
+        SI_MIN, SO_MIN = db_mod.get_default_shift_window(conn)
         from db import get_employees_for_report as _gef
         all_emps = _gef(conn)
 
@@ -3434,7 +3259,6 @@ def my_attendance(request: Request, bs_year: str | None = None, bs_month: str | 
     def_year, def_month = _bs_defaults()
     bs_y = _int_param(bs_year)  or def_year
     bs_m = _int_param(bs_month) or def_month
-    SI_MIN, SO_MIN = 600, 1020
 
     if not g_id:
         return render(templates, request, 'my_attendance.html', {
@@ -3446,6 +3270,7 @@ def my_attendance(request: Request, bs_year: str | None = None, bs_month: str | 
 
     conn = get_connection()
     try:
+        SI_MIN, SO_MIN = db_mod.get_default_shift_window(conn)
         gu = get_global_user(conn, g_id)
         with conn.cursor() as cur:
             cur.execute("SELECT device_id, user_id FROM employees WHERE global_user_id = %s", (g_id,))
@@ -3595,10 +3420,10 @@ def reports_monthly_print_all(
     def_year, def_month = _bs_defaults()
     bs_y = _int_param(bs_year)  or def_year
     bs_m = _int_param(bs_month) or def_month
-    SI_MIN, SO_MIN = 600, 1020
 
     conn = get_connection()
     try:
+        SI_MIN, SO_MIN = db_mod.get_default_shift_window(conn)
         from db import get_employees_for_report as _gef
         from nepali_utils import bs_month_info as _bsmi
         from db import get_employee_daily_attendance_multi as _multi
@@ -5656,49 +5481,90 @@ def payroll_generate(request: Request,
     import payroll as pay
     from nepali_utils import bs_month_info
     from db import (get_all_salary_structures, create_payroll_run,
-                    clear_payroll_items, insert_payroll_item,
-                    get_ytd_tax_totals, get_month_ot_split, get_month_present_days,
-                    get_holiday_ot_multiplier)
+                    clear_payroll_items, insert_payroll_item, save_payroll_item_breakdown,
+                    get_ytd_tax_totals, get_month_attendance_summary, save_payroll_attendance_snapshot,
+                    get_holiday_ot_multiplier, get_fiscal_year_for_ad, get_tax_slab_bands,
+                    resolve_employee_heads_for_month, resolve_employee_deductions_for_month)
 
     mi = bs_month_info(bs_year, bs_month)
     if not mi:
         return redirect_with_flash("/payroll/runs/new", "error", "Invalid Nepali month.")
     start_ad, end_ad = mi["first_ad"], mi["last_ad"]
     wd = working_days or mi["days"]
-    period_index = pay.fiscal_period_index(bs_month)
 
     conn = get_connection()
     try:
+        fy = get_fiscal_year_for_ad(conn, start_ad)
+        if not fy:
+            return redirect_with_flash("/payroll/runs/new", "error",
+                "No fiscal year is configured for this period. Add one under Payroll settings first.")
+        if fy["status"] in ("closed", "locked"):
+            return redirect_with_flash("/payroll/runs/new", "error",
+                f"Fiscal year {fy['fiscal_year_bs']} is {fy['status']} — no new payroll runs can be generated against it.")
+        period_index = pay.fiscal_period_index(bs_month, int(fy["start_bs"][5:7]))
+
         run_id = create_payroll_run(conn, bs_year, bs_month, period_index, wd,
-                                    request.session.get("username", ""))
+                                    request.session.get("username", ""), fiscal_year_id=fy["id"])
         clear_payroll_items(conn, run_id)
+        # payroll_salary_structures still holds the per-employee policy fields
+        # (daily_hours, ot_multiplier, marital, other_deductions) — Section
+        # 2.2 keeps it as the "policy row" alongside the head-based earnings.
         structures = [r for r in get_all_salary_structures(conn)
                       if r.get("basic_salary") is not None]
         count = 0
+        skipped = []
         for s in structures:
             gu = s["global_user_id"]
-            ot = get_month_ot_split(conn, gu, start_ad, end_ad)
-            present = get_month_present_days(conn, gu, start_ad, end_ad)
+            marital = s["marital"] or "single"
+            slab_info = get_tax_slab_bands(conn, fy["id"], marital)
+            if not slab_info or not slab_info["is_confirmed"]:
+                skipped.append((s.get("name") or str(gu), f"no confirmed tax slabs for {fy['fiscal_year_bs']}"))
+                continue
+
+            # Resolve earning heads due this month (Phase 4). Split monthly
+            # (prorated by attendance, same as the old basic+allowances path)
+            # from one-time/annual/festival heads due this specific bs_month
+            # (paid in full via other_earnings — festival/annual benefits are
+            # not typically prorated by daily attendance).
+            resolved_heads = resolve_employee_heads_for_month(conn, gu, bs_month)
+            basic_head = next((h for h in resolved_heads if h["code"] == "BASIC"), None)
+            if not basic_head:
+                skipped.append((s.get("name") or str(gu), "no salary heads configured (BASIC missing)"))
+                continue
+            basic_amount = basic_head["amount"]
+            other_monthly_sum = sum(h["amount"] for h in resolved_heads
+                                    if h["frequency"] == "monthly" and h["code"] != "BASIC")
+            onetime_sum = sum(h["amount"] for h in resolved_heads if h["frequency"] != "monthly")
+            # Deductions (PF/CIT/Insurance) are based on entitled Basic/gross,
+            # not prorated by attendance — matches the reference sheet, where
+            # retirement contributions are computed on full monthly Basic.
+            gross_unprorated = float(basic_amount) + float(other_monthly_sum)
+            resolved_deductions = resolve_employee_deductions_for_month(conn, gu, basic_amount, gross_unprorated)
+
+            summary = get_month_attendance_summary(conn, gu, start_ad, end_ad)
+            save_payroll_attendance_snapshot(conn, run_id, gu, summary)
             ytd = get_ytd_tax_totals(conn, gu, bs_year, period_index)
             # Holiday-OT premium multiplier if the employee is eligible, else normal.
             hol_mult = get_holiday_ot_multiplier(conn, gu)
             slip = pay.compute_payslip(
-                basic_salary=s["basic_salary"],
-                allowances=s["allowances"] or 0,
+                basic_salary=basic_amount,
+                allowances=other_monthly_sum,
                 working_days=wd,
-                present_days=present,
+                present_days=summary["paid_days"],
                 daily_hours=s["daily_hours"] or 8,
-                ot_hours=ot["regular_ot_hours"],
+                ot_hours=round(summary["regular_ot_minutes"] / 60.0, 2),
                 ot_multiplier=s["ot_multiplier"] or 1.5,
-                holiday_ot_hours=ot["holiday_ot_hours"],
+                holiday_ot_hours=round(summary["holiday_ot_minutes"] / 60.0, 2),
                 holiday_ot_multiplier=hol_mult,
+                other_earnings=onetime_sum,
                 other_deductions=s["other_deductions"] or 0,
-                marital=s["marital"] or "single",
+                pretax_deductions=resolved_deductions,
+                tax_bands=slab_info["bands"],
                 period_index=period_index,
                 taxable_ytd_before=ytd["taxable_before"],
                 tax_paid_before=ytd["tax_paid_before"],
             )
-            insert_payroll_item(conn, run_id, gu, {
+            item_id = insert_payroll_item(conn, run_id, gu, {
                 "present_days": slip["present_days"],
                 "ot_hours": round(slip["ot_hours"] + slip["holiday_ot_hours"], 2),
                 "ot_manual": False,
@@ -5720,13 +5586,18 @@ def payroll_generate(request: Request,
                            "holiday_ot_multiplier": slip["holiday_ot_multiplier"],
                            "holiday_ot_pay": float(slip["holiday_ot_pay"]),
                            "holiday_ot_eligible": hol_mult is not None,
-                           "prorate": slip["prorate"]},
+                           "prorate": slip["prorate"],
+                           "pretax_deductions_total": float(slip["pretax_deductions_total"])},
             })
+            save_payroll_item_breakdown(conn, item_id, resolved_heads, resolved_deductions)
             count += 1
     finally:
         conn.close()
-    return redirect_with_flash(f"/payroll/runs/{run_id}", "success",
-                               f"Payroll generated for {count} employees.")
+    msg = f"Payroll generated for {count} employees."
+    if skipped:
+        reasons = ", ".join(f"{name} ({reason})" for name, reason in skipped[:5])
+        msg += f" Skipped {len(skipped)}: {reasons}" + (", ..." if len(skipped) > 5 else "")
+    return redirect_with_flash(f"/payroll/runs/{run_id}", "success" if count else "error", msg)
 
 
 @app.get("/payroll/runs/{run_id}")
@@ -5762,8 +5633,11 @@ def payroll_edit_item(request: Request, run_id: int, gu_id: int,
     """Manual OT-hours / adjustments override — recomputes just this payslip."""
     import payroll as pay
     from db import (get_payroll_run, get_salary_structure, get_ytd_tax_totals,
-                    insert_payroll_item, get_month_present_days,
-                    get_holiday_ot_multiplier)
+                    insert_payroll_item, save_payroll_item_breakdown,
+                    get_month_attendance_summary, save_payroll_attendance_snapshot,
+                    get_holiday_ot_multiplier, get_fiscal_year, get_fiscal_year_for_ad,
+                    get_tax_slab_bands, resolve_employee_heads_for_month,
+                    resolve_employee_deductions_for_month)
     from nepali_utils import bs_month_info
     conn = get_connection()
     try:
@@ -5772,20 +5646,46 @@ def payroll_edit_item(request: Request, run_id: int, gu_id: int,
         if not run or not s:
             return redirect_with_flash(f"/payroll/runs/{run_id}", "error", "Not found.")
         mi = bs_month_info(run["bs_year"], run["bs_month"])
-        present = get_month_present_days(conn, gu_id, mi["first_ad"], mi["last_ad"])
+        fy = (get_fiscal_year(conn, run["fiscal_year_id"]) if run.get("fiscal_year_id")
+              else get_fiscal_year_for_ad(conn, mi["first_ad"]))
+        if not fy:
+            return redirect_with_flash(f"/payroll/runs/{run_id}", "error",
+                "No fiscal year resolved for this run's period.")
+        if fy["status"] in ("closed", "locked"):
+            return redirect_with_flash(f"/payroll/runs/{run_id}", "error",
+                f"Fiscal year {fy['fiscal_year_bs']} is {fy['status']} — this payslip can no longer be edited.")
+        slab_info = get_tax_slab_bands(conn, fy["id"], s["marital"] or "single")
+        if not slab_info or not slab_info["is_confirmed"]:
+            return redirect_with_flash(f"/payroll/runs/{run_id}", "error",
+                f"No confirmed tax slabs for fiscal year {fy['fiscal_year_bs']} — cannot recompute.")
+
+        resolved_heads = resolve_employee_heads_for_month(conn, gu_id, run["bs_month"])
+        basic_head = next((h for h in resolved_heads if h["code"] == "BASIC"), None)
+        if not basic_head:
+            return redirect_with_flash(f"/payroll/runs/{run_id}", "error",
+                "No salary heads configured for this employee (BASIC missing) — cannot recompute.")
+        basic_amount = basic_head["amount"]
+        other_monthly_sum = sum(h["amount"] for h in resolved_heads
+                                if h["frequency"] == "monthly" and h["code"] != "BASIC")
+        gross_unprorated = float(basic_amount) + float(other_monthly_sum)
+        resolved_deductions = resolve_employee_deductions_for_month(conn, gu_id, basic_amount, gross_unprorated)
+
+        summary = get_month_attendance_summary(conn, gu_id, mi["first_ad"], mi["last_ad"])
+        save_payroll_attendance_snapshot(conn, run_id, gu_id, summary)
         ytd = get_ytd_tax_totals(conn, gu_id, run["bs_year"], run["period_index"])
         hol_mult = get_holiday_ot_multiplier(conn, gu_id)
         slip = pay.compute_payslip(
-            basic_salary=s["basic_salary"], allowances=s["allowances"] or 0,
-            working_days=run["working_days"], present_days=present,
+            basic_salary=basic_amount, allowances=other_monthly_sum,
+            working_days=run["working_days"], present_days=summary["paid_days"],
             daily_hours=s["daily_hours"] or 8, ot_hours=ot_hours,
             ot_multiplier=s["ot_multiplier"] or 1.5,
             holiday_ot_hours=holiday_ot_hours, holiday_ot_multiplier=hol_mult,
             other_earnings=other_earnings, other_deductions=other_deductions,
-            marital=s["marital"] or "single", period_index=run["period_index"],
+            pretax_deductions=resolved_deductions,
+            tax_bands=slab_info["bands"], period_index=run["period_index"],
             taxable_ytd_before=ytd["taxable_before"], tax_paid_before=ytd["tax_paid_before"],
         )
-        insert_payroll_item(conn, run_id, gu_id, {
+        item_id = insert_payroll_item(conn, run_id, gu_id, {
             "present_days": slip["present_days"],
             "ot_hours": round(slip["ot_hours"] + slip["holiday_ot_hours"], 2),
             "ot_manual": True, "earned_basic": slip["earned_basic"],
@@ -5802,8 +5702,10 @@ def payroll_edit_item(request: Request, run_id: int, gu_id: int,
                        "holiday_ot_multiplier": slip["holiday_ot_multiplier"],
                        "holiday_ot_pay": float(slip["holiday_ot_pay"]),
                        "holiday_ot_eligible": hol_mult is not None,
-                       "prorate": slip["prorate"]},
+                       "prorate": slip["prorate"],
+                       "pretax_deductions_total": float(slip["pretax_deductions_total"])},
         })
+        save_payroll_item_breakdown(conn, item_id, resolved_heads, resolved_deductions)
     finally:
         conn.close()
     return redirect_with_flash(f"/payroll/runs/{run_id}/payslip/{gu_id}", "success",
@@ -5813,8 +5715,10 @@ def payroll_edit_item(request: Request, run_id: int, gu_id: int,
 @app.get("/payroll/runs/{run_id}/payslip/{gu_id}")
 def payroll_payslip(request: Request, run_id: int, gu_id: int):
     import payroll as pay
-    from db import get_payroll_run, get_payroll_item, get_salary_structure
-    from nepali_utils import NEPALI_MONTHS
+    from db import (get_payroll_run, get_payroll_item, get_salary_structure,
+                    get_fiscal_year, get_fiscal_year_for_ad, get_tax_slab_bands,
+                    get_payroll_item_breakdown, get_payroll_attendance_snapshot)
+    from nepali_utils import NEPALI_MONTHS, bs_month_info
     conn = get_connection()
     try:
         run = get_payroll_run(conn, run_id)
@@ -5822,26 +5726,51 @@ def payroll_payslip(request: Request, run_id: int, gu_id: int):
         s = get_salary_structure(conn, gu_id)
         if not run or not item:
             return redirect_with_flash(f"/payroll/runs/{run_id}", "error", "Payslip not found.")
+        marital = (s or {}).get("marital", "single")
+        if run.get("fiscal_year_id"):
+            fy = get_fiscal_year(conn, run["fiscal_year_id"])
+        else:
+            mi = bs_month_info(run["bs_year"], run["bs_month"])
+            fy = get_fiscal_year_for_ad(conn, mi["first_ad"]) if mi else None
+        slab_info = get_tax_slab_bands(conn, fy["id"], marital) if fy else None
+        breakdown = get_payroll_item_breakdown(conn, item["id"])
+        attendance = get_payroll_attendance_snapshot(conn, run_id, gu_id)
     finally:
         conn.close()
     run["month_name"] = NEPALI_MONTHS[run["bs_month"]] if 1 <= run["bs_month"] <= 12 else run["bs_month"]
-    marital = (s or {}).get("marital", "single")
-    tax_bands = pay.slab_breakdown(item["taxable_ytd"], marital)
+    tax_bands = pay.slab_breakdown(item["taxable_ytd"], slab_info["bands"]) if slab_info else []
     return templates.TemplateResponse(request, "payroll_payslip.html", _payroll_ctx(request, {
         "run": run, "item": item, "structure": s, "marital": marital,
-        "tax_bands": tax_bands,
+        "fiscal_year": fy, "tax_bands": tax_bands,
+        "heads": breakdown["heads"], "deductions": breakdown["deductions"],
+        "attendance": attendance,
     }))
 
 
 @app.get("/payroll/tax-preview")
-def payroll_tax_preview(request: Request, income: float = 1200000, marital: str = "single"):
+def payroll_tax_preview(request: Request, income: float = 1200000, marital: str = "single",
+                        fiscal_year_id: int | None = None):
     """Standalone annual-tax calculator/preview (JSON)."""
     import payroll as pay
-    bands = pay.slab_breakdown(income, marital)
+    from db import get_active_fiscal_year, get_fiscal_year, get_tax_slab_bands
+    conn = get_connection()
+    try:
+        fy = get_fiscal_year(conn, fiscal_year_id) if fiscal_year_id else get_active_fiscal_year(conn)
+        if not fy:
+            return JSONResponse({"error": "No fiscal year configured."}, status_code=400)
+        slab_info = get_tax_slab_bands(conn, fy["id"], marital)
+        if not slab_info:
+            return JSONResponse({"error": f"No tax slabs configured for fiscal year {fy['fiscal_year_bs']}."},
+                                status_code=400)
+    finally:
+        conn.close()
+    bands = pay.slab_breakdown(income, slab_info["bands"])
     return JSONResponse({
         "annual_income": income,
         "marital": marital,
-        "annual_tax": float(pay.annual_tax(income, marital)),
+        "fiscal_year_bs": fy["fiscal_year_bs"],
+        "is_confirmed": slab_info["is_confirmed"],
+        "annual_tax": float(pay.annual_tax(income, slab_info["bands"])),
         "bands": [{k: (float(v) if hasattr(v, "quantize") else v) for k, v in b.items()} for b in bands],
     })
 
@@ -5896,3 +5825,765 @@ def payroll_delete_holiday_ot_rule(request: Request, rule_id: int):
     finally:
         conn.close()
     return redirect_with_flash("/payroll/holiday-ot-rules", "success", "Rule removed.")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Attendance-for-Payroll summary  (Phase 7, payroll_plan.md Section 2.7)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _build_attendance_summary_rows(conn, bs_y: int, bs_m: int, f_search: str,
+                                   f_dept: int | None, f_sec: int | None):
+    """Shared by the HTML report and its Excel export — one row per employee,
+    reading from the persisted payroll_attendance_snapshot if a run already
+    exists for this period, or computing live via the same attendance_engine
+    pipeline otherwise (payroll_plan.md Section 8.1)."""
+    from db import (get_employees_for_report, get_payroll_run_by_period,
+                    get_payroll_attendance_snapshot, get_month_attendance_summary,
+                    get_salary_structure)
+    from nepali_utils import bs_month_info
+
+    mi = bs_month_info(bs_y, bs_m)
+    if not mi:
+        return [], None, None
+
+    from_ad, to_ad = mi['first_ad'], mi['last_ad']
+    all_emps = get_employees_for_report(conn)
+    if f_search:
+        sl = f_search.lower()
+        all_emps = [e for e in all_emps if sl in (e['display_name'] or '').lower()
+                   or sl in (e['company_id'] or '').lower()]
+    if f_dept:
+        all_emps = [e for e in all_emps if e.get('department_id') == f_dept]
+    if f_sec:
+        all_emps = [e for e in all_emps if e.get('section_id') == f_sec]
+
+    existing_run = get_payroll_run_by_period(conn, bs_y, bs_m)
+    source = 'snapshot (already generated)' if existing_run else 'live preview (not yet generated)'
+
+    rows = []
+    for emp in all_emps:
+        gid = emp.get('global_id')
+        if not gid:
+            continue
+        summary = None
+        if existing_run:
+            summary = get_payroll_attendance_snapshot(conn, existing_run['id'], gid)
+        if not summary:
+            summary = get_month_attendance_summary(conn, gid, from_ad, to_ad)
+        has_structure = get_salary_structure(conn, gid) is not None
+        if not has_structure:
+            status = 'not_configured'
+        elif summary['present_days'] == 0 and summary.get('paid_leave_days', 0) == 0:
+            status = 'no_attendance'
+        else:
+            status = 'ready'
+        rows.append({
+            'emp_user_id': emp['company_id'], 'global_id': gid, 'name': emp['display_name'],
+            'department': emp.get('department_name') or '', 'section': emp.get('section_name') or '',
+            'summary': summary, 'has_structure': has_structure, 'status': status,
+        })
+    return rows, mi, source
+
+
+@app.get("/payroll/attendance-summary")
+def payroll_attendance_summary(
+    request: Request,
+    bs_year: str | None = None, bs_month: str | None = None,
+    search: str | None = None, department_id: str | None = None, section_id: str | None = None,
+):
+    from db import get_all_departments, get_all_sections
+
+    def_year, def_month = _bs_defaults()
+    bs_y = _int_param(bs_year) or def_year
+    bs_m = _int_param(bs_month) or def_month
+    f_search = (search or '').strip()
+    f_dept = _int_param(department_id)
+    f_sec = _int_param(section_id)
+
+    conn = get_connection()
+    try:
+        depts = get_all_departments(conn)
+        sections = get_all_sections(conn)
+        rows, mi, source = _build_attendance_summary_rows(conn, bs_y, bs_m, f_search, f_dept, f_sec)
+    finally:
+        conn.close()
+
+    return templates.TemplateResponse(request, "payroll_attendance_summary.html", _payroll_ctx(request, {
+        "rows": rows, "sel_bs_year": bs_y, "sel_bs_month": bs_m,
+        "def_year": def_year, "def_month": def_month,
+        "f_search": f_search, "f_dept": f_dept, "f_sec": f_sec,
+        "departments": depts, "sections": sections,
+        "month_name": mi["month_name"] if mi else "", "source": source,
+        "now_str": _npt_now_str(),
+    }))
+
+
+@app.get("/payroll/attendance-summary/excel")
+def payroll_attendance_summary_excel(
+    bs_year: str | None = None, bs_month: str | None = None,
+    search: str | None = None, department_id: str | None = None, section_id: str | None = None,
+):
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    from nepali_utils import NEPALI_MONTHS
+
+    def_year, def_month = _bs_defaults()
+    bs_y = _int_param(bs_year) or def_year
+    bs_m = _int_param(bs_month) or def_month
+    f_search = (search or '').strip()
+    f_dept = _int_param(department_id)
+    f_sec = _int_param(section_id)
+
+    conn = get_connection()
+    try:
+        rows, mi, source = _build_attendance_summary_rows(conn, bs_y, bs_m, f_search, f_dept, f_sec)
+    finally:
+        conn.close()
+
+    month_name = mi["month_name"] if mi else str(bs_m)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Attendance for Payroll"
+    thin = Side(style='thin')
+    bdr = Border(left=thin, right=thin, top=thin, bottom=thin)
+    hdr_fill = PatternFill("solid", fgColor="1769E0")
+    hdr_font = Font(bold=True, color="FFFFFF")
+    alt_fill = PatternFill("solid", fgColor="EEF6FF")
+
+    COLS = ['#', 'Employee ID', 'Name', 'Department', 'Section', 'Working Days',
+           'Present', 'Paid Leave', 'Unpaid Leave', 'Absent', 'Weekend', 'Holiday',
+           'Work Hours', 'Regular OT (hrs)', 'Holiday OT (hrs)', 'Status']
+    last = get_column_letter(len(COLS))
+    ws.merge_cells(f'A1:{last}1')
+    ws.cell(1, 1).value = COMPANY_NAME or ''
+    ws.cell(1, 1).font = Font(bold=True, size=13)
+    ws.cell(1, 1).alignment = Alignment(horizontal='center')
+    ws.merge_cells(f'A2:{last}2')
+    ws.cell(2, 1).value = f"Attendance for Payroll  |  {month_name} {bs_y} BS  ({source})"
+    ws.cell(2, 1).font = Font(italic=True, size=10)
+    ws.cell(2, 1).alignment = Alignment(horizontal='center')
+    ws.append([])
+    ws.append(COLS)
+    for cell in ws[ws.max_row]:
+        cell.fill = hdr_fill
+        cell.font = hdr_font
+        cell.alignment = Alignment(horizontal='center', wrap_text=True)
+        cell.border = bdr
+
+    for i, r in enumerate(rows, 1):
+        s = r['summary']
+        ws.append([
+            i, r['emp_user_id'] or '-', r['name'], r['department'] or '-', r['section'] or '-',
+            s['working_days'], s['present_days'], s.get('paid_leave_days', 0), s.get('unpaid_leave_days', 0),
+            s['absent_days'], s['weekend_days'], s['holiday_days'],
+            round((s.get('total_work_minutes', 0) or 0) / 60.0, 2),
+            round((s.get('regular_ot_minutes', 0) or 0) / 60.0, 2),
+            round((s.get('holiday_ot_minutes', 0) or 0) / 60.0, 2),
+            r['status'].replace('_', ' ').title(),
+        ])
+        for cell in ws[ws.max_row]:
+            cell.border = bdr
+            cell.alignment = Alignment(vertical='top')
+            if i % 2 == 0:
+                cell.fill = alt_fill
+
+    for i in range(1, ws.max_column + 1):
+        col = get_column_letter(i)
+        mx = max((len(str(c.value)) for row in ws.iter_rows(min_col=i, max_col=i)
+                  for c in row if c.value is not None), default=8)
+        ws.column_dimensions[col].width = min(mx + 4, 42)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"attendance_for_payroll_{bs_y}_{bs_m:02d}.xlsx"
+    return StreamingResponse(buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Bulk payslip download  (Phase 9 / payroll_plan.md Section 10)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@app.get("/payroll/runs/{run_id}/payslips/print-all")
+def payroll_payslips_print_all(request: Request, run_id: int):
+    import payroll as pay
+    from db import (get_payroll_run, get_payroll_items, get_payroll_item_breakdown,
+                    get_payroll_attendance_snapshot, get_fiscal_year, get_fiscal_year_for_ad,
+                    get_tax_slab_bands)
+    from nepali_utils import NEPALI_MONTHS, bs_month_info
+
+    conn = get_connection()
+    try:
+        run = get_payroll_run(conn, run_id)
+        if not run:
+            return redirect_with_flash("/payroll", "error", "Payroll run not found.")
+        items = get_payroll_items(conn, run_id)
+
+        if run.get("fiscal_year_id"):
+            fy = get_fiscal_year(conn, run["fiscal_year_id"])
+        else:
+            mi = bs_month_info(run["bs_year"], run["bs_month"])
+            fy = get_fiscal_year_for_ad(conn, mi["first_ad"]) if mi else None
+
+        slips = []
+        for item in items:
+            breakdown = get_payroll_item_breakdown(conn, item["id"])
+            attendance = get_payroll_attendance_snapshot(conn, run_id, item["global_user_id"])
+            slab_info = get_tax_slab_bands(conn, fy["id"], "married") if fy else None
+            # Marital status affects only the tax-slab table used for the
+            # per-item breakdown display below; item.taxable_ytd already
+            # reflects the correct slab this employee's tax was computed with.
+            tax_bands = pay.slab_breakdown(item["taxable_ytd"], slab_info["bands"]) if slab_info else []
+            slips.append({
+                "item": item, "heads": breakdown["heads"], "deductions": breakdown["deductions"],
+                "attendance": attendance, "tax_bands": tax_bands,
+            })
+    finally:
+        conn.close()
+
+    run["month_name"] = NEPALI_MONTHS[run["bs_month"]] if 1 <= run["bs_month"] <= 12 else run["bs_month"]
+    return templates.TemplateResponse(request, "payroll_payslip_print_all.html", _payroll_ctx(request, {
+        "run": run, "slips": slips, "now_str": _npt_now_str(),
+    }))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Annual Payroll Summary  (Phase 9, payroll_plan.md Section 2.8/9)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _load_annual_summary(conn, fiscal_year_id, global_id):
+    """Shared by the HTML report and its Excel export."""
+    import payroll as pay
+    from db import (get_annual_payroll_summary, get_salary_structure, get_tax_slab_bands)
+
+    summary = get_annual_payroll_summary(conn, fiscal_year_id, global_id)
+    tax_bands = []
+    if summary:
+        s = get_salary_structure(conn, global_id)
+        marital = (s or {}).get("marital", "single")
+        slab_info = get_tax_slab_bands(conn, fiscal_year_id, marital)
+        if slab_info:
+            tax_bands = pay.slab_breakdown(summary["taxable_annual"], slab_info["bands"])
+    return summary, tax_bands
+
+
+@app.get("/payroll/annual-summary")
+def payroll_annual_summary(request: Request, fiscal_year_id: str | None = None, global_id: str | None = None):
+    from db import (list_fiscal_years, get_active_fiscal_year, get_fiscal_year,
+                    list_employees_with_payroll_in_fy)
+
+    conn = get_connection()
+    try:
+        fys = list_fiscal_years(conn)
+        fy_id = _int_param(fiscal_year_id)
+        if not fy_id:
+            active = get_active_fiscal_year(conn)
+            fy_id = active["id"] if active else (fys[0]["id"] if fys else None)
+        fy = get_fiscal_year(conn, fy_id) if fy_id else None
+
+        employees = list_employees_with_payroll_in_fy(conn, fy_id) if fy_id else []
+        gid = _int_param(global_id)
+        if not gid and employees:
+            gid = employees[0]["global_id"]
+
+        summary, tax_bands = (None, [])
+        emp_info = None
+        if fy_id and gid:
+            summary, tax_bands = _load_annual_summary(conn, fy_id, gid)
+            emp_info = next((e for e in employees if e["global_id"] == gid), None)
+    finally:
+        conn.close()
+
+    return templates.TemplateResponse(request, "payroll_annual_summary.html", _payroll_ctx(request, {
+        "fiscal_years": fys, "sel_fy_id": fy_id, "fy": fy,
+        "employees": employees, "sel_global_id": gid, "emp_info": emp_info,
+        "summary": summary, "tax_bands": tax_bands, "now_str": _npt_now_str(),
+    }))
+
+
+@app.get("/payroll/annual-summary/excel")
+def payroll_annual_summary_excel(fiscal_year_id: str | None = None, global_id: str | None = None):
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    from db import get_fiscal_year
+
+    fy_id = _int_param(fiscal_year_id)
+    gid = _int_param(global_id)
+    if not fy_id or not gid:
+        return redirect_with_flash("/payroll/annual-summary", "error", "Select a fiscal year and employee first.")
+
+    conn = get_connection()
+    try:
+        fy = get_fiscal_year(conn, fy_id)
+        summary, tax_bands = _load_annual_summary(conn, fy_id, gid)
+        with conn.cursor() as cur:
+            cur.execute("SELECT name, global_user_id, employee_id FROM global_users WHERE id=%s", (gid,))
+            row = cur.fetchone()
+            emp_name, emp_company_id, emp_master_id = row if row else ("", "", "")
+    finally:
+        conn.close()
+
+    if not summary:
+        return redirect_with_flash("/payroll/annual-summary", "error", "No payroll data for this employee/fiscal year.")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Annual Summary"
+    thin = Side(style='thin')
+    bdr = Border(left=thin, right=thin, top=thin, bottom=thin)
+    hdr_fill = PatternFill("solid", fgColor="1769E0")
+    hdr_font = Font(bold=True, color="FFFFFF")
+
+    ws.merge_cells('A1:C1')
+    ws.cell(1, 1).value = f"{COMPANY_NAME} — Annual Payroll Summary"
+    ws.cell(1, 1).font = Font(bold=True, size=13)
+    ws.merge_cells('A2:C2')
+    ws.cell(2, 1).value = f"{emp_name} ({emp_company_id})  |  Fiscal Year {fy['fiscal_year_bs']}"
+    ws.cell(2, 1).font = Font(italic=True, size=10)
+    ws.append([])
+
+    ws.append(["Salary Head", "Frequency", "Annual Amount"])
+    for cell in ws[ws.max_row]:
+        cell.fill = hdr_fill
+        cell.font = hdr_font
+        cell.border = bdr
+    for h in summary["heads"]:
+        ws.append([h["name"], h["frequency"], h["annual_amount"]])
+        for cell in ws[ws.max_row]:
+            cell.border = bdr
+
+    ws.append([])
+    ws.append(["Gross Annual Income", "", summary["gross_annual"]])
+    ws.append([])
+
+    ws.append(["Deduction", "Pre-tax?", "Annual Amount"])
+    for cell in ws[ws.max_row]:
+        cell.fill = hdr_fill
+        cell.font = hdr_font
+        cell.border = bdr
+    for d in summary["deductions"]:
+        ws.append([d["name"], "Yes" if d["is_pretax"] else "No", d["annual_amount"]])
+        for cell in ws[ws.max_row]:
+            cell.border = bdr
+
+    ws.append([])
+    ws.append(["Pre-tax Deductions (Total)", "", summary["pretax_deductions_annual"]])
+    ws.append(["Taxable Income (Annual)", "", summary["taxable_annual"]])
+    ws.append(["Tax (Annual, TDS withheld)", "", summary["tax_annual"]])
+    ws.append(["Other Deductions (Annual)", "", summary["other_deductions_annual"]])
+    ws.append(["Net Pay (Annual)", "", summary["net_annual"]])
+
+    for i in range(1, 4):
+        col = get_column_letter(i)
+        mx = max((len(str(c.value)) for row in ws.iter_rows(min_col=i, max_col=i)
+                  for c in row if c.value is not None), default=8)
+        ws.column_dimensions[col].width = min(mx + 4, 42)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"AnnualPayrollSummary_{emp_name.replace(' ', '_')}_{fy['fiscal_year_bs'].replace('/', '-')}.xlsx"
+    return StreamingResponse(buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Payroll Settings — Management UI  (Phase 10, payroll_plan.md Section 6.1/6.2/6.4)
+#
+#  Everything that was hardcoded in Python before Phase 1 is now editable
+#  here without a code deploy: fiscal years, salary heads, deduction types,
+#  and the default shift window. Tax slab bands are managed on their own
+#  page (/payroll/tax-slabs) since they're a 2D structure (fiscal year x
+#  marital status x band). Editing a catalog row here never rewrites a
+#  historical payslip — payroll_item_heads/payroll_item_deductions are
+#  stamped copies, not live references (Section 2.5).
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@app.get("/payroll/settings")
+def payroll_settings(request: Request):
+    from db import get_all_payroll_heads, get_all_deduction_types, list_fiscal_years, get_default_shift_window
+
+    conn = get_connection()
+    try:
+        heads = get_all_payroll_heads(conn, active_only=False)
+        deduction_types = get_all_deduction_types(conn, active_only=False)
+        fiscal_years = list_fiscal_years(conn)
+        si_min, so_min = get_default_shift_window(conn)
+    finally:
+        conn.close()
+
+    def _hm(mins):
+        return f"{mins // 60:02d}:{mins % 60:02d}"
+
+    return templates.TemplateResponse(request, "payroll_settings.html", _payroll_ctx(request, {
+        "heads": heads, "deduction_types": deduction_types, "fiscal_years": fiscal_years,
+        "shift_start_str": _hm(si_min), "shift_end_str": _hm(so_min),
+    }))
+
+
+@app.post("/payroll/settings/heads")
+def payroll_save_head(request: Request,
+                      head_id: str = Form(""),
+                      code: str = Form(...), name: str = Form(...),
+                      calc_type: str = Form("fixed"), percent_of_basic: str = Form(""),
+                      frequency: str = Form("monthly"), is_taxable: str = Form(""),
+                      sort_order: int = Form(0)):
+    from db import upsert_payroll_head
+    conn = get_connection()
+    try:
+        upsert_payroll_head(
+            conn, _int_param(head_id), code.strip().upper(), name.strip(), calc_type,
+            _float_or_none(percent_of_basic) if calc_type == "percent_of_basic" else None,
+            frequency, bool(is_taxable), sort_order, created_by=_current_user_id(request),
+        )
+    finally:
+        conn.close()
+    return redirect_with_flash("/payroll/settings", "success", f"Salary head '{name}' saved.")
+
+
+@app.post("/payroll/settings/heads/{head_id}/toggle")
+def payroll_toggle_head(head_id: int):
+    from db import toggle_payroll_head
+    conn = get_connection()
+    try:
+        toggle_payroll_head(conn, head_id)
+    finally:
+        conn.close()
+    return redirect_with_flash("/payroll/settings", "success", "Head status updated.")
+
+
+@app.post("/payroll/settings/deduction-types")
+def payroll_save_deduction_type(request: Request,
+                                deduction_type_id: str = Form(""),
+                                code: str = Form(...), name: str = Form(...),
+                                calc_type: str = Form("fixed"), percent_of_basic: str = Form(""),
+                                default_amount: str = Form(""), is_pretax: str = Form(""),
+                                frequency: str = Form("monthly"),
+                                cap_amount: str = Form(""), cap_percent_of_gross: str = Form(""),
+                                sort_order: int = Form(0)):
+    from db import upsert_deduction_type
+    conn = get_connection()
+    try:
+        upsert_deduction_type(
+            conn, _int_param(deduction_type_id), code.strip().upper(), name.strip(), calc_type,
+            _float_or_none(percent_of_basic) if calc_type == "percent_of_basic" else None,
+            _float_or_none(default_amount), bool(is_pretax), frequency,
+            _float_or_none(cap_amount), _float_or_none(cap_percent_of_gross),
+            sort_order, created_by=_current_user_id(request),
+        )
+    finally:
+        conn.close()
+    return redirect_with_flash("/payroll/settings", "success", f"Deduction type '{name}' saved.")
+
+
+@app.post("/payroll/settings/deduction-types/{deduction_type_id}/toggle")
+def payroll_toggle_deduction_type(deduction_type_id: int):
+    from db import toggle_deduction_type
+    conn = get_connection()
+    try:
+        toggle_deduction_type(conn, deduction_type_id)
+    finally:
+        conn.close()
+    return redirect_with_flash("/payroll/settings", "success", "Deduction type status updated.")
+
+
+@app.post("/payroll/settings/fiscal-years")
+def payroll_create_fiscal_year(request: Request, fiscal_year_bs: str = Form(...)):
+    from db import create_fiscal_year
+    conn = get_connection()
+    try:
+        create_fiscal_year(conn, fiscal_year_bs.strip(), created_by=_current_user_id(request))
+    except ValueError as exc:
+        return redirect_with_flash("/payroll/settings", "error", str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash("/payroll/settings", "success", f"Fiscal year {fiscal_year_bs} created (status: upcoming).")
+
+
+@app.post("/payroll/settings/fiscal-years/{fiscal_year_id}/status")
+def payroll_set_fiscal_year_status(request: Request, fiscal_year_id: int, status: str = Form(...)):
+    from db import set_fiscal_year_status
+    conn = get_connection()
+    try:
+        set_fiscal_year_status(conn, fiscal_year_id, status, updated_by=_current_user_id(request))
+    except ValueError as exc:
+        return redirect_with_flash("/payroll/settings", "error", str(exc))
+    finally:
+        conn.close()
+    return redirect_with_flash("/payroll/settings", "success", f"Fiscal year status set to {status}.")
+
+
+@app.post("/payroll/settings/shift-window")
+def payroll_save_shift_window(request: Request, shift_start: str = Form(...), shift_end: str = Form(...)):
+    from db import update_company_settings
+
+    def _to_min(hm: str) -> int | None:
+        try:
+            h, m = hm.split(":")
+            return int(h) * 60 + int(m)
+        except Exception:
+            return None
+
+    si_min, so_min = _to_min(shift_start), _to_min(shift_end)
+    if si_min is None or so_min is None:
+        return redirect_with_flash("/payroll/settings", "error", "Invalid time format (use HH:MM).")
+    conn = get_connection()
+    try:
+        update_company_settings(conn, _current_user_id(request),
+                                default_shift_start_min=si_min, default_shift_end_min=so_min)
+    finally:
+        conn.close()
+    return redirect_with_flash("/payroll/settings", "success", "Default shift window updated.")
+
+
+# ── Tax slabs ────────────────────────────────────────────────────────────────
+
+
+@app.get("/payroll/tax-slabs")
+def payroll_tax_slabs_page(request: Request, fiscal_year_id: str | None = None):
+    from db import list_fiscal_years, get_active_fiscal_year, get_fiscal_year, get_tax_slab_bands
+
+    conn = get_connection()
+    try:
+        fys = list_fiscal_years(conn)
+        fy_id = _int_param(fiscal_year_id)
+        if not fy_id:
+            active = get_active_fiscal_year(conn)
+            fy_id = active["id"] if active else (fys[0]["id"] if fys else None)
+        fy = get_fiscal_year(conn, fy_id) if fy_id else None
+        single_info = get_tax_slab_bands(conn, fy_id, "single") if fy_id else None
+        married_info = get_tax_slab_bands(conn, fy_id, "married") if fy_id else None
+        all_info = get_tax_slab_bands(conn, fy_id, "ALL") if fy_id else None
+    finally:
+        conn.close()
+
+    return templates.TemplateResponse(request, "payroll_tax_slabs.html", _payroll_ctx(request, {
+        "fiscal_years": fys, "sel_fy_id": fy_id, "fy": fy,
+        "single_info": single_info, "married_info": married_info, "all_info": all_info,
+    }))
+
+
+@app.post("/payroll/tax-slabs")
+async def payroll_save_tax_slab(request: Request):
+    from db import create_tax_slab_set
+
+    form = await request.form()
+    fiscal_year_id = _int_param(form.get("fiscal_year_id"))
+    marital_status = (form.get("marital_status") or "single").strip()
+    is_confirmed = bool(form.get("is_confirmed"))
+    source_note = (form.get("source_note") or "").strip() or None
+    if not fiscal_year_id:
+        return redirect_with_flash("/payroll/tax-slabs", "error", "No fiscal year selected.")
+
+    bands = []
+    i = 1
+    while form.get(f"band_rate_{i}") is not None:
+        rate_raw = (form.get(f"band_rate_{i}") or "").strip()
+        width_raw = (form.get(f"band_width_{i}") or "").strip()
+        if rate_raw:
+            bands.append((_float_or_none(width_raw), float(rate_raw)))
+        i += 1
+    if not bands:
+        return redirect_with_flash(f"/payroll/tax-slabs?fiscal_year_id={fiscal_year_id}", "error",
+                                   "At least one tax band is required.")
+
+    conn = get_connection()
+    try:
+        create_tax_slab_set(conn, fiscal_year_id, marital_status, bands,
+                            is_confirmed=is_confirmed, source_note=source_note,
+                            created_by=_current_user_id(request))
+    finally:
+        conn.close()
+    return redirect_with_flash(f"/payroll/tax-slabs?fiscal_year_id={fiscal_year_id}", "success",
+                               f"Tax slabs for '{marital_status}' saved{' and confirmed' if is_confirmed else ''}.")
+
+
+# ── Per-employee salary head & deduction setup ────────────────────────────────
+
+
+@app.get("/payroll/employee/{gu_id}/setup")
+def payroll_employee_setup(request: Request, gu_id: int):
+    from db import (get_global_user, get_all_payroll_heads, get_employee_heads,
+                    get_all_deduction_types, get_employee_deductions, get_salary_structure)
+
+    conn = get_connection()
+    try:
+        gu = get_global_user(conn, gu_id)
+        if not gu:
+            return redirect_with_flash("/payroll/salary-structures", "error", "Employee not found.")
+        all_heads = get_all_payroll_heads(conn)
+        configured_heads = {h["head_id"]: h for h in get_employee_heads(conn, gu_id)}
+        all_deductions = get_all_deduction_types(conn)
+        configured_deductions = {d["deduction_type_id"]: d for d in get_employee_deductions(conn, gu_id)}
+        structure = get_salary_structure(conn, gu_id)
+    finally:
+        conn.close()
+
+    return templates.TemplateResponse(request, "payroll_employee_setup.html", _payroll_ctx(request, {
+        "gu": gu, "all_heads": all_heads, "configured_heads": configured_heads,
+        "all_deductions": all_deductions, "configured_deductions": configured_deductions,
+        "structure": structure,
+    }))
+
+
+@app.post("/payroll/employee/{gu_id}/setup/heads")
+async def payroll_employee_setup_heads(request: Request, gu_id: int):
+    from db import upsert_employee_head, get_all_payroll_heads
+
+    form = await request.form()
+    conn = get_connection()
+    try:
+        for h in get_all_payroll_heads(conn):
+            hid = h["id"]
+            if not form.get(f"enabled_{hid}"):
+                continue
+            amount = _float_or_none(form.get(f"amount_{hid}"))
+            freq_override = (form.get(f"freq_{hid}") or "").strip() or None
+            pay_month = _int_param(form.get(f"pay_month_{hid}"))
+            upsert_employee_head(conn, gu_id, hid, amount=amount,
+                                 frequency_override=freq_override, pay_bs_month=pay_month,
+                                 effective_bs=_today_bs())
+    finally:
+        conn.close()
+    return redirect_with_flash(f"/payroll/employee/{gu_id}/setup", "success", "Salary heads saved.")
+
+
+@app.post("/payroll/employee/{gu_id}/setup/deductions")
+async def payroll_employee_setup_deductions(request: Request, gu_id: int):
+    from db import upsert_employee_deduction, get_all_deduction_types
+
+    form = await request.form()
+    conn = get_connection()
+    try:
+        for d in get_all_deduction_types(conn):
+            did = d["id"]
+            is_enrolled = bool(form.get(f"enrolled_{did}"))
+            amount = _float_or_none(form.get(f"amount_{did}"))
+            percent_override = _float_or_none(form.get(f"percent_{did}"))
+            upsert_employee_deduction(conn, gu_id, did, is_enrolled=is_enrolled,
+                                      amount=amount, percent_override=percent_override,
+                                      effective_bs=_today_bs())
+    finally:
+        conn.close()
+    return redirect_with_flash(f"/payroll/employee/{gu_id}/setup", "success", "Deductions saved.")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Tax Projection — yearly tax prediction + monthly deduction forecast
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@app.get("/payroll/tax-projection")
+def payroll_tax_projection(request: Request, fiscal_year_id: str | None = None, global_id: str | None = None):
+    from db import (list_fiscal_years, get_active_fiscal_year, get_fiscal_year,
+                    get_tax_projection_all_employees, get_tax_projection_for_employee)
+
+    conn = get_connection()
+    try:
+        fys = list_fiscal_years(conn)
+        fy_id = _int_param(fiscal_year_id)
+        if not fy_id:
+            active = get_active_fiscal_year(conn)
+            fy_id = active["id"] if active else (fys[0]["id"] if fys else None)
+        fy = get_fiscal_year(conn, fy_id) if fy_id else None
+
+        gid = _int_param(global_id)
+        register = None
+        detail = None
+        if fy_id and not gid:
+            register = get_tax_projection_all_employees(conn, fy_id)
+        elif fy_id and gid:
+            detail = get_tax_projection_for_employee(conn, gid, fy_id)
+            with conn.cursor() as cur:
+                cur.execute("SELECT name, global_user_id FROM global_users WHERE id=%s", (gid,))
+                row = cur.fetchone()
+            emp_name, emp_company_id = row if row else ("", "")
+    finally:
+        conn.close()
+
+    return templates.TemplateResponse(request, "payroll_tax_projection.html", _payroll_ctx(request, {
+        "fiscal_years": fys, "sel_fy_id": fy_id, "fy": fy, "sel_global_id": gid,
+        "register": register, "detail": detail,
+        "emp_name": emp_name if gid else None, "emp_company_id": emp_company_id if gid else None,
+        "now_str": _npt_now_str(),
+    }))
+
+
+@app.get("/payroll/tax-projection/excel")
+def payroll_tax_projection_excel(fiscal_year_id: str | None = None):
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    from db import get_fiscal_year, get_tax_projection_all_employees
+
+    fy_id = _int_param(fiscal_year_id)
+    if not fy_id:
+        return redirect_with_flash("/payroll/tax-projection", "error", "Select a fiscal year first.")
+
+    conn = get_connection()
+    try:
+        fy = get_fiscal_year(conn, fy_id)
+        rows = get_tax_projection_all_employees(conn, fy_id)
+    finally:
+        conn.close()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Tax Projection"
+    thin = Side(style='thin')
+    bdr = Border(left=thin, right=thin, top=thin, bottom=thin)
+    hdr_fill = PatternFill("solid", fgColor="1769E0")
+    hdr_font = Font(bold=True, color="FFFFFF")
+    alt_fill = PatternFill("solid", fgColor="EEF6FF")
+
+    COLS = ['#', 'Name', 'Employee ID', 'Department', 'Projected Annual Gross',
+           'Projected Annual Taxable', 'Projected Annual Tax', 'Avg Monthly Tax', 'Note']
+    last = get_column_letter(len(COLS))
+    ws.merge_cells(f'A1:{last}1')
+    ws.cell(1, 1).value = f"{COMPANY_NAME} — Yearly Tax Prediction"
+    ws.cell(1, 1).font = Font(bold=True, size=13)
+    ws.merge_cells(f'A2:{last}2')
+    ws.cell(2, 1).value = f"Fiscal Year {fy['fiscal_year_bs']} BS — projected from current salary configuration"
+    ws.cell(2, 1).font = Font(italic=True, size=10)
+    ws.append([])
+    ws.append(COLS)
+    for cell in ws[ws.max_row]:
+        cell.fill = hdr_fill
+        cell.font = hdr_font
+        cell.border = bdr
+
+    for i, r in enumerate(rows, 1):
+        if r.get("error"):
+            ws.append([i, r.get("name") or '-', r.get("company_id") or '-', r.get("department") or '-',
+                      '-', '-', '-', '-', r["error"]])
+        else:
+            ws.append([i, r.get("name") or '-', r.get("company_id") or '-', r.get("department") or '-',
+                      r["annual_gross"], r["annual_taxable"], r["annual_tax"], r["monthly_tax_avg"], ''])
+        for cell in ws[ws.max_row]:
+            cell.border = bdr
+            if i % 2 == 0:
+                cell.fill = alt_fill
+
+    for i in range(1, len(COLS) + 1):
+        col = get_column_letter(i)
+        mx = max((len(str(c.value)) for row in ws.iter_rows(min_col=i, max_col=i)
+                  for c in row if c.value is not None), default=8)
+        ws.column_dimensions[col].width = min(mx + 4, 42)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"TaxProjection_{fy['fiscal_year_bs'].replace('/', '-')}.xlsx"
+    return StreamingResponse(buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})

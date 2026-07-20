@@ -42,6 +42,7 @@ A Python application that connects to ZKTeco biometric attendance devices, pulls
 | **Pull Sessions** | History of every pull run (start, end, rows, status, full error traceback); diagnostic table explaining common timeout causes |
 | **Schedule** | View and edit the pull schedule — applies immediately, no restart |
 | **Settings** | Three tabs: Org Hierarchy (Directorates → Departments → Sections → Units), Shifts & Shift Rules, Employee Org Assignment |
+| **Payroll** | Fiscal-year-scoped payroll engine — see [Payroll](#payroll) below for the full breakdown |
 | **Audit Log** | Who changed what and when, across every administrative table (devices, Global Users, org hierarchy, shifts/shift rules, leave types/balances/applications, holidays, kaaj, company settings, web users, payroll, pull schedule, auto-attend rules) — filter by table, action, user, record ID, or date range; expand any row to see before/after values |
 
 ### Bikram Sambat (BS) Calendar
@@ -956,6 +957,20 @@ pg_dump -U postgres -d zkteco -f ~/backups/zkteco_$(date +%F).sql
 
 **Bold** columns were added in extended migrations (auto-applied on startup). All tables store a BS date column (`bs_date`, `created_bs`, etc.) alongside AD timestamps.
 
+#### Payroll tables — see **Payroll** section above
+
+| Table | Key Columns |
+|---|---|
+| `fiscal_years` | id, fiscal_year_bs, start_bs/end_bs, start_ad/end_ad, status (upcoming/active/closed/locked) |
+| `payroll_tax_slab_sets` / `payroll_tax_slab_bands` | fiscal_year_id, marital_status (single/married/ALL), is_confirmed, source_note / slab_set_id, band_order, band_width, rate_percent |
+| `payroll_heads` / `payroll_employee_heads` | code, name, calc_type (fixed/percent_of_basic), percent_of_basic, frequency (monthly/annual/festival/onetime) / global_user_id, head_id, amount, frequency_override, pay_bs_month |
+| `payroll_deduction_types` / `payroll_employee_deductions` | code, name, calc_type, default_amount, is_pretax, cap_amount, cap_percent_of_gross / global_user_id, deduction_type_id, is_enrolled, amount, percent_override |
+| `payroll_salary_structures` | global_user_id, daily_hours, ot_multiplier, marital, other_deductions — policy fields only; earnings come from `payroll_employee_heads` |
+| `payroll_runs` / `payroll_items` | bs_year, bs_month, period_index, fiscal_year_id, status / run_id, global_user_id, gross, taxable_this/ytd, tax, net_pay, **employee_id_snapshot**, **employee_name_snapshot** |
+| `payroll_item_heads` / `payroll_item_deductions` | item_id, head_code/deduction_code, name, amount — immutable per-payslip breakdown, stamped from the catalog at generation time |
+| `payroll_attendance_snapshot` | run_id, global_user_id, working_days, present_days, paid_leave_days, unpaid_leave_days, regular_ot_minutes, holiday_ot_minutes, … — persisted, not recomputed |
+| `payroll_holiday_ot_rules` | global_user_id / department_id / section_id, multiplier |
+
 #### New columns added to existing tables (Phase 5 / Phase 6 / Phase 7 / Phase 8 / Phase 10)
 
 | Table | New Columns |
@@ -1016,7 +1031,10 @@ impossible to forget to add logging when a new mutation is added later.
 `holidays`, `holiday_types`, `kaaj_records`, `attendance_day_remarks`,
 `company_settings`, `web_users`, `pull_schedule`, `auto_attend_rules`,
 `payroll_salary_structures`, `payroll_runs`, `payroll_items`,
-`payroll_holiday_ot_rules`.
+`payroll_holiday_ot_rules`, `fiscal_years`, `payroll_tax_slab_sets`,
+`payroll_tax_slab_bands`, `payroll_heads`, `payroll_employee_heads`,
+`payroll_deduction_types`, `payroll_employee_deductions`,
+`payroll_attendance_snapshot`, `payroll_item_heads`, `payroll_item_deductions`.
 
 **Deliberately not row-audited:** `attendance_logs`, `attendance_daily`,
 `employees`, and `pull_sessions`. These are bulk-written by every device pull
@@ -1035,6 +1053,80 @@ automatically. No new INSERT/UPDATE/DELETE code needs to change.
 
 ---
 
+## Payroll
+
+A fiscal-year-scoped payroll engine, built on top of the attendance system —
+see `payroll_plan.md` for the full design rationale and phase-by-phase build
+log. Every number a payslip shows is either live-computed or a persisted,
+audited snapshot; nothing is a hardcoded constant.
+
+### Design principles
+
+- **No hardcoded values.** Tax slabs, the fiscal-year calendar, salary heads,
+  statutory deduction rules, and the default shift window are all database
+  rows, editable from the UI (`/payroll/settings`, `/payroll/tax-slabs`),
+  not Python constants.
+- **One attendance pipeline.** Payroll reads present/absent/leave/OT figures
+  from `attendance_engine.py` — the exact same computation
+  `/reports/monthly/view` uses — so a payslip's attendance numbers can never
+  silently disagree with what an employee's own attendance report shows.
+- **Everything persisted, nothing recomputed-and-discarded.** A generated
+  payroll run stores an immutable attendance snapshot
+  (`payroll_attendance_snapshot`) and an immutable per-head/per-deduction
+  breakdown (`payroll_item_heads`, `payroll_item_deductions`) — a later
+  catalog edit (renaming a head, changing a tax rate) never rewrites a
+  historical payslip.
+
+### Pages
+
+| Page | What it does |
+|---|---|
+| **Payroll Runs** (`/payroll`) | List of generated payroll runs, with gross/tax/net totals |
+| **Generate Payroll** (`/payroll/runs/new`) | Pick a BS year/month and generate a run for every employee with salary heads configured |
+| **Payroll Run** (`/payroll/runs/{id}`) | Per-employee payslip list for one run, with a link to download every payslip as a single PDF |
+| **Payslip** (`/payroll/runs/{id}/payslip/{gu}`) | One employee's payslip — earnings by head, deductions by type, tax-slab breakdown, formula transparency ("how this was calculated") |
+| **Attendance for Payroll** (`/payroll/attendance-summary`) | Pre-generation review: present/leave/absent/OT days per employee for a BS month, live-computed if no run exists yet, read from the persisted snapshot if one does |
+| **Annual Summary** (`/payroll/annual-summary`) | Aggregates a full fiscal year's runs into one per-employee document — annual head/deduction totals, tax reconciliation, tax-slab breakdown, Excel export |
+| **Salary Structures** (`/payroll/salary-structures`) | Per-employee policy fields (daily hours, OT multiplier, marital status, other deductions) — links to **Heads & Deductions** for the actual earnings/deduction setup |
+| **Heads & Deductions** (`/payroll/employee/{gu}/setup`) | Per-employee salary head amounts and statutory deduction enrollment/overrides, with join date visible (deduction rates like PF can vary by tenure) |
+| **Holiday OT Rules** (`/payroll/holiday-ot-rules`) | Premium OT multiplier for work on a weekly-off/holiday, scoped by employee/department/section |
+| **Tax Slabs** (`/payroll/tax-slabs`) | Manage tax bands per fiscal year and marital status (or a single unified table, e.g. for a year without a single/married split); an unconfirmed slab set blocks payroll generation until explicitly confirmed against the enacted Finance Act |
+| **Payroll Settings** (`/payroll/settings`) | Fiscal-year lifecycle (create/activate/close/lock), the salary-head catalog, the statutory-deduction-type catalog, and the default shift window |
+
+### Fiscal years
+
+Nepal's fiscal year runs Shrawan 1 through the following year's Ashadh-end.
+`fiscal_years` rows store both AD and BS start/end dates — computed via
+`nepali_utils`, never hardcoded, since BS month lengths vary 29–32 days
+year to year. Each year has a status: `upcoming` → `active` → `closed` →
+`locked`. Only an `active` year accepts new/edited payroll runs.
+
+### Salary heads & deductions
+
+`payroll_heads` (Basic, DA, Upadan, Allowance, Tiffin, Medical, Dress,
+Dashain, Copy, Barshik, Rahat by default) and `payroll_deduction_types`
+(PF, CIT, Insurance by default) are both catalogs with a `calc_type` of
+`fixed` or `percent_of_basic` — the same generalized pattern for both, so a
+4th deduction type or a 12th salary head is a catalog row, not a schema
+change. Per-employee amounts live in `payroll_employee_heads`/
+`payroll_employee_deductions`, with per-employee overrides (e.g. a PF
+percentage that varies by join date/tenure policy) taking precedence over
+the catalog default.
+
+### Running a payroll generation
+
+`/payroll/runs/generate` resolves, for each employee, their earning heads
+due that BS month (monthly heads prorated by attendance, annual/festival
+one-time heads paid in full only in their configured month), their
+statutory deductions (computed on entitled Basic, not attendance-prorated —
+matching standard retirement-contribution practice), and their attendance
+via the shared engine — then runs it all through the Nepal cumulative-TDS
+tax calculation (`payroll.py`) against the active fiscal year's confirmed
+tax slabs. A run is refused if the fiscal year is closed/locked or if any
+employee's tax slabs aren't confirmed yet.
+
+---
+
 ## Project Structure
 
 ```
@@ -1044,6 +1136,10 @@ ZKTecePuller/
 ├── puller.py               ← ZKTeco SDK: pull, push, delete, backup, migrate
 ├── main.py                 ← Pull cycle orchestration + CLI flags
 ├── nepali_utils.py         ← BS↔AD conversion, Jinja2 filters
+├── attendance_engine.py    ← Shared attendance computation (reports + payroll read from here)
+├── payroll.py              ← Pure tax/OT math — Nepal cumulative-TDS, tax slabs as data, no DB access
+├── payroll_plan.md         ← Payroll design doc + phase-by-phase build log
+├── test_payroll.py         ← Payroll tax-engine acceptance test (python test_payroll.py)
 ├── device_manager.py       ← Device CRUD helpers
 ├── report.py               ← Daily PNG + timeline chart generator
 ├── scheduler.py            ← APScheduler (used standalone, not by web)
@@ -1079,6 +1175,16 @@ ZKTecePuller/
 │       ├── user_form.html                  ← Add / edit global user (org, shift, bank, etc.)
 │       ├── settings.html                   ← Org hierarchy + shifts
 │       ├── schedule.html                   ← Schedule viewer/editor
+│       ├── payroll_home.html               ← Payroll run list
+│       ├── payroll_run.html                ← One run's payslip list + bulk PDF download link
+│       ├── payroll_payslip.html            ← Single payslip (head/deduction formula breakdown)
+│       ├── payroll_payslip_print_all.html  ← Every payslip in a run, one PDF page each
+│       ├── payroll_attendance_summary.html ← Pre-generation attendance review
+│       ├── payroll_annual_summary.html     ← Fiscal-year rollup per employee
+│       ├── payroll_salary_structures.html  ← Per-employee policy fields (links to Heads & Deductions)
+│       ├── payroll_employee_setup.html     ← Per-employee salary heads + deduction enrollment
+│       ├── payroll_tax_slabs.html          ← Per-fiscal-year tax band management
+│       ├── payroll_settings.html           ← Fiscal years, head/deduction catalogs, shift window
 │       └── ...                             ← Other templates
 │
 ├── pull_month.py           ← CLI: pull device data for a past BS month into attendance_logs

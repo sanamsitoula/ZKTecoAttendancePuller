@@ -1,0 +1,196 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<style>
+@media print {
+  .no-print { display: none !important; }
+  body { font-size: 8pt; color: #000 !important; }
+  @page { size: A4 landscape; margin: 10mm; }
+  .print-report-header { display: block !important; }
+  #att-summary-table th, #att-summary-table td { color: #000 !important; padding: 3px 5px !important; }
+}
+.print-report-header { display: none; }
+#att-summary-table th { background: #e8f0fe; text-align: center; white-space: nowrap; }
+#att-summary-table td { text-align: center; white-space: nowrap; }
+#att-summary-table td.text-left { text-align: left; }
+.status-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.status-ready { background: #dcfce7; color: #166534; }
+.status-no_attendance { background: #fef3c7; color: #92400e; }
+.status-not_configured { background: #f1f5f9; color: #475569; }
+</style>
+
+<div class="page-header no-print">
+  <div>
+    <p class="subtitle">Payroll</p>
+    <h1>Attendance for Payroll</h1>
+  </div>
+  <div class="page-actions">
+    <button class="btn btn-secondary" type="button" onclick="window.print()">Print</button>
+    <button class="btn btn-secondary" type="button" onclick="downloadPDF()">Download PDF</button>
+    <a class="btn btn-primary"
+       href="/payroll/attendance-summary/excel?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}&search={{ f_search }}&department_id={{ f_dept or '' }}&section_id={{ f_sec or '' }}">
+      Export Excel
+    </a>
+  </div>
+</div>
+
+<div class="card no-print" style="margin-bottom:var(--space-6)">
+  <div class="card-body">
+    <form method="get" action="/payroll/attendance-summary" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="margin-bottom:0;min-width:90px">
+        <label class="form-label" for="as-year">Year (BS)</label>
+        <input type="number" class="form-input" id="as-year" name="bs_year" value="{{ sel_bs_year }}" min="2060" max="2100">
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:170px">
+        <label class="form-label" for="as-month">Month (BS)</label>
+        <select class="form-select" id="as-month" name="bs_month">
+          {% for mn, ml in [('1','Baisakh'),('2','Jestha'),('3','Ashadh'),('4','Shrawan'),
+                            ('5','Bhadra'),('6','Ashwin'),('7','Kartik'),('8','Mangsir'),
+                            ('9','Poush'),('10','Magh'),('11','Falgun'),('12','Chaitra')] %}
+          <option value="{{ mn }}" {% if sel_bs_month|string == mn %}selected{% endif %}>{{ mn }} – {{ ml }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:180px;flex:1">
+        <label class="form-label" for="as-search">Search Name/ID</label>
+        <input type="text" class="form-input" id="as-search" name="search" value="{{ f_search }}" placeholder="name or employee ID…">
+      </div>
+      {% if departments %}
+      <div class="form-group" style="margin-bottom:0;min-width:150px">
+        <label class="form-label" for="as-dept">Department</label>
+        <select class="form-select" id="as-dept" name="department_id">
+          <option value="">All Departments</option>
+          {% for dp in departments %}
+          <option value="{{ dp.id }}" {% if f_dept|string == dp.id|string %}selected{% endif %}>{{ dp.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      {% if sections %}
+      <div class="form-group" style="margin-bottom:0;min-width:140px">
+        <label class="form-label" for="as-sec">Section</label>
+        <select class="form-select" id="as-sec" name="section_id">
+          <option value="">All Sections</option>
+          {% for sc in sections %}
+          <option value="{{ sc.id }}" {% if f_sec|string == sc.id|string %}selected{% endif %}>{{ sc.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div style="display:flex;gap:6px;padding-top:4px">
+        <button class="btn btn-primary btn-sm" type="submit">Apply</button>
+        <a class="btn btn-ghost btn-sm" href="/payroll/attendance-summary?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}">Reset</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="att-summary-content">
+
+  <div class="print-report-header" style="position:relative;margin-bottom:10px">
+    <div style="position:absolute;top:0;right:0;font-size:7pt" id="print-time"></div>
+    <div style="text-align:center">
+      <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:6px">
+        {% if company and company.logo_url %}
+        <img src="{{ company.logo_url }}" alt="Logo" style="max-height:40px;max-width:160px;object-fit:contain">
+        {% endif %}
+        <div style="font-size:13pt;font-weight:bold;color:#000">{{ company.company_name if company else COMPANY_NAME }}</div>
+      </div>
+      <div style="font-size:11pt;font-weight:bold;color:#000">Attendance for Payroll &mdash; {{ month_name }} {{ sel_bs_year }} BS</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:var(--space-4)">
+    <div class="card-body" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <span class="text-sm text-muted">{{ rows|length }} employee(s) shown</span>
+      <span class="text-sm">
+        Source:
+        <strong>{{ source or '—' }}</strong>
+        {% if source and 'live' in source %}
+        <span class="text-muted">— no payroll run generated yet for this period; these are computed live and will be persisted once you generate the run.</span>
+        {% endif %}
+      </span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table class="table" id="att-summary-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th style="text-align:left">Employee ID</th>
+            <th style="text-align:left">Name</th>
+            <th style="text-align:left">Department</th>
+            <th style="text-align:left">Section</th>
+            <th>Working Days</th>
+            <th>Present</th>
+            <th>Paid Leave</th>
+            <th>Unpaid Leave</th>
+            <th>Absent</th>
+            <th>Weekend</th>
+            <th>Holiday</th>
+            <th>Work Hours</th>
+            <th>Regular OT</th>
+            <th>Holiday OT</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          {% set s = r.summary %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td class="text-left"><code style="font-size:var(--text-xs)">{{ r.emp_user_id or '—' }}</code></td>
+            <td class="text-left"><strong>{{ r.name }}</strong></td>
+            <td class="text-left">{{ r.department or '—' }}</td>
+            <td class="text-left">{{ r.section or '—' }}</td>
+            <td>{{ s.working_days }}</td>
+            <td>{{ s.present_days }}</td>
+            <td>{{ s.paid_leave_days }}</td>
+            <td>{{ s.unpaid_leave_days }}</td>
+            <td>{{ s.absent_days }}</td>
+            <td>{{ s.weekend_days }}</td>
+            <td>{{ s.holiday_days }}</td>
+            <td>{{ '%.2f'|format((s.total_work_minutes or 0) / 60.0) }}</td>
+            <td>{{ '%.2f'|format((s.regular_ot_minutes or 0) / 60.0) }}</td>
+            <td>{{ '%.2f'|format((s.holiday_ot_minutes or 0) / 60.0) }}</td>
+            <td>
+              <span class="status-badge status-{{ r.status }}">
+                {% if r.status == 'ready' %}Ready
+                {% elif r.status == 'no_attendance' %}No Attendance
+                {% else %}Not Configured{% endif %}
+              </span>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="16" class="empty">No employees match the selected filters.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>{# end att-summary-content #}
+
+<script src="/static/html2pdf.bundle.min.js"></script>
+<script>
+(function () {
+  var el = document.getElementById('print-time');
+  if (el) el.textContent = 'Print Time: {{ now_str }}';
+})();
+
+function downloadPDF() {
+  var el = document.getElementById('att-summary-content');
+  if (!el) { alert('No report to download.'); return; }
+  html2pdf().set({
+    margin: [10, 8, 10, 8],
+    filename: 'AttendanceForPayroll_{{ sel_bs_year }}_{{ sel_bs_month }}.pdf',
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2, useCORS: true },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+  }).from(el).save();
+}
+</script>
+
+{% endblock %}

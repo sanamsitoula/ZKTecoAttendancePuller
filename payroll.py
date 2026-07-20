@@ -1,18 +1,17 @@
-"""Payroll & Nepal income-tax calculation engine (FY 2081/82).
+"""Payroll & Nepal income-tax calculation engine.
 
 Pure functions — no DB access — so the math is independently testable.
+Tax slabs are NOT hardcoded here: Nepal's slabs change most budgets (e.g. the
+FY2083/84 proposal removes the single/married split and changes every rate),
+so every function that needs a slab table takes one as a `bands` argument —
+resolved by the caller from `payroll_tax_slab_sets`/`payroll_tax_slab_bands`
+via `db.get_tax_slab_bands()` for the run's actual fiscal year. See
+payroll_plan.md Section 6.1.
 
-Tax model (individual, FY 2081/82 / 2024-25):
-
-    Single (unmarried)                     Married (couple)
-    ------------------------------------   ------------------------------------
-    First   500,000        1%              First   600,000        1%
-    Next    200,000       10%              Next    200,000       10%
-    Next    300,000       20%              Next    300,000       20%
-    Next  1,000,000       30%              Next    900,000       30%
-    Above 2,000,000       36%              Above 2,000,000       36%
-
-The 1% first tier is Social Security Tax.
+`bands` shape: a list of {'width': Decimal|None, 'rate': Decimal} dicts, in
+order, where `width` is the band's Rs width and `rate` is a *percentage*
+(e.g. 10 for 10%, not 0.10) — `rate=None`'s width entry marks the final,
+open-ended "remainder" band.
 
 Cumulative TDS: monthly tax is not a naive annual/12. Each period we project the
 full-year taxable income, compute the annual tax, work out how much tax *should*
@@ -25,24 +24,6 @@ from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP
 
-# ── Tax slabs: (upper_bound_of_band_width, rate). None width = "remainder". ──
-_SLABS = {
-    "single": [
-        (Decimal("500000"), Decimal("0.01")),
-        (Decimal("200000"), Decimal("0.10")),
-        (Decimal("300000"), Decimal("0.20")),
-        (Decimal("1000000"), Decimal("0.30")),
-        (None, Decimal("0.36")),
-    ],
-    "married": [
-        (Decimal("600000"), Decimal("0.01")),
-        (Decimal("200000"), Decimal("0.10")),
-        (Decimal("300000"), Decimal("0.20")),
-        (Decimal("900000"), Decimal("0.30")),
-        (None, Decimal("0.36")),
-    ],
-}
-
 
 def _q(x) -> Decimal:
     """Round to 2 decimal places, half-up."""
@@ -53,12 +34,28 @@ def _D(x) -> Decimal:
     return x if isinstance(x, Decimal) else Decimal(str(x or 0))
 
 
-def annual_tax(taxable_annual, marital: str = "single") -> Decimal:
+def _normalize_bands(bands) -> list[tuple]:
+    """Accept bands as dicts ({'width','rate'}, from db.get_tax_slab_bands)
+    or plain (width, rate) tuples; return a list of (width: Decimal|None, rate: Decimal) tuples.
+    `rate` is normalized from a percentage (e.g. 10) to a fraction (0.10)."""
+    out = []
+    for b in bands:
+        if isinstance(b, dict):
+            width, rate = b.get("width"), b.get("rate")
+        else:
+            width, rate = b
+        w = None if width is None else _D(width)
+        r = _D(rate) / Decimal("100")
+        out.append((w, r))
+    return out
+
+
+def annual_tax(taxable_annual, bands) -> Decimal:
     """Compute annual income tax for a given annual taxable amount (Rs)."""
     income = _D(taxable_annual)
     if income <= 0:
         return Decimal("0.00")
-    slabs = _SLABS.get(marital, _SLABS["single"])
+    slabs = _normalize_bands(bands)
     tax = Decimal("0")
     remaining = income
     for width, rate in slabs:
@@ -70,10 +67,10 @@ def annual_tax(taxable_annual, marital: str = "single") -> Decimal:
     return _q(tax)
 
 
-def slab_breakdown(taxable_annual, marital: str = "single") -> list[dict]:
+def slab_breakdown(taxable_annual, bands) -> list[dict]:
     """Return per-band detail for display on the payslip / tax preview."""
     income = _D(taxable_annual)
-    slabs = _SLABS.get(marital, _SLABS["single"])
+    slabs = _normalize_bands(bands)
     rows, remaining, lower = [], income, Decimal("0")
     for width, rate in slabs:
         if remaining <= 0:
@@ -92,12 +89,15 @@ def slab_breakdown(taxable_annual, marital: str = "single") -> list[dict]:
     return rows
 
 
-def fiscal_period_index(bs_month: int) -> int:
-    """Map a BS month (1=Baisakh..12=Chaitra) to its Nepali fiscal-year index.
+def fiscal_period_index(bs_month: int, fiscal_start_month: int = 4) -> int:
+    """Map a BS month (1=Baisakh..12=Chaitra) to its fiscal-year index (1..12).
 
-    The Nepali fiscal year starts in Shrawan (BS month 4), so Shrawan=1 .. Ashadh=12.
+    `fiscal_start_month` is the BS month the fiscal year begins in — resolve
+    it from the run's `fiscal_years.start_bs` (Section 5.1), never assume it;
+    it defaults to 4 (Shrawan, Nepal's standard fiscal year start) only for
+    callers that haven't been updated to pass it explicitly.
     """
-    return ((int(bs_month) - 4) % 12) + 1
+    return ((int(bs_month) - int(fiscal_start_month)) % 12) + 1
 
 
 def monthly_tds(
@@ -105,7 +105,7 @@ def monthly_tds(
     taxable_ytd_incl_current,
     this_month_taxable,
     tax_paid_before_current,
-    marital: str = "single",
+    bands,
 ) -> dict:
     """Cumulative monthly TDS with automatic mid-year true-up.
 
@@ -113,6 +113,7 @@ def monthly_tds(
     taxable_ytd_incl_current sum of taxable income from FY start through this month.
     this_month_taxable      current month's taxable income (used to project forward).
     tax_paid_before_current tax already withheld in earlier months of this FY.
+    bands                   this run's resolved tax slab bands (db.get_tax_slab_bands()).
     """
     pi = max(1, min(12, int(period_index)))
     ytd = _D(taxable_ytd_incl_current)
@@ -121,7 +122,7 @@ def monthly_tds(
 
     # Project remaining months at the current month's rate.
     projected_annual = ytd + cur * (12 - pi)
-    ann_tax = annual_tax(projected_annual, marital)
+    ann_tax = annual_tax(projected_annual, bands)
 
     # How much tax should have been withheld through the current period.
     tax_due_through_now = _q(ann_tax * Decimal(pi) / Decimal(12))
@@ -164,7 +165,8 @@ def compute_payslip(
     holiday_ot_multiplier=None,
     other_earnings=0,
     other_deductions=0,
-    marital="single",
+    pretax_deductions=None,
+    tax_bands=None,
     period_index=1,
     taxable_ytd_before=0,
     tax_paid_before=0,
@@ -179,7 +181,24 @@ def compute_payslip(
       * holiday_ot_hours  — hours worked on a weekly-off / holiday, paid at
                             holiday_ot_multiplier (e.g. 1.5×) when the employee
                             is eligible; falls back to ot_multiplier otherwise.
+
+    `tax_bands` is this run's resolved fiscal-year tax slab bands (from
+    `db.get_tax_slab_bands()`) — required; there is no built-in default slab
+    table, since slabs are fiscal-year data, not code (payroll_plan.md 6.1).
+
+    `pretax_deductions` is this month's resolved statutory deductions (from
+    `db.resolve_employee_deductions_for_month()` — PF/CIT/Insurance etc.) as
+    a list of {'code', 'name', 'amount', ...} dicts, or a plain number. These
+    reduce TAXABLE income before the slab calculation, per payroll_plan.md
+    Section 6.3 — this is the fix for the previous behavior where taxable
+    income was simply `gross`, ignoring deductions entirely. Non-pre-tax,
+    ad-hoc deductions still go through `other_deductions` (subtracted from
+    net pay only, unchanged from before).
     """
+    if not tax_bands:
+        raise ValueError("compute_payslip() requires tax_bands (resolved from "
+                          "db.get_tax_slab_bands() for the run's fiscal year) — "
+                          "tax slabs are no longer hardcoded.")
     basic = _D(basic_salary)
     allow = _D(allowances)
     wd = max(1, int(working_days or 1))
@@ -198,8 +217,27 @@ def compute_payslip(
 
     gross = _q(earned_basic + earned_allow + ot_pay + other_earn)
 
-    # Taxable income this month (gross; OT and allowances are taxable in Nepal).
-    this_month_taxable = gross
+    # Pre-tax deductions (PF/CIT/Insurance/...) reduce taxable income before
+    # the slab calculation — the Section 6.3 fix. Accepts either a resolved
+    # detail list (preferred — feeds the payslip formula breakdown) or a
+    # plain pre-summed number.
+    if pretax_deductions is None:
+        pretax_list = []
+        pretax_total = Decimal("0")
+    elif isinstance(pretax_deductions, (list, tuple)):
+        pretax_list = [{"code": d.get("code"), "name": d.get("name"), "amount": _q(d.get("amount", 0))}
+                       for d in pretax_deductions]
+        pretax_total = sum((item["amount"] for item in pretax_list), Decimal("0"))
+    else:
+        pretax_list = []
+        pretax_total = _D(pretax_deductions)
+    pretax_total = _q(pretax_total)
+
+    # Taxable income this month = gross minus pre-tax deductions, floored at
+    # zero (a deduction total can never make taxable income negative).
+    this_month_taxable = gross - pretax_total
+    if this_month_taxable < 0:
+        this_month_taxable = Decimal("0.00")
     taxable_ytd_incl = _D(taxable_ytd_before) + this_month_taxable
 
     tax = monthly_tds(
@@ -207,7 +245,7 @@ def compute_payslip(
         taxable_ytd_incl_current=taxable_ytd_incl,
         this_month_taxable=this_month_taxable,
         tax_paid_before_current=tax_paid_before,
-        marital=marital,
+        bands=tax_bands,
     )
     tds = tax["tds_this_month"]
     other_ded = _D(other_deductions)
@@ -230,6 +268,8 @@ def compute_payslip(
         "ot_pay": ot_pay,
         "other_earnings": _q(other_earn),
         "gross": gross,
+        "pretax_deductions": pretax_list,
+        "pretax_deductions_total": pretax_total,
         "taxable_this_month": this_month_taxable,
         "taxable_ytd": _q(taxable_ytd_incl),
         "tax": tds,

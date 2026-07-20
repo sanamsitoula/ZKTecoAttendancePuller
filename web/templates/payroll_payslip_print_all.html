@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ COMPANY_NAME }} &mdash; {{ run.month_name }} {{ run.bs_year }} BS &mdash; All Payslips</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    body { background:#f4f6fa; font-size:11px; }
+    .screen-actions { text-align:center; padding:16px 0 12px; }
+
+    .emp-block {
+      page-break-after: always;
+      background:#fff; padding:14px 18px; margin:18px auto; max-width:900px;
+      box-shadow:0 1px 4px rgba(0,0,0,.1); border-radius:6px;
+    }
+    .emp-block:last-child { page-break-after: auto; }
+
+    /* Force dark, legible text everywhere in the card */
+    .report-card, .report-card th, .report-card td, .report-card div, .report-card span {
+      color: #000;
+    }
+
+    .slip-head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #000; padding-bottom:10px; margin-bottom:14px; }
+    .slip-title { font-size:15pt; font-weight:700; }
+    .slip-grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+    .slip-line { display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px dashed #ccc; font-size:9.5pt; }
+    .slip-line.total { border-bottom:none; border-top:2px solid #000; font-weight:700; margin-top:4px; padding-top:4px; }
+    .slip-sec-title { font-size:8.5pt; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#333; margin-bottom:4px; margin-top:10px; }
+    .net-box { background:#f0f9f4; border:1px solid #16a34a; border-radius:8px; padding:10px; text-align:center; margin-top:14px; }
+    .net-box .amt { font-size:16pt; font-weight:700; color:#166534; }
+    .badge-mini { font-size:7.5pt; background:#fef3c7; color:#92400e; padding:1px 5px; border-radius:3px; margin-left:4px; }
+
+    @media print {
+      @page { size: A4 portrait; margin: 12mm 10mm; }
+      html, body { background:#fff !important; font-size: 9pt !important; margin: 0 !important; padding: 0 !important; }
+      .screen-actions { display:none !important; }
+      .emp-block {
+        width: 100% !important; max-width: 100% !important; margin: 0 !important; padding: 0 !important;
+        border: none !important; border-radius: 0 !important; box-shadow: none !important;
+        page-break-after: always; page-break-inside: avoid;
+      }
+      .emp-block:last-child { page-break-after: auto; }
+      .slip-line { font-size: 8.5pt !important; }
+    }
+
+    .report-card.pdf-export {
+      width: 100% !important; max-width: 100% !important; margin: 0 !important; padding: 0 !important;
+      border: none !important; box-shadow: none !important;
+    }
+  </style>
+</head>
+<body>
+
+<div class="screen-actions">
+  <button class="btn btn-primary" aria-label="Print all payslips" onclick="window.print()" style="font-size:14px;padding:8px 24px">
+    Print All
+  </button>
+  <button class="btn" id="dl-all-btn" aria-label="Download all payslips as PDF" onclick="downloadAllPDF()" style="margin-left:10px;font-size:14px;padding:8px 24px">
+    Download PDF
+  </button>
+  <span id="dl-all-progress" style="margin-left:10px;font-size:13px;color:#334155;display:none"></span>
+  <a class="btn btn-ghost" href="/payroll/runs/{{ run.id }}" aria-label="Back to payroll run" style="margin-left:10px">Back to Run</a>
+</div>
+
+{% if not slips %}
+<div style="text-align:center;padding:40px;color:#64748b">No payslips in this run.</div>
+{% endif %}
+
+<div id="all-slips">
+{% for s in slips %}
+{% set item = s.item %}
+<div class="emp-block">
+  <div class="report-card">
+
+    <div class="slip-head">
+      <div>
+        {% if company and company.logo_url %}
+        <img src="{{ company.logo_url }}" alt="Logo" style="max-height:36px;max-width:140px;object-fit:contain;margin-bottom:4px">
+        {% endif %}
+        <div class="slip-title">{{ company.company_name if company else COMPANY_NAME }}</div>
+        <div style="font-size:8pt;color:#333">{{ company.address if company else '' }}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="slip-title">Salary Slip</div>
+        <div style="font-size:8pt;color:#333">{{ run.month_name }} {{ run.bs_year }} BS</div>
+      </div>
+    </div>
+
+    <div class="slip-grid" style="margin-bottom:10px">
+      <div>
+        <div class="slip-sec-title">Employee</div>
+        <div class="slip-line"><span>Name</span><span>{{ item.name or '—' }}</span></div>
+        <div class="slip-line"><span>Employee ID</span><span>{{ item.emp_code }}</span></div>
+        <div class="slip-line"><span>Department</span><span>{{ item.department or '—' }}</span></div>
+      </div>
+      <div>
+        <div class="slip-sec-title">Attendance</div>
+        <div class="slip-line"><span>Present days</span><span>{{ item.present_days }} / {{ run.working_days }}</span></div>
+        {% if s.attendance %}
+        <div class="slip-line"><span>Paid / Unpaid leave</span><span>{{ s.attendance.paid_leave_days }} / {{ s.attendance.unpaid_leave_days }}</span></div>
+        <div class="slip-line"><span>Absent</span><span>{{ s.attendance.absent_days }}</span></div>
+        {% endif %}
+        <div class="slip-line"><span>OT hours</span><span>{{ '%.1f'|format(item.ot_hours|float) }}</span></div>
+      </div>
+    </div>
+
+    <div class="slip-grid">
+      <div>
+        <div class="slip-sec-title">Earnings — Salary Heads</div>
+        {% for h in s.heads %}
+        <div class="slip-line">
+          <span>{{ h.head_name }}{% if h.frequency != 'monthly' %}<span class="badge-mini">{{ h.frequency }}</span>{% endif %}</span>
+          <span>{{ '{:,.2f}'.format(h.amount|float) }}</span>
+        </div>
+        {% else %}
+        <div class="slip-line"><span>Basic (earned)</span><span>{{ '{:,.2f}'.format(item.earned_basic|float) }}</span></div>
+        <div class="slip-line"><span>Allowances</span><span>{{ '{:,.2f}'.format(item.earned_allowance|float) }}</span></div>
+        {% endfor %}
+        <div class="slip-line"><span>Overtime</span><span>{{ '{:,.2f}'.format(item.ot_pay|float) }}</span></div>
+        {% if item.other_earnings|float > 0 %}
+        <div class="slip-line"><span>Other / one-time earnings</span><span>{{ '{:,.2f}'.format(item.other_earnings|float) }}</span></div>
+        {% endif %}
+        <div class="slip-line total"><span>Gross</span><span>{{ '{:,.2f}'.format(item.gross|float) }}</span></div>
+      </div>
+      <div>
+        <div class="slip-sec-title">Deductions</div>
+        {% for d in s.deductions %}
+        <div class="slip-line">
+          <span>{{ d.deduction_name }}{% if d.capped %}<span class="badge-mini">capped</span>{% endif %}</span>
+          <span>{{ '{:,.2f}'.format(d.amount|float) }}</span>
+        </div>
+        {% endfor %}
+        <div class="slip-line"><span>Income Tax (TDS)</span><span>{{ '{:,.2f}'.format(item.tax|float) }}</span></div>
+        <div class="slip-line"><span>Other deductions</span><span>{{ '{:,.2f}'.format(item.other_deductions|float) }}</span></div>
+        <div class="slip-line total"><span>Total deductions</span><span>{{ '{:,.2f}'.format((item.tax|float) + (item.other_deductions|float)) }}</span></div>
+      </div>
+    </div>
+
+    <div class="net-box">
+      <div style="font-size:8.5pt;color:#333">Net Pay</div>
+      <div class="amt">Rs {{ '{:,.2f}'.format(item.net_pay|float) }}</div>
+    </div>
+
+    <div style="margin-top:10px;padding-top:6px;border-top:1px solid #ccc;display:flex;justify-content:space-between;font-size:7.5pt;color:#333">
+      <div>Printed Time: {{ now_str }}</div>
+      <div>Developed and Maintained by JEMC IT Unit</div>
+      <div>Page {{ loop.index }} of {{ slips | length }}</div>
+    </div>
+
+  </div>
+</div>
+{% endfor %}
+</div>
+
+<script src="/static/html2pdf.bundle.min.js"></script>
+<script>
+async function downloadAllPDF() {
+  var btn = document.getElementById('dl-all-btn');
+  var progress = document.getElementById('dl-all-progress');
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.report-card'));
+  if (!cards.length) return;
+
+  var fn = '{{ COMPANY_NAME|replace(" ", "_") }}_Payslips_{{ run.month_name }}_{{ run.bs_year }}.pdf';
+  var opt = {
+    margin: [8, 8, 8, 8],
+    image: { type: 'jpeg', quality: 0.95 },
+    html2canvas: { scale: 1.5, useCORS: true, logging: false },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true }
+  };
+
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  progress.style.display = 'inline';
+  cards.forEach(function(c) { c.classList.add('pdf-export'); });
+
+  try {
+    progress.textContent = 'Rendering 1 / ' + cards.length + '...';
+    var worker = html2pdf().set(opt).from(cards[0]).toContainer().toCanvas().toPdf();
+    for (var i = 1; i < cards.length; i++) {
+      (function(idx) {
+        worker = worker.get('pdf').then(function(pdf) {
+          progress.textContent = 'Rendering ' + (idx + 1) + ' / ' + cards.length + '...';
+          pdf.addPage();
+        }).from(cards[idx]).toContainer().toCanvas().toPdf();
+      })(i);
+    }
+    await worker.save(fn);
+  } catch (err) {
+    alert('PDF generation failed: ' + (err && err.message ? err.message : err));
+  } finally {
+    cards.forEach(function(c) { c.classList.remove('pdf-export'); });
+    btn.disabled = false;
+    btn.textContent = 'Download PDF';
+    progress.style.display = 'none';
+  }
+}
+</script>
+
+</body>
+</html>

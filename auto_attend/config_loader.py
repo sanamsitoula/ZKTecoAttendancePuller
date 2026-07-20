@@ -24,10 +24,10 @@ DEFAULTS = {
     "timezone": "Asia/Kathmandu",
     "checkin_start": "08:57:00",
     "checkin_end": "08:59:49",
-    "checkin_days": [1, 2, 3, 4, 5],
+    "checkin_days": [0, 1, 2, 3, 4],   # Mon-Fri under date.weekday()'s Mon=0..Sun=6
     "checkout_start": "17:19:00",
     "checkout_end": "17:27:00",
-    "checkout_days": [1, 2, 3, 4, 5],
+    "checkout_days": [0, 1, 2, 3, 4],  # Mon-Fri under date.weekday()'s Mon=0..Sun=6
     "schedule_hour": 8,
     "schedule_minute": 56,
     "checkout_schedule_hour": 17,

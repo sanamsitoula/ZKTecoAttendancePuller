@@ -1,0 +1,185 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<style>
+@media print {
+  .no-print { display: none !important; }
+  body { font-size: 9pt; color: #000 !important; }
+  @page { size: A4 landscape; margin: 12mm; }
+}
+.projected-badge { font-size: 9px; background: #fef3c7; color: #92400e; padding: 1px 6px; border-radius: 999px; margin-left: 4px; }
+.actual-badge { font-size: 9px; background: #dcfce7; color: #166534; padding: 1px 6px; border-radius: 999px; margin-left: 4px; }
+</style>
+
+<div class="page-header no-print">
+  <div>
+    <p class="subtitle">Payroll</p>
+    <h1>Tax Projection</h1>
+  </div>
+  <div class="page-actions">
+    <button class="btn btn-secondary" type="button" onclick="window.print()">Print</button>
+    {% if sel_fy_id and not sel_global_id %}
+    <a class="btn btn-primary" href="/payroll/tax-projection/excel?fiscal_year_id={{ sel_fy_id }}">Export Excel</a>
+    {% endif %}
+  </div>
+</div>
+
+<p class="text-sm text-muted no-print" style="margin-bottom:var(--space-4)">
+  Projects a full fiscal year from each employee's <strong>current</strong> salary head and deduction configuration —
+  works even before any payroll run has been generated. Months that have already happened use real attendance data;
+  future months assume full attendance (marked <span class="projected-badge">projected</span>) since actual punches aren't known yet.
+  This is a forecast for planning, not a substitute for actually generating payroll.
+</p>
+
+<div class="card no-print" style="margin-bottom:var(--space-6)">
+  <div class="card-body">
+    <form method="get" action="/payroll/tax-projection" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="margin-bottom:0;min-width:180px">
+        <label class="form-label" for="tp-fy">Fiscal Year</label>
+        <select class="form-select" id="tp-fy" name="fiscal_year_id">
+          {% for f in fiscal_years %}
+          <option value="{{ f.id }}" {% if sel_fy_id == f.id %}selected{% endif %}>{{ f.fiscal_year_bs }} ({{ f.status }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label" for="tp-emp">Employee (leave blank for all)</label>
+        <input class="form-control" id="tp-emp" name="global_id" value="{{ sel_global_id or '' }}" placeholder="global ID, or blank for the register" style="width:220px">
+      </div>
+      <button class="btn btn-primary btn-sm" type="submit">View</button>
+      {% if sel_global_id %}
+      <a class="btn btn-ghost btn-sm" href="/payroll/tax-projection?fiscal_year_id={{ sel_fy_id }}">Back to all employees</a>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+{% if not fy %}
+<div class="card"><div class="card-body text-center text-muted">No fiscal years exist yet — create one on the <a href="/payroll/settings">Payroll Settings</a> page first.</div></div>
+
+{% elif register is not none %}
+{# ── All-employees register: yearly tax prediction ─────────────────────── #}
+<div class="card">
+  <div class="card-header"><h2>Yearly Tax Prediction — {{ fy.fiscal_year_bs }} BS</h2></div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th><th style="text-align:left">Employee</th><th style="text-align:left">Department</th>
+          <th class="text-right">Projected Annual Gross</th>
+          <th class="text-right">Projected Annual Taxable</th>
+          <th class="text-right">Projected Annual Tax</th>
+          <th class="text-right">Avg Monthly Tax</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in register %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td class="text-left"><strong>{{ r.name or '—' }}</strong><br><span class="text-xs text-muted">{{ r.company_id or '—' }}</span></td>
+          <td class="text-left text-xs">{{ r.department or '—' }}</td>
+          {% if r.error %}
+          <td colspan="4" class="text-center text-muted text-xs">{{ r.error }}</td>
+          {% else %}
+          <td class="text-right">{{ '{:,.2f}'.format(r.annual_gross) }}</td>
+          <td class="text-right">{{ '{:,.2f}'.format(r.annual_taxable) }}</td>
+          <td class="text-right"><strong>{{ '{:,.2f}'.format(r.annual_tax) }}</strong></td>
+          <td class="text-right">{{ '{:,.2f}'.format(r.monthly_tax_avg) }}</td>
+          {% endif %}
+          <td><a class="btn btn-secondary btn-sm no-print" href="/payroll/tax-projection?fiscal_year_id={{ sel_fy_id }}&global_id={{ r.global_user_id }}">Monthly detail</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="empty">No employees have salary heads configured yet — set them up under <a href="/payroll/salary-structures">Salary Structures</a>.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% else %}
+{# ── Per-employee detail: monthly deduction forecast ────────────────────── #}
+{% if not detail %}
+<div class="card"><div class="card-body text-center text-muted">No salary heads configured for {{ emp_name or 'this employee' }} — nothing to project.</div></div>
+{% elif detail.error %}
+<div class="card"><div class="card-body text-center" style="color:var(--color-danger)">{{ detail.error }}</div></div>
+{% else %}
+<div class="card" style="margin-bottom:var(--space-6)">
+  <div class="card-body" style="display:flex;gap:var(--space-6);flex-wrap:wrap;align-items:center">
+    <div><span class="text-xs text-muted">Employee</span><br><strong>{{ emp_name }}</strong></div>
+    <div><span class="text-xs text-muted">Employee ID</span><br><strong>{{ emp_company_id or '—' }}</strong></div>
+    <div><span class="text-xs text-muted">Tax Status</span><br><strong>{{ detail.marital|capitalize }}</strong></div>
+    <div><span class="text-xs text-muted">Projected Annual Tax</span><br><strong style="font-size:var(--text-lg);color:var(--color-primary)">Rs {{ '{:,.2f}'.format(detail.annual_tax) }}</strong></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2>Monthly Deduction Forecast</h2></div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th style="text-align:left">Month</th><th class="text-right">Gross</th>
+          <th class="text-right">Pre-tax Deductions</th><th class="text-right">Taxable</th>
+          <th class="text-right">Tax (TDS)</th><th class="text-right">Net Pay</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in detail.months %}
+        <tr>
+          <td class="text-left">{{ m.month_name }} {{ m.bs_year }}
+            {% if m.is_projected %}<span class="projected-badge">projected</span>{% else %}<span class="actual-badge">actual</span>{% endif %}
+          </td>
+          <td class="text-right">{{ '{:,.2f}'.format(m.gross) }}</td>
+          <td class="text-right">{{ '{:,.2f}'.format(m.pretax_deductions_total) }}</td>
+          <td class="text-right">{{ '{:,.2f}'.format(m.taxable_this_month) }}</td>
+          <td class="text-right">{{ '{:,.2f}'.format(m.tax_this_month) }}</td>
+          <td class="text-right">{{ '{:,.2f}'.format(m.net_pay) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="font-weight:700;background:var(--bg-muted,#f8fafc)">
+          <td class="text-left">Annual Total</td>
+          <td class="text-right">{{ '{:,.2f}'.format(detail.annual_gross) }}</td>
+          <td class="text-right">—</td>
+          <td class="text-right">{{ '{:,.2f}'.format(detail.annual_taxable) }}</td>
+          <td class="text-right">{{ '{:,.2f}'.format(detail.annual_tax) }}</td>
+          <td class="text-right">—</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<div class="card" style="margin-top:var(--space-4)">
+  <div class="card-header"><h2>Salary Head &amp; Deduction Detail by Month</h2></div>
+  <div class="card-body">
+    {% for m in detail.months %}
+    <details style="margin-bottom:8px">
+      <summary style="cursor:pointer;font-weight:600;padding:4px 0">
+        {{ m.month_name }} {{ m.bs_year }}{% if m.is_projected %} <span class="projected-badge">projected</span>{% endif %}
+      </summary>
+      <div style="display:flex;gap:var(--space-6);flex-wrap:wrap;padding:8px 0 8px 16px">
+        <div>
+          <div class="text-xs text-muted" style="font-weight:600;margin-bottom:4px">Heads</div>
+          {% for h in m.heads %}
+          <div class="text-sm">{{ h.name }}: {{ '{:,.2f}'.format(h.amount) }}</div>
+          {% endfor %}
+        </div>
+        <div>
+          <div class="text-xs text-muted" style="font-weight:600;margin-bottom:4px">Deductions</div>
+          {% for d in m.deductions %}
+          <div class="text-sm">{{ d.name }}{% if d.capped %} <span class="projected-badge">capped</span>{% endif %}: {{ '{:,.2f}'.format(d.amount) }}</div>
+          {% else %}
+          <div class="text-sm text-muted">None enrolled</div>
+          {% endfor %}
+        </div>
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

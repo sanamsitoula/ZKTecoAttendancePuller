@@ -601,12 +601,14 @@ CREATE TABLE IF NOT EXISTS auto_attend_rules (
     -- Check-in window
     checkin_start           TIME NOT NULL DEFAULT '08:57:00',
     checkin_end             TIME NOT NULL DEFAULT '08:59:49',
-    checkin_days            INTEGER[] NOT NULL DEFAULT '{1,2,3,4,5}',
+    -- Mon-Fri under date.weekday()'s Mon=0..Sun=6 (the convention auto_attend.py
+    -- actually checks against — {1,2,3,4,5} here would mean Tue-Sat, not Mon-Fri).
+    checkin_days            INTEGER[] NOT NULL DEFAULT '{0,1,2,3,4}',
 
     -- Check-out window
     checkout_start          TIME NOT NULL DEFAULT '17:19:00',
     checkout_end            TIME NOT NULL DEFAULT '17:27:00',
-    checkout_days           INTEGER[] NOT NULL DEFAULT '{1,2,3,4,5}',
+    checkout_days           INTEGER[] NOT NULL DEFAULT '{0,1,2,3,4}',
 
     -- Source tag for attendance_logs
     source_tag              VARCHAR(20) NOT NULL DEFAULT 'auto_attend',
@@ -630,6 +632,13 @@ CREATE INDEX IF NOT EXISTS idx_auto_attend_user ON auto_attend_rules (user_id, i
 INSERT INTO auto_attend_rules (user_id, device_ids)
 SELECT '258', '{1,2}'
 WHERE NOT EXISTS (SELECT 1 FROM auto_attend_rules LIMIT 1);
+
+-- Fix the column default on tables created before the Mon-Fri day-of-week
+-- bug was found: {1,2,3,4,5} was Tue-Sat under date.weekday()'s Mon=0..Sun=6,
+-- not Mon-Fri as intended. This only corrects the DEFAULT for future inserts
+-- that don't specify the column — existing rows are a data fix, not schema.
+ALTER TABLE auto_attend_rules ALTER COLUMN checkin_days  SET DEFAULT '{0,1,2,3,4}';
+ALTER TABLE auto_attend_rules ALTER COLUMN checkout_days SET DEFAULT '{0,1,2,3,4}';
 """
 
 
@@ -793,6 +802,11 @@ _AUDITED_TABLES = [
     'holidays', 'holiday_types', 'kaaj_records', 'attendance_day_remarks',
     'company_settings', 'web_users', 'pull_schedule', 'auto_attend_rules',
     'payroll_salary_structures', 'payroll_runs', 'payroll_items', 'payroll_holiday_ot_rules',
+    'fiscal_years', 'payroll_tax_slab_sets', 'payroll_tax_slab_bands',
+    'payroll_heads', 'payroll_employee_heads',
+    'payroll_deduction_types', 'payroll_employee_deductions',
+    'payroll_attendance_snapshot',
+    'payroll_item_heads', 'payroll_item_deductions',
 ]
 
 
@@ -813,6 +827,240 @@ ALTER TABLE global_users ADD COLUMN IF NOT EXISTS bank_branch VARCHAR(100);
 ALTER TABLE global_users ADD COLUMN IF NOT EXISTS initial_appointment_date DATE;
 ALTER TABLE global_users ADD COLUMN IF NOT EXISTS retirement_date DATE;
 ALTER TABLE global_users ADD COLUMN IF NOT EXISTS is_technical BOOLEAN NOT NULL DEFAULT FALSE;
+"""
+
+
+_PHASE18_FISCAL_YEARS_SQL = """
+-- Phase 18: fiscal years as a real, status-tracked table (not a hardcoded
+-- BS-month-4 constant), and tax slabs as fiscal-year-scoped data instead of
+-- a Python dict. See payroll_plan.md Section 5 & 6.1.
+
+CREATE TABLE IF NOT EXISTS fiscal_years (
+    id             SERIAL PRIMARY KEY,
+    fiscal_year_bs VARCHAR(10)  NOT NULL UNIQUE,   -- e.g. '2082/83'
+    start_bs       VARCHAR(10)  NOT NULL,
+    end_bs         VARCHAR(10)  NOT NULL,
+    start_ad       DATE         NOT NULL,
+    end_ad         DATE         NOT NULL,
+    status         VARCHAR(20)  NOT NULL DEFAULT 'upcoming',  -- upcoming|active|closed|locked
+    created_by     INTEGER,
+    updated_by     INTEGER,
+    created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_fiscal_years_status ON fiscal_years (status);
+CREATE INDEX IF NOT EXISTS idx_fiscal_years_range   ON fiscal_years (start_ad, end_ad);
+
+CREATE TABLE IF NOT EXISTS payroll_tax_slab_sets (
+    id              SERIAL PRIMARY KEY,
+    fiscal_year_id  INTEGER NOT NULL REFERENCES fiscal_years(id) ON DELETE CASCADE,
+    marital_status  VARCHAR(10) NOT NULL DEFAULT 'single',  -- single|married|ALL
+    is_ssf_adjusted BOOLEAN NOT NULL DEFAULT FALSE,
+    source_note     TEXT,
+    is_confirmed    BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by      INTEGER,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (fiscal_year_id, marital_status)
+);
+CREATE INDEX IF NOT EXISTS idx_tax_slab_sets_fy ON payroll_tax_slab_sets (fiscal_year_id);
+
+CREATE TABLE IF NOT EXISTS payroll_tax_slab_bands (
+    id           SERIAL PRIMARY KEY,
+    slab_set_id  INTEGER NOT NULL REFERENCES payroll_tax_slab_sets(id) ON DELETE CASCADE,
+    band_order   INTEGER NOT NULL,
+    band_width   NUMERIC(14,2),   -- NULL = remainder / open-ended top band
+    rate_percent NUMERIC(5,2) NOT NULL,
+    UNIQUE (slab_set_id, band_order)
+);
+
+-- payroll_runs: link each run to the fiscal year it belongs to, so lock
+-- state (fiscal_years.status) governs whether a run may still be edited.
+ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS fiscal_year_id INTEGER REFERENCES fiscal_years(id);
+CREATE INDEX IF NOT EXISTS idx_payroll_runs_fy ON payroll_runs (fiscal_year_id);
+
+-- company_settings: default shift window, replacing the SI_MIN/SO_MIN
+-- literals hardcoded three times in web/app.py.
+ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS default_shift_start_min INTEGER NOT NULL DEFAULT 600;
+ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS default_shift_end_min   INTEGER NOT NULL DEFAULT 1020;
+"""
+
+
+_PHASE19_IDENTITY_SNAPSHOT_SQL = """
+-- Phase 19: identity & audit unification (payroll_plan.md Section 3).
+--
+-- payroll_items is a point-in-time record (a generated payslip) — per
+-- Section 3.2 it must carry a denormalized snapshot of the employee's
+-- master identity (global_users.employee_id + name) AS OF GENERATION TIME,
+-- separate from the live global_user_id FK, so a later correction to an
+-- employee's master ID or a name change never silently rewrites what a
+-- historical payslip displays.
+--
+-- NOTE: global_users.employee_id is populated for only ~2 of 495 employees
+-- today (confirmed live), so this snapshot will be NULL for most rows until
+-- that data is filled in — that's expected and honest, not a bug. The
+-- report/payslip *display* switch to employee_id is deliberately deferred
+-- (see Section 2 Q10) until the master ID data is actually populated.
+ALTER TABLE payroll_items ADD COLUMN IF NOT EXISTS employee_id_snapshot VARCHAR(50);
+ALTER TABLE payroll_items ADD COLUMN IF NOT EXISTS employee_name_snapshot VARCHAR(200);
+"""
+
+
+_PHASE20_SALARY_HEADS_SQL = """
+-- Phase 20: salary head catalog (payroll_plan.md Section 2.1/2.2), replacing
+-- the flat payroll_salary_structures.basic_salary/allowances pair with a
+-- proper per-employee, per-head breakdown. Schema only in this phase — wiring
+-- into payroll run generation happens in Phase 8.
+
+CREATE TABLE IF NOT EXISTS payroll_heads (
+    id               SERIAL PRIMARY KEY,
+    code             VARCHAR(30)  NOT NULL UNIQUE,
+    name             VARCHAR(100) NOT NULL,
+    category         VARCHAR(20)  NOT NULL DEFAULT 'earning',
+    calc_type        VARCHAR(20)  NOT NULL DEFAULT 'fixed',    -- fixed | percent_of_basic
+    percent_of_basic NUMERIC(5,2),                             -- only for calc_type='percent_of_basic'
+    frequency        VARCHAR(20)  NOT NULL DEFAULT 'monthly',  -- monthly | annual | festival | onetime
+    is_taxable       BOOLEAN      NOT NULL DEFAULT TRUE,
+    sort_order       INTEGER      NOT NULL DEFAULT 0,
+    is_active        BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_by       INTEGER,
+    created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS payroll_employee_heads (
+    id                 SERIAL PRIMARY KEY,
+    global_user_id     INTEGER NOT NULL REFERENCES global_users(id) ON DELETE CASCADE,
+    head_id            INTEGER NOT NULL REFERENCES payroll_heads(id) ON DELETE CASCADE,
+    amount             NUMERIC(12,2),   -- NULL for percent_of_basic heads (computed live from this
+                                          -- employee's BASIC head amount at generation time)
+    frequency_override VARCHAR(20),     -- NULL = use payroll_heads.frequency for this employee;
+                                          -- set only when a head's timing genuinely varies per
+                                          -- employee (e.g. Rahat noted as "monthly or yearly" by
+                                          -- company policy in the source reference sheet)
+    pay_bs_month       INTEGER CHECK (pay_bs_month BETWEEN 1 AND 12),  -- for annual/festival/onetime
+                                          -- heads: which BS month this is paid in. NULL for monthly.
+    effective_bs       VARCHAR(10) NOT NULL DEFAULT '',
+    is_active          BOOLEAN     NOT NULL DEFAULT TRUE,
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (global_user_id, head_id)
+);
+CREATE INDEX IF NOT EXISTS idx_emp_heads_gu   ON payroll_employee_heads (global_user_id);
+CREATE INDEX IF NOT EXISTS idx_emp_heads_head ON payroll_employee_heads (head_id);
+"""
+
+
+_PHASE21_DEDUCTIONS_SQL = """
+-- Phase 21: statutory / pre-tax deductions (payroll_plan.md Section 6.2),
+-- generalized the same way as earning heads so PF/CIT/Insurance aren't three
+-- hardcoded columns forever — a 4th deduction type later is a catalog row,
+-- not a migration. Schema only in this phase — wiring into tax computation
+-- happens in Phase 6.
+
+CREATE TABLE IF NOT EXISTS payroll_deduction_types (
+    id                   SERIAL PRIMARY KEY,
+    code                 VARCHAR(30)  NOT NULL UNIQUE,
+    name                 VARCHAR(100) NOT NULL,
+    calc_type            VARCHAR(20)  NOT NULL DEFAULT 'fixed',    -- fixed | percent_of_basic
+    percent_of_basic     NUMERIC(5,2),                             -- only for calc_type='percent_of_basic'
+    default_amount       NUMERIC(12,2),                            -- catalog default; per-employee override
+                                                                     -- lives on payroll_employee_deductions
+    is_pretax            BOOLEAN      NOT NULL DEFAULT TRUE,       -- reduces taxable income before the
+                                                                     -- slab calculation (vs. a post-tax
+                                                                     -- deduction from net pay)
+    frequency            VARCHAR(20)  NOT NULL DEFAULT 'monthly',  -- monthly | annual
+    cap_amount           NUMERIC(12,2),                            -- statutory cap in Rs, if any
+    cap_percent_of_gross NUMERIC(5,2),                             -- statutory cap as % of gross, if any
+                                                                     -- (both caps may be set together —
+                                                                     -- e.g. "lesser of 1/3 of gross or
+                                                                     -- Rs 500,000/yr" — the resolver
+                                                                     -- applies whichever is more restrictive)
+    sort_order           INTEGER      NOT NULL DEFAULT 0,
+    is_active            BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_by           INTEGER,
+    created_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS payroll_employee_deductions (
+    id                 SERIAL PRIMARY KEY,
+    global_user_id     INTEGER NOT NULL REFERENCES global_users(id) ON DELETE CASCADE,
+    deduction_type_id  INTEGER NOT NULL REFERENCES payroll_deduction_types(id) ON DELETE CASCADE,
+    is_enrolled        BOOLEAN     NOT NULL DEFAULT FALSE,
+    amount             NUMERIC(12,2),   -- per-employee override; NULL = use catalog default_amount
+                                          -- (ignored for percent_of_basic types, which always compute live)
+    percent_override   NUMERIC(5,2),    -- per-employee override of percent_of_basic; NULL = use catalog %
+    effective_bs       VARCHAR(10) NOT NULL DEFAULT '',
+    is_active          BOOLEAN     NOT NULL DEFAULT TRUE,
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (global_user_id, deduction_type_id)
+);
+CREATE INDEX IF NOT EXISTS idx_emp_deductions_gu ON payroll_employee_deductions (global_user_id);
+"""
+
+
+_PHASE22_ATTENDANCE_SNAPSHOT_SQL = """
+-- Phase 22: persisted per-run attendance snapshot (payroll_plan.md Section
+-- 8.1) — "per month days working and all, so we can find change log in
+-- future." Written once per employee per payroll run at generation time,
+-- not recomputed live and discarded. Since this table is in _AUDITED_TABLES,
+-- if an admin later corrects a punch and regenerates the run, the old
+-- snapshot row's UPDATE is captured with old/new values in audit_log — a
+-- genuine change log.
+CREATE TABLE IF NOT EXISTS payroll_attendance_snapshot (
+    id                     SERIAL PRIMARY KEY,
+    run_id                 INTEGER NOT NULL REFERENCES payroll_runs(id) ON DELETE CASCADE,
+    global_user_id         INTEGER NOT NULL REFERENCES global_users(id) ON DELETE CASCADE,
+    employee_id_snapshot   VARCHAR(50),    -- master employee ID, denormalized (Section 3.2)
+    working_days           INTEGER NOT NULL DEFAULT 0,
+    present_days           INTEGER NOT NULL DEFAULT 0,
+    paid_leave_days        INTEGER NOT NULL DEFAULT 0,
+    unpaid_leave_days      INTEGER NOT NULL DEFAULT 0,
+    absent_days            INTEGER NOT NULL DEFAULT 0,
+    weekend_days           INTEGER NOT NULL DEFAULT 0,
+    holiday_days           INTEGER NOT NULL DEFAULT 0,
+    festival_days          INTEGER NOT NULL DEFAULT 0,
+    total_days             INTEGER NOT NULL DEFAULT 0,
+    paid_days              INTEGER NOT NULL DEFAULT 0,   -- present + paid_leave, capped at working_days
+    total_work_minutes     INTEGER NOT NULL DEFAULT 0,
+    regular_ot_minutes     INTEGER NOT NULL DEFAULT 0,
+    holiday_ot_minutes     INTEGER NOT NULL DEFAULT 0,
+    late_in_minutes        INTEGER NOT NULL DEFAULT 0,
+    early_out_minutes      INTEGER NOT NULL DEFAULT 0,
+    computed_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (run_id, global_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_att_snapshot_run  ON payroll_attendance_snapshot (run_id);
+CREATE INDEX IF NOT EXISTS idx_att_snapshot_user ON payroll_attendance_snapshot (global_user_id);
+"""
+
+
+_PHASE23_ITEM_BREAKDOWN_SQL = """
+-- Phase 23: immutable per-run head/deduction breakdown (payroll_plan.md
+-- Section 2.5/Phase 8) — a payslip's line items are stamped at generation
+-- time from the catalog (code/name/category/amount), NOT a live FK to
+-- payroll_heads/payroll_deduction_types, so a later catalog edit (rename,
+-- rate change) never silently rewrites what a historical payslip showed.
+
+CREATE TABLE IF NOT EXISTS payroll_item_heads (
+    id           SERIAL PRIMARY KEY,
+    item_id      INTEGER NOT NULL REFERENCES payroll_items(id) ON DELETE CASCADE,
+    head_code    VARCHAR(30)  NOT NULL,
+    head_name    VARCHAR(100) NOT NULL,
+    category     VARCHAR(20)  NOT NULL DEFAULT 'earning',
+    frequency    VARCHAR(20)  NOT NULL DEFAULT 'monthly',
+    amount       NUMERIC(12,2) NOT NULL DEFAULT 0,
+    is_taxable   BOOLEAN      NOT NULL DEFAULT TRUE
+);
+CREATE INDEX IF NOT EXISTS idx_item_heads_item ON payroll_item_heads (item_id);
+
+CREATE TABLE IF NOT EXISTS payroll_item_deductions (
+    id                SERIAL PRIMARY KEY,
+    item_id           INTEGER NOT NULL REFERENCES payroll_items(id) ON DELETE CASCADE,
+    deduction_code    VARCHAR(30)  NOT NULL,
+    deduction_name    VARCHAR(100) NOT NULL,
+    amount            NUMERIC(12,2) NOT NULL DEFAULT 0,
+    is_pretax         BOOLEAN      NOT NULL DEFAULT TRUE,
+    capped            BOOLEAN      NOT NULL DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_item_deductions_item ON payroll_item_deductions (item_id);
 """
 
 
@@ -951,10 +1199,122 @@ def init_schema(conn) -> None:
         logger.warning("Phase 16 (employee profile fields) migration skipped: %s", e)
     # Phase 17: generic audit log — table + trigger function + attach to
     # every administrative/HR/config table (see _AUDITED_TABLES).
+    #
+    # NOTE: _AUDITED_TABLES may include tables created by a *later* phase
+    # (e.g. Phase 18's fiscal_years) — on a fresh install those tables don't
+    # exist yet when this phase runs. Skip (don't fail) missing tables here;
+    # the later phase that creates them is responsible for attaching its own
+    # trigger to itself once its CREATE TABLE has run (see Phase 18 below).
     try:
         with conn.cursor() as cur:
             cur.execute(_PHASE17_AUDIT_LOG_SQL)
-            for tbl in _AUDITED_TABLES:
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 17 (audit log table/function) migration skipped: %s", e)
+    for tbl in _AUDITED_TABLES:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT to_regclass(%s)", (f"public.{tbl}",))
+                if cur.fetchone()[0] is None:
+                    continue  # table doesn't exist yet — a later phase will attach its own trigger
+                cur.execute(f"DROP TRIGGER IF EXISTS trg_audit_log ON {tbl}")
+                cur.execute(f"""
+                    CREATE TRIGGER trg_audit_log
+                    AFTER INSERT OR UPDATE OR DELETE ON {tbl}
+                    FOR EACH ROW EXECUTE FUNCTION fn_audit_log()
+                """)
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            logger.warning("Audit trigger attach skipped for %s: %s", tbl, e)
+    # Phase 18: fiscal years table + fiscal-year-scoped tax slabs (replaces
+    # the hardcoded _SLABS dict and the hardcoded Shrawan-start assumption).
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE18_FISCAL_YEARS_SQL)
+            cur.execute("DROP TRIGGER IF EXISTS trg_audit_log ON fiscal_years")
+            cur.execute("""
+                CREATE TRIGGER trg_audit_log
+                AFTER INSERT OR UPDATE OR DELETE ON fiscal_years
+                FOR EACH ROW EXECUTE FUNCTION fn_audit_log()
+            """)
+            cur.execute("DROP TRIGGER IF EXISTS trg_audit_log ON payroll_tax_slab_sets")
+            cur.execute("""
+                CREATE TRIGGER trg_audit_log
+                AFTER INSERT OR UPDATE OR DELETE ON payroll_tax_slab_sets
+                FOR EACH ROW EXECUTE FUNCTION fn_audit_log()
+            """)
+            cur.execute("DROP TRIGGER IF EXISTS trg_audit_log ON payroll_tax_slab_bands")
+            cur.execute("""
+                CREATE TRIGGER trg_audit_log
+                AFTER INSERT OR UPDATE OR DELETE ON payroll_tax_slab_bands
+                FOR EACH ROW EXECUTE FUNCTION fn_audit_log()
+            """)
+        conn.commit()
+        _seed_current_fiscal_year_and_tax_slabs(conn)
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 18 (fiscal years / tax slabs) migration skipped: %s", e)
+    # Phase 19: identity & audit unification — payroll_items snapshot columns.
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE19_IDENTITY_SNAPSHOT_SQL)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 19 (identity snapshot) migration skipped: %s", e)
+    # Phase 20: salary head catalog (payroll_heads / payroll_employee_heads).
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE20_SALARY_HEADS_SQL)
+            for tbl in ("payroll_heads", "payroll_employee_heads"):
+                cur.execute(f"DROP TRIGGER IF EXISTS trg_audit_log ON {tbl}")
+                cur.execute(f"""
+                    CREATE TRIGGER trg_audit_log
+                    AFTER INSERT OR UPDATE OR DELETE ON {tbl}
+                    FOR EACH ROW EXECUTE FUNCTION fn_audit_log()
+                """)
+        conn.commit()
+        _seed_payroll_heads_and_migrate_structures(conn)
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 20 (salary heads) migration skipped: %s", e)
+    # Phase 21: statutory deduction types (PF / CIT / Insurance).
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE21_DEDUCTIONS_SQL)
+            for tbl in ("payroll_deduction_types", "payroll_employee_deductions"):
+                cur.execute(f"DROP TRIGGER IF EXISTS trg_audit_log ON {tbl}")
+                cur.execute(f"""
+                    CREATE TRIGGER trg_audit_log
+                    AFTER INSERT OR UPDATE OR DELETE ON {tbl}
+                    FOR EACH ROW EXECUTE FUNCTION fn_audit_log()
+                """)
+        conn.commit()
+        _seed_deduction_types(conn)
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 21 (deduction types) migration skipped: %s", e)
+    # Phase 22: persisted per-run attendance snapshot.
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE22_ATTENDANCE_SNAPSHOT_SQL)
+            cur.execute("DROP TRIGGER IF EXISTS trg_audit_log ON payroll_attendance_snapshot")
+            cur.execute("""
+                CREATE TRIGGER trg_audit_log
+                AFTER INSERT OR UPDATE OR DELETE ON payroll_attendance_snapshot
+                FOR EACH ROW EXECUTE FUNCTION fn_audit_log()
+            """)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning("Phase 22 (attendance snapshot) migration skipped: %s", e)
+    # Phase 23: immutable per-run head/deduction breakdown.
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_PHASE23_ITEM_BREAKDOWN_SQL)
+            for tbl in ("payroll_item_heads", "payroll_item_deductions"):
                 cur.execute(f"DROP TRIGGER IF EXISTS trg_audit_log ON {tbl}")
                 cur.execute(f"""
                     CREATE TRIGGER trg_audit_log
@@ -964,7 +1324,7 @@ def init_schema(conn) -> None:
         conn.commit()
     except Exception as e:
         conn.rollback()
-        logger.warning("Phase 17 (audit log) migration skipped: %s", e)
+        logger.warning("Phase 23 (item breakdown) migration skipped: %s", e)
     logger.info("Database schema initialized.")
 
 
@@ -989,6 +1349,609 @@ def _seed_pull_schedule_from_config(conn) -> None:
                 (hour, minute),
             )
     conn.commit()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Fiscal years & dynamic tax slabs  (Phase 18)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Seed-only reference rates: what payroll.py's old hardcoded _SLABS dict
+# actually implemented, corrected to include the top band it was missing
+# (see payroll_plan.md Section 0, gap #3). Used ONLY to seed the very first
+# fiscal_years row on a fresh install so existing behavior below the top
+# band is unchanged; every fiscal year after that is admin-entered data via
+# create_tax_slab_set(), never another hardcoded table like this one.
+_SEED_TAX_BANDS = {
+    "single": [
+        (500000, 1), (200000, 10), (300000, 20),
+        (1000000, 30), (3000000, 36), (None, 39),
+    ],
+    "married": [
+        (600000, 1), (200000, 10), (300000, 20),
+        (900000, 30), (3000000, 36), (None, 39),
+    ],
+}
+
+
+def _fiscal_year_bs_for(bs_year: int, bs_month: int) -> int:
+    """The BS year a fiscal year *starts* in, given any BS year/month inside it.
+
+    Nepal's fiscal year runs Shrawan 1 (BS month 4) through the following
+    year's Ashadh-end (BS month 3). A date in BS months 1-3 belongs to the
+    fiscal year that started the *previous* BS year.
+    """
+    return bs_year if bs_month >= 4 else bs_year - 1
+
+
+def _seed_current_fiscal_year_and_tax_slabs(conn) -> None:
+    """One-time seed: create the currently-running fiscal year (computed from
+    today's BS date via nepali_utils, not hardcoded) plus its single/married
+    tax slab sets, if none exist yet. Safe to re-run — no-ops once seeded."""
+    import nepali_utils
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM fiscal_years")
+        if cur.fetchone()[0] > 0:
+            return
+
+    today_bs = _today_bs()
+    if not today_bs:
+        return
+    bs_year, bs_month = int(today_bs[:4]), int(today_bs[5:7])
+    fy_start_year = _fiscal_year_bs_for(bs_year, bs_month)
+    fy_end_year = fy_start_year + 1
+    fiscal_year_bs = f"{fy_start_year}/{str(fy_end_year)[-2:]}"
+
+    end_month_info = nepali_utils.bs_month_info(fy_end_year, 3)
+    if end_month_info is None:
+        logger.warning("Could not resolve fiscal year %s (nepali_datetime unavailable?)",
+                        fiscal_year_bs)
+        return
+    start_bs = f"{fy_start_year}-04-01"
+    end_bs = f"{fy_end_year}-03-{end_month_info['days']:02d}"
+    start_ad = nepali_utils.bs_to_ad(start_bs)
+    end_ad = end_month_info["last_ad"]
+    if not start_ad or not end_ad:
+        logger.warning("Could not convert fiscal year %s BS dates to AD", fiscal_year_bs)
+        return
+
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO fiscal_years (fiscal_year_bs, start_bs, end_bs, start_ad, end_ad, status)
+            VALUES (%s, %s, %s, %s, %s, 'active')
+            RETURNING id
+        """, (fiscal_year_bs, start_bs, end_bs, start_ad, end_ad))
+        fy_id = cur.fetchone()[0]
+
+        for marital, bands in _SEED_TAX_BANDS.items():
+            cur.execute("""
+                INSERT INTO payroll_tax_slab_sets
+                    (fiscal_year_id, marital_status, is_confirmed, source_note)
+                VALUES (%s, %s, TRUE, %s)
+                RETURNING id
+            """, (fy_id, marital,
+                  "Seeded from the previously-hardcoded payroll.py rates on first install, "
+                  "corrected to include the top band the old code was missing. "
+                  "See payroll_plan.md Section 0."))
+            slab_set_id = cur.fetchone()[0]
+            for order, (width, rate) in enumerate(bands, start=1):
+                cur.execute("""
+                    INSERT INTO payroll_tax_slab_bands (slab_set_id, band_order, band_width, rate_percent)
+                    VALUES (%s, %s, %s, %s)
+                """, (slab_set_id, order, width, rate))
+    conn.commit()
+    logger.info("Seeded fiscal year %s (id=%s) with default tax slabs.", fiscal_year_bs, fy_id)
+
+
+def list_fiscal_years(conn) -> list:
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("SELECT * FROM fiscal_years ORDER BY start_ad DESC")
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_fiscal_year(conn, fiscal_year_id: int):
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("SELECT * FROM fiscal_years WHERE id=%s", (fiscal_year_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def get_active_fiscal_year(conn):
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("SELECT * FROM fiscal_years WHERE status='active' ORDER BY start_ad DESC LIMIT 1")
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def get_fiscal_year_for_ad(conn, ad_date: str):
+    """Resolve which fiscal year a given AD date ('YYYY-MM-DD') falls inside."""
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("""
+            SELECT * FROM fiscal_years
+            WHERE start_ad <= %s AND end_ad >= %s
+            ORDER BY start_ad DESC LIMIT 1
+        """, (ad_date, ad_date))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def create_fiscal_year(conn, fiscal_year_bs: str, created_by: int | None = None) -> int:
+    """Create a new fiscal year row (status='upcoming') from its BS label
+    'YYYY/YY' (e.g. '2083/84'). Start/end AD+BS dates are computed via
+    nepali_utils, never hardcoded, since BS month lengths vary year to year."""
+    import nepali_utils
+
+    fy_start_year = int(str(fiscal_year_bs).split('/')[0])
+    fy_end_year = fy_start_year + 1
+    end_month_info = nepali_utils.bs_month_info(fy_end_year, 3)
+    if end_month_info is None:
+        raise ValueError(f"Could not resolve BS calendar for fiscal year {fiscal_year_bs}")
+    start_bs = f"{fy_start_year}-04-01"
+    end_bs = f"{fy_end_year}-03-{end_month_info['days']:02d}"
+    start_ad = nepali_utils.bs_to_ad(start_bs)
+    end_ad = end_month_info["last_ad"]
+    if not start_ad or not end_ad:
+        raise ValueError(f"Could not convert fiscal year {fiscal_year_bs} BS dates to AD")
+
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO fiscal_years
+                (fiscal_year_bs, start_bs, end_bs, start_ad, end_ad, status, created_by)
+            VALUES (%s, %s, %s, %s, %s, 'upcoming', %s)
+            RETURNING id
+        """, (fiscal_year_bs, start_bs, end_bs, start_ad, end_ad, created_by))
+        fy_id = cur.fetchone()[0]
+    conn.commit()
+    return fy_id
+
+
+def set_fiscal_year_status(conn, fiscal_year_id: int, status: str, updated_by: int | None = None) -> None:
+    if status not in ('upcoming', 'active', 'closed', 'locked'):
+        raise ValueError(f"Invalid fiscal year status: {status}")
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE fiscal_years SET status=%s, updated_by=%s, updated_at=NOW() WHERE id=%s
+        """, (status, updated_by, fiscal_year_id))
+    conn.commit()
+
+
+def create_tax_slab_set(conn, fiscal_year_id: int, marital_status: str,
+                        bands: list, is_confirmed: bool = False,
+                        source_note: str | None = None, created_by: int | None = None) -> int:
+    """bands: list of (width, rate_percent) tuples, width=None for the top/remainder band."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO payroll_tax_slab_sets
+                (fiscal_year_id, marital_status, is_confirmed, source_note, created_by)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (fiscal_year_id, marital_status) DO UPDATE SET
+                is_confirmed = EXCLUDED.is_confirmed,
+                source_note  = EXCLUDED.source_note
+            RETURNING id
+        """, (fiscal_year_id, marital_status, is_confirmed, source_note, created_by))
+        slab_set_id = cur.fetchone()[0]
+        cur.execute("DELETE FROM payroll_tax_slab_bands WHERE slab_set_id=%s", (slab_set_id,))
+        for order, (width, rate) in enumerate(bands, start=1):
+            cur.execute("""
+                INSERT INTO payroll_tax_slab_bands (slab_set_id, band_order, band_width, rate_percent)
+                VALUES (%s, %s, %s, %s)
+            """, (slab_set_id, order, width, rate))
+    conn.commit()
+    return slab_set_id
+
+
+def get_tax_slab_bands(conn, fiscal_year_id: int, marital_status: str):
+    """Resolve the tax bands for a fiscal year + marital status.
+
+    Looks for an exact marital_status match first (single/married), falling
+    back to a marital_status='ALL' row if the fiscal year uses a unified
+    structure with no single/married split.
+
+    Returns {'slab_set_id', 'is_confirmed', 'bands': [{'width', 'rate'}, ...]}
+    or None if no slab set exists for this fiscal year at all.
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("""
+            SELECT * FROM payroll_tax_slab_sets
+            WHERE fiscal_year_id=%s AND marital_status=%s
+        """, (fiscal_year_id, marital_status))
+        slab_set = cur.fetchone()
+        if not slab_set:
+            cur.execute("""
+                SELECT * FROM payroll_tax_slab_sets
+                WHERE fiscal_year_id=%s AND marital_status='ALL'
+            """, (fiscal_year_id,))
+            slab_set = cur.fetchone()
+        if not slab_set:
+            return None
+        cur.execute("""
+            SELECT band_width, rate_percent FROM payroll_tax_slab_bands
+            WHERE slab_set_id=%s ORDER BY band_order
+        """, (slab_set["id"],))
+        bands = [{"width": r["band_width"], "rate": r["rate_percent"]} for r in cur.fetchall()]
+    return {
+        "slab_set_id": slab_set["id"],
+        "is_confirmed": slab_set["is_confirmed"],
+        "bands": bands,
+    }
+
+
+def get_default_shift_window(conn) -> tuple:
+    """Company-wide default shift start/end, in minutes since midnight.
+    Replaces the SI_MIN/SO_MIN = 600, 1020 literals hardcoded in web/app.py."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT default_shift_start_min, default_shift_end_min FROM company_settings LIMIT 1")
+        row = cur.fetchone()
+        if row and row[0] is not None and row[1] is not None:
+            return (row[0], row[1])
+    return (600, 1020)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Salary head catalog  (Phase 20)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Seed-only catalog: the 11 earning heads from the reference sheet (OT is
+# excluded — it's computed dynamically from attendance, not a static head).
+# code, name, calc_type, percent_of_basic, frequency, sort_order
+_SEED_PAYROLL_HEADS = [
+    ("BASIC",    "Basic Salary",     "fixed",            None, "monthly", 10),
+    ("DA",       "Ad. 10%",          "percent_of_basic", 10,   "monthly", 20),
+    ("UPADAN",   "Upadan",           "percent_of_basic", 6,    "monthly", 30),
+    ("ALLOWANCE","Allowance",        "fixed",            None, "monthly", 40),
+    ("TIFFIN",   "Tiffin Allowance", "fixed",            None, "monthly", 50),
+    ("MEDICAL",  "Medical",          "fixed",            None, "monthly", 60),
+    ("DRESS",    "Dress",            "fixed",            None, "annual",  70),
+    ("DASHAIN",  "Dashain Expense",  "fixed",            None, "festival",80),
+    ("COPY",     "Copy",             "fixed",            None, "annual",  90),
+    ("BARSHIK",  "Barshik",          "fixed",            None, "annual",  100),
+    ("RAHAT",    "Rahat",            "fixed",            None, "annual",  110),
+]
+
+
+def _seed_payroll_heads_and_migrate_structures(conn) -> None:
+    """One-time seed of the head catalog (idempotent, ON CONFLICT DO NOTHING
+    so it never clobbers admin edits made after the first run), plus a
+    one-off migration: any existing payroll_salary_structures row with a
+    basic_salary/allowances value gets matching BASIC/ALLOWANCE rows in
+    payroll_employee_heads, so nothing already configured is lost when the
+    head-based model takes over (Phase 8)."""
+    with conn.cursor() as cur:
+        for code, name, calc_type, pct, freq, sort_order in _SEED_PAYROLL_HEADS:
+            cur.execute("""
+                INSERT INTO payroll_heads (code, name, category, calc_type, percent_of_basic, frequency, sort_order)
+                VALUES (%s, %s, 'earning', %s, %s, %s, %s)
+                ON CONFLICT (code) DO NOTHING
+            """, (code, name, calc_type, pct, freq, sort_order))
+    conn.commit()
+
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("SELECT id, code FROM payroll_heads WHERE code IN ('BASIC','ALLOWANCE')")
+        head_ids = {r["code"]: r["id"] for r in cur.fetchall()}
+        if not head_ids:
+            return
+        cur.execute("""
+            SELECT global_user_id, basic_salary, allowances, effective_bs
+            FROM payroll_salary_structures
+            WHERE basic_salary IS NOT NULL
+        """)
+        structures = cur.fetchall()
+
+    with conn.cursor() as cur:
+        for s in structures:
+            if "BASIC" in head_ids and s["basic_salary"] is not None:
+                cur.execute("""
+                    INSERT INTO payroll_employee_heads (global_user_id, head_id, amount, effective_bs)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (global_user_id, head_id) DO NOTHING
+                """, (s["global_user_id"], head_ids["BASIC"], s["basic_salary"], s["effective_bs"] or ""))
+            if "ALLOWANCE" in head_ids and s["allowances"] is not None:
+                cur.execute("""
+                    INSERT INTO payroll_employee_heads (global_user_id, head_id, amount, effective_bs)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (global_user_id, head_id) DO NOTHING
+                """, (s["global_user_id"], head_ids["ALLOWANCE"], s["allowances"], s["effective_bs"] or ""))
+    conn.commit()
+
+
+def get_all_payroll_heads(conn, active_only: bool = True) -> list:
+    where = "WHERE is_active" if active_only else ""
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(f"SELECT * FROM payroll_heads {where} ORDER BY sort_order, id")
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_payroll_head(conn, head_id: int):
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("SELECT * FROM payroll_heads WHERE id=%s", (head_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def upsert_payroll_head(conn, head_id: int | None, code: str, name: str, calc_type: str,
+                        percent_of_basic, frequency: str, is_taxable: bool, sort_order: int,
+                        created_by: int | None = None) -> int:
+    """Create (head_id=None) or update (head_id set) a catalog head. Editing here
+    never touches historical payslips — payroll_item_heads is a stamped copy."""
+    with conn.cursor() as cur:
+        if head_id:
+            cur.execute("""
+                UPDATE payroll_heads SET code=%s, name=%s, calc_type=%s, percent_of_basic=%s,
+                       frequency=%s, is_taxable=%s, sort_order=%s
+                WHERE id=%s RETURNING id
+            """, (code, name, calc_type, percent_of_basic, frequency, is_taxable, sort_order, head_id))
+        else:
+            cur.execute("""
+                INSERT INTO payroll_heads (code, name, category, calc_type, percent_of_basic,
+                                           frequency, is_taxable, sort_order, created_by)
+                VALUES (%s, %s, 'earning', %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (code, name, calc_type, percent_of_basic, frequency, is_taxable, sort_order, created_by))
+        row_id = cur.fetchone()[0]
+    conn.commit()
+    return row_id
+
+
+def toggle_payroll_head(conn, head_id: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute("UPDATE payroll_heads SET is_active = NOT is_active WHERE id=%s", (head_id,))
+    conn.commit()
+
+
+def get_employee_heads(conn, global_user_id: int) -> list:
+    """All active head rows configured for an employee, joined with the catalog."""
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("""
+            SELECT eh.*, h.code, h.name, h.category, h.calc_type,
+                   h.percent_of_basic, h.frequency AS catalog_frequency,
+                   h.is_taxable, h.sort_order
+            FROM payroll_employee_heads eh
+            JOIN payroll_heads h ON h.id = eh.head_id
+            WHERE eh.global_user_id = %s AND eh.is_active AND h.is_active
+            ORDER BY h.sort_order, h.id
+        """, (global_user_id,))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def upsert_employee_head(conn, global_user_id: int, head_id: int, amount=None,
+                         frequency_override: str | None = None, pay_bs_month: int | None = None,
+                         effective_bs: str = "") -> int:
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO payroll_employee_heads
+                (global_user_id, head_id, amount, frequency_override, pay_bs_month, effective_bs, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (global_user_id, head_id) DO UPDATE SET
+                amount             = EXCLUDED.amount,
+                frequency_override = EXCLUDED.frequency_override,
+                pay_bs_month       = EXCLUDED.pay_bs_month,
+                effective_bs       = EXCLUDED.effective_bs,
+                updated_at         = NOW()
+            RETURNING id
+        """, (global_user_id, head_id, amount, frequency_override, pay_bs_month, effective_bs))
+        row_id = cur.fetchone()[0]
+    conn.commit()
+    return row_id
+
+
+def resolve_employee_heads_for_month(conn, global_user_id: int, bs_month: int) -> list:
+    """Resolve an employee's earning heads that are actually due for a given
+    BS month — monthly heads always; annual/festival/onetime heads only when
+    their pay_bs_month matches. percent_of_basic heads are computed live from
+    the employee's own BASIC amount (never stored, so a Basic-salary raise
+    automatically flows into DA/Upadan without a separate edit).
+
+    Returns a list of {code, name, category, frequency, amount, is_taxable}.
+    """
+    heads = get_employee_heads(conn, global_user_id)
+    by_code = {h["code"]: h for h in heads}
+    basic_amount = by_code.get("BASIC", {}).get("amount") or 0
+
+    resolved = []
+    for h in heads:
+        freq = h["frequency_override"] or h["catalog_frequency"]
+        if freq != "monthly" and h["pay_bs_month"] != bs_month:
+            continue
+        if h["calc_type"] == "percent_of_basic":
+            pct = h["percent_of_basic"] or 0
+            amount = round(float(basic_amount) * float(pct) / 100.0, 2)
+        else:
+            amount = float(h["amount"] or 0)
+        resolved.append({
+            "code": h["code"], "name": h["name"], "category": h["category"],
+            "frequency": freq, "amount": amount, "is_taxable": h["is_taxable"],
+        })
+    return resolved
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Statutory / pre-tax deductions  (Phase 21)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Seed values taken directly from the user's reference sheet and the Nepal
+# tax-deduction rules they supplied — NOT independently verified against the
+# Finance Act/IRD. Mirrors the same "seed from known-good source, flag for
+# confirmation" approach used for the FY tax slabs in Phase 1/18.
+#
+#   PF (Provident Fund): 20% of Basic — matches the reference sheet's
+#     113,007.20 = 565,036 x 20%. Capped at the lesser of 1/3 of gross income
+#     or Rs 500,000/year, per the general retirement-fund deduction rule
+#     supplied — both caps are set; the resolver applies whichever binds.
+#   CIT (Citizen Investment Trust): flat Rs 36,000/year, matching the sheet.
+#     No separate cap modeled yet — Nepali practice may pool this under the
+#     same combined retirement-fund cap as PF; not implemented here pending
+#     confirmation (flag this if it matters for your company).
+#   INSURANCE: no sensible universal default (premiums vary per employee/
+#     policy) — left for per-employee entry via payroll_employee_deductions.
+#     Capped at Rs 40,000/year (life insurance), matching both the sheet's
+#     number and the statutory cap you supplied. The Rs 20,000/year health-
+#     insurance cap is NOT modeled as a separate type yet — add a
+#     HEALTH_INSURANCE row via the catalog if/when needed (Phase 10 UI, or
+#     directly via create_deduction_type()) — no schema change required.
+_SEED_DEDUCTION_TYPES = [
+    # code,        name,                        calc_type,          pct,  default_amount, frequency, cap_amount, cap_pct_gross
+    ("PF",         "Provident Fund",            "percent_of_basic", 20,   None,           "monthly", 500000,     33.33),
+    ("CIT",        "Citizen Investment Trust",  "fixed",            None, 36000,          "annual",  None,       None),
+    ("INSURANCE",  "Life Insurance Premium",    "fixed",            None, None,           "annual",  40000,      None),
+]
+
+
+def _seed_deduction_types(conn) -> None:
+    """One-time seed (idempotent, ON CONFLICT DO NOTHING — never clobbers
+    admin edits made after the first run)."""
+    with conn.cursor() as cur:
+        for i, (code, name, calc_type, pct, default_amt, freq, cap_amt, cap_pct) in enumerate(_SEED_DEDUCTION_TYPES):
+            cur.execute("""
+                INSERT INTO payroll_deduction_types
+                    (code, name, calc_type, percent_of_basic, default_amount, frequency,
+                     cap_amount, cap_percent_of_gross, sort_order)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (code) DO NOTHING
+            """, (code, name, calc_type, pct, default_amt, freq, cap_amt, cap_pct, (i + 1) * 10))
+    conn.commit()
+
+
+def get_all_deduction_types(conn, active_only: bool = True) -> list:
+    where = "WHERE is_active" if active_only else ""
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute(f"SELECT * FROM payroll_deduction_types {where} ORDER BY sort_order, id")
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_deduction_type(conn, deduction_type_id: int):
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("SELECT * FROM payroll_deduction_types WHERE id=%s", (deduction_type_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def upsert_deduction_type(conn, deduction_type_id: int | None, code: str, name: str, calc_type: str,
+                          percent_of_basic, default_amount, is_pretax: bool, frequency: str,
+                          cap_amount, cap_percent_of_gross, sort_order: int,
+                          created_by: int | None = None) -> int:
+    """Create or update a catalog deduction type. Editing here never touches
+    historical payslips — payroll_item_deductions is a stamped copy."""
+    with conn.cursor() as cur:
+        if deduction_type_id:
+            cur.execute("""
+                UPDATE payroll_deduction_types SET code=%s, name=%s, calc_type=%s, percent_of_basic=%s,
+                       default_amount=%s, is_pretax=%s, frequency=%s, cap_amount=%s,
+                       cap_percent_of_gross=%s, sort_order=%s
+                WHERE id=%s RETURNING id
+            """, (code, name, calc_type, percent_of_basic, default_amount, is_pretax, frequency,
+                  cap_amount, cap_percent_of_gross, sort_order, deduction_type_id))
+        else:
+            cur.execute("""
+                INSERT INTO payroll_deduction_types
+                    (code, name, calc_type, percent_of_basic, default_amount, is_pretax,
+                     frequency, cap_amount, cap_percent_of_gross, sort_order, created_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (code, name, calc_type, percent_of_basic, default_amount, is_pretax, frequency,
+                  cap_amount, cap_percent_of_gross, sort_order, created_by))
+        row_id = cur.fetchone()[0]
+    conn.commit()
+    return row_id
+
+
+def toggle_deduction_type(conn, deduction_type_id: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute("UPDATE payroll_deduction_types SET is_active = NOT is_active WHERE id=%s", (deduction_type_id,))
+    conn.commit()
+
+
+def get_employee_deductions(conn, global_user_id: int) -> list:
+    """All active, enrolled deduction rows for an employee, joined with the catalog."""
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("""
+            SELECT ed.*, dt.code, dt.name, dt.calc_type, dt.percent_of_basic AS catalog_percent,
+                   dt.default_amount, dt.is_pretax, dt.frequency AS catalog_frequency,
+                   dt.cap_amount, dt.cap_percent_of_gross, dt.sort_order
+            FROM payroll_employee_deductions ed
+            JOIN payroll_deduction_types dt ON dt.id = ed.deduction_type_id
+            WHERE ed.global_user_id = %s AND ed.is_enrolled AND ed.is_active AND dt.is_active
+            ORDER BY dt.sort_order, dt.id
+        """, (global_user_id,))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def upsert_employee_deduction(conn, global_user_id: int, deduction_type_id: int,
+                              is_enrolled: bool = True, amount=None, percent_override=None,
+                              effective_bs: str = "") -> int:
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO payroll_employee_deductions
+                (global_user_id, deduction_type_id, is_enrolled, amount, percent_override, effective_bs, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (global_user_id, deduction_type_id) DO UPDATE SET
+                is_enrolled      = EXCLUDED.is_enrolled,
+                amount           = EXCLUDED.amount,
+                percent_override = EXCLUDED.percent_override,
+                effective_bs     = EXCLUDED.effective_bs,
+                updated_at       = NOW()
+            RETURNING id
+        """, (global_user_id, deduction_type_id, is_enrolled, amount, percent_override, effective_bs))
+        row_id = cur.fetchone()[0]
+    conn.commit()
+    return row_id
+
+
+def resolve_employee_deductions_for_month(conn, global_user_id: int,
+                                          basic_amount, gross_amount) -> list:
+    """Resolve an employee's enrolled pre-tax/statutory deductions for one
+    month, with caps applied.
+
+    basic_amount / gross_amount: this month's resolved Basic and gross pay
+    (from resolve_employee_heads_for_month() + OT) — required because
+    percent_of_basic deductions and cap_percent_of_gross both depend on them.
+
+    The final resolved amount is always a MONTHLY figure: annual-frequency
+    deduction amounts are divided by 12; percent_of_basic amounts are already
+    monthly since basic_amount is this month's Basic. Statutory caps
+    (cap_amount) are, independently, always expressed as annual Rs figures
+    (e.g. "Rs 500,000/year") regardless of how often the deduction itself is
+    paid — so cap_amount is always divided by 12 for the monthly comparison,
+    NOT conditionally on the deduction's own frequency. (Conflating those two
+    was a bug caught before this ever ran against real data.)
+
+    Returns a list of {code, name, amount, is_pretax, capped} — `capped` is
+    True if a statutory cap actually reduced the resolved amount, so the
+    caller (payslip formula display, Section 9) can show that explicitly.
+    """
+    basic_amount = float(basic_amount or 0)
+    gross_amount = float(gross_amount or 0)
+    deductions = get_employee_deductions(conn, global_user_id)
+
+    resolved = []
+    for d in deductions:
+        freq = d["catalog_frequency"]
+
+        if d["calc_type"] == "percent_of_basic":
+            pct = d["percent_override"] if d["percent_override"] is not None else d["catalog_percent"]
+            monthly_amount = basic_amount * float(pct or 0) / 100.0
+        else:
+            amt = d["amount"] if d["amount"] is not None else d["default_amount"]
+            raw_amount = float(amt or 0)
+            monthly_amount = raw_amount / 12.0 if freq == "annual" else raw_amount
+
+        capped = False
+        final_amount = monthly_amount
+        if d["cap_amount"] is not None:
+            monthly_cap = float(d["cap_amount"]) / 12.0  # cap_amount is always an annual Rs figure
+            if final_amount > monthly_cap:
+                final_amount = monthly_cap
+                capped = True
+        if d["cap_percent_of_gross"] is not None:
+            pct_cap = gross_amount * float(d["cap_percent_of_gross"]) / 100.0
+            if final_amount > pct_cap:
+                final_amount = pct_cap
+                capped = True
+
+        resolved.append({
+            "code": d["code"], "name": d["name"], "amount": round(final_amount, 2),
+            "is_pretax": d["is_pretax"], "capped": capped,
+        })
+    return resolved
 
 
 def get_pull_schedule(conn, active_only: bool = False) -> list:
@@ -3616,7 +4579,8 @@ def get_company_settings(conn) -> dict:
 def update_company_settings(conn, updated_by: int, **fields) -> int:
     """Update company settings. Returns the ID of the updated/created record."""
     allowed = {'company_name', 'logo_url', 'address', 'phone', 'email',
-                'website', 'pan_number', 'fiscal_year_bs'}
+                'website', 'pan_number', 'fiscal_year_bs',
+                'default_shift_start_min', 'default_shift_end_min'}
 
     # Check if any record exists
     with conn.cursor() as cur:
@@ -4119,16 +5083,17 @@ def list_payroll_runs(conn) -> list:
 
 
 def create_payroll_run(conn, bs_year, bs_month, period_index, working_days,
-                       created_by="") -> int:
+                       created_by="", fiscal_year_id: int | None = None) -> int:
     with conn.cursor() as cur:
         cur.execute("""
-            INSERT INTO payroll_runs (bs_year, bs_month, period_index, working_days, created_by)
-            VALUES (%s,%s,%s,%s,%s)
+            INSERT INTO payroll_runs (bs_year, bs_month, period_index, working_days, created_by, fiscal_year_id)
+            VALUES (%s,%s,%s,%s,%s,%s)
             ON CONFLICT (bs_year, bs_month) DO UPDATE SET
-                period_index = EXCLUDED.period_index,
-                working_days = EXCLUDED.working_days
+                period_index   = EXCLUDED.period_index,
+                working_days   = EXCLUDED.working_days,
+                fiscal_year_id = EXCLUDED.fiscal_year_id
             RETURNING id
-        """, (bs_year, bs_month, period_index, working_days, created_by))
+        """, (bs_year, bs_month, period_index, working_days, created_by, fiscal_year_id))
         run_id = cur.fetchone()[0]
     conn.commit()
     return run_id
@@ -4140,17 +5105,32 @@ def clear_payroll_items(conn, run_id: int) -> None:
     conn.commit()
 
 
-def insert_payroll_item(conn, run_id, global_user_id, data: dict) -> None:
+def insert_payroll_item(conn, run_id, global_user_id, data: dict) -> int:
+    """Insert/update a payslip line item. Returns the item's id.
+
+    Also stamps a point-in-time identity snapshot (employee_id_snapshot,
+    employee_name_snapshot) from global_users as of THIS moment — per
+    payroll_plan.md Section 3.2, a generated payslip must keep showing what
+    was true when it was generated even if the employee's master ID or name
+    is corrected later. Snapshot is refreshed on every re-generation/edit of
+    this item (ON CONFLICT), which is correct: it should reflect the most
+    recent computation, not the very first one.
+    """
     import json
     with conn.cursor() as cur:
+        cur.execute("SELECT employee_id, name FROM global_users WHERE id=%s", (global_user_id,))
+        row = cur.fetchone()
+        emp_id_snap, name_snap = (row[0], row[1]) if row else (None, None)
         cur.execute("""
             INSERT INTO payroll_items
                 (run_id, global_user_id, present_days, ot_hours, ot_manual,
                  earned_basic, earned_allowance, ot_pay, other_earnings, gross,
-                 taxable_this, taxable_ytd, tax, other_deductions, net_pay, detail)
+                 taxable_this, taxable_ytd, tax, other_deductions, net_pay, detail,
+                 employee_id_snapshot, employee_name_snapshot)
             VALUES (%(run_id)s,%(gu)s,%(present_days)s,%(ot_hours)s,%(ot_manual)s,
                     %(earned_basic)s,%(earned_allowance)s,%(ot_pay)s,%(other_earnings)s,%(gross)s,
-                    %(taxable_this)s,%(taxable_ytd)s,%(tax)s,%(other_deductions)s,%(net_pay)s,%(detail)s)
+                    %(taxable_this)s,%(taxable_ytd)s,%(tax)s,%(other_deductions)s,%(net_pay)s,%(detail)s,
+                    %(emp_id_snap)s,%(name_snap)s)
             ON CONFLICT (run_id, global_user_id) DO UPDATE SET
                 present_days=EXCLUDED.present_days, ot_hours=EXCLUDED.ot_hours,
                 ot_manual=EXCLUDED.ot_manual, earned_basic=EXCLUDED.earned_basic,
@@ -4158,10 +5138,290 @@ def insert_payroll_item(conn, run_id, global_user_id, data: dict) -> None:
                 other_earnings=EXCLUDED.other_earnings, gross=EXCLUDED.gross,
                 taxable_this=EXCLUDED.taxable_this, taxable_ytd=EXCLUDED.taxable_ytd,
                 tax=EXCLUDED.tax, other_deductions=EXCLUDED.other_deductions,
-                net_pay=EXCLUDED.net_pay, detail=EXCLUDED.detail
+                net_pay=EXCLUDED.net_pay, detail=EXCLUDED.detail,
+                employee_id_snapshot=EXCLUDED.employee_id_snapshot,
+                employee_name_snapshot=EXCLUDED.employee_name_snapshot
+            RETURNING id
         """, {"run_id": run_id, "gu": global_user_id, **data,
-              "detail": json.dumps(data.get("detail")) if data.get("detail") is not None else None})
+              "detail": json.dumps(data.get("detail")) if data.get("detail") is not None else None,
+              "emp_id_snap": emp_id_snap, "name_snap": name_snap})
+        item_id = cur.fetchone()[0]
     conn.commit()
+    return item_id
+
+
+def save_payroll_item_breakdown(conn, item_id: int, resolved_heads: list, resolved_deductions: list) -> None:
+    """Persist the immutable per-head/per-deduction breakdown for one payslip
+    line item (Phase 8) — clears and re-inserts, so regenerating a run always
+    reflects the current computation without ever touching another item's rows."""
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM payroll_item_heads WHERE item_id=%s", (item_id,))
+        for h in resolved_heads:
+            cur.execute("""
+                INSERT INTO payroll_item_heads (item_id, head_code, head_name, category, frequency, amount, is_taxable)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (item_id, h["code"], h["name"], h["category"], h["frequency"], h["amount"], h["is_taxable"]))
+        cur.execute("DELETE FROM payroll_item_deductions WHERE item_id=%s", (item_id,))
+        for d in resolved_deductions:
+            cur.execute("""
+                INSERT INTO payroll_item_deductions (item_id, deduction_code, deduction_name, amount, is_pretax, capped)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (item_id, d["code"], d["name"], d["amount"], d["is_pretax"], d["capped"]))
+    conn.commit()
+
+
+def get_payroll_item_breakdown(conn, item_id: int) -> dict:
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("SELECT * FROM payroll_item_heads WHERE item_id=%s ORDER BY id", (item_id,))
+        heads = [dict(r) for r in cur.fetchall()]
+        cur.execute("SELECT * FROM payroll_item_deductions WHERE item_id=%s ORDER BY id", (item_id,))
+        deductions = [dict(r) for r in cur.fetchall()]
+    return {"heads": heads, "deductions": deductions}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Annual Payroll Summary  (Phase 9, payroll_plan.md Section 2.8/9)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def list_employees_with_payroll_in_fy(conn, fiscal_year_id: int) -> list:
+    """Employees who have at least one generated payroll run in this fiscal year."""
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("""
+            SELECT DISTINCT gu.id AS global_id, gu.global_user_id AS company_id,
+                   gu.employee_id, gu.name, d.name AS department
+            FROM payroll_items i
+            JOIN payroll_runs r ON r.id = i.run_id
+            JOIN global_users gu ON gu.id = i.global_user_id
+            LEFT JOIN departments d ON d.id = gu.department_id
+            WHERE r.fiscal_year_id = %s
+            ORDER BY gu.name NULLS LAST
+        """, (fiscal_year_id,))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_annual_payroll_summary(conn, fiscal_year_id: int, global_user_id: int) -> dict | None:
+    """Aggregate every payroll run in a fiscal year for one employee into an
+    annual summary matching the reference sheet's layout: per-head annual
+    totals, per-deduction annual totals, gross/taxable/tax reconciliation,
+    and the tax slab breakdown on the annual taxable figure.
+
+    Returns None if the employee has no payroll items in this fiscal year.
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("""
+            SELECT i.*, r.bs_year, r.bs_month, r.period_index
+            FROM payroll_items i
+            JOIN payroll_runs r ON r.id = i.run_id
+            WHERE r.fiscal_year_id = %s AND i.global_user_id = %s
+            ORDER BY r.period_index
+        """, (fiscal_year_id, global_user_id))
+        items = [dict(r) for r in cur.fetchall()]
+        if not items:
+            return None
+
+        item_ids = [i["id"] for i in items]
+        cur.execute("SELECT * FROM payroll_item_heads WHERE item_id = ANY(%s)", (item_ids,))
+        all_heads = [dict(r) for r in cur.fetchall()]
+        cur.execute("SELECT * FROM payroll_item_deductions WHERE item_id = ANY(%s)", (item_ids,))
+        all_deductions = [dict(r) for r in cur.fetchall()]
+
+    # Aggregate heads/deductions by code across every month they appeared in.
+    heads_by_code: dict = {}
+    for h in all_heads:
+        c = h["head_code"]
+        if c not in heads_by_code:
+            heads_by_code[c] = {"code": c, "name": h["head_name"], "frequency": h["frequency"], "annual_amount": 0}
+        heads_by_code[c]["annual_amount"] += float(h["amount"])
+
+    deductions_by_code: dict = {}
+    for d in all_deductions:
+        c = d["deduction_code"]
+        if c not in deductions_by_code:
+            deductions_by_code[c] = {"code": c, "name": d["deduction_name"], "is_pretax": d["is_pretax"], "annual_amount": 0}
+        deductions_by_code[c]["annual_amount"] += float(d["amount"])
+
+    gross_annual = sum(float(i["gross"]) for i in items)
+    pretax_annual = sum(v["annual_amount"] for v in deductions_by_code.values() if v["is_pretax"])
+    taxable_annual = sum(float(i["taxable_this"]) for i in items)
+    tax_annual = sum(float(i["tax"]) for i in items)
+    net_annual = sum(float(i["net_pay"]) for i in items)
+    other_deductions_annual = sum(float(i["other_deductions"]) for i in items)
+
+    return {
+        "months_included": len(items),
+        "heads": sorted(heads_by_code.values(), key=lambda h: h["code"]),
+        "deductions": sorted(deductions_by_code.values(), key=lambda d: d["code"]),
+        "gross_annual": round(gross_annual, 2),
+        "pretax_deductions_annual": round(pretax_annual, 2),
+        "taxable_annual": round(taxable_annual, 2),
+        "tax_annual": round(tax_annual, 2),
+        "other_deductions_annual": round(other_deductions_annual, 2),
+        "net_annual": round(net_annual, 2),
+        "items": items,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Tax Projection — yearly tax prediction & monthly deduction forecast
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Unlike get_annual_payroll_summary() above (which aggregates ACTUAL generated
+# payroll_runs), this projects a FULL fiscal year from an employee's CURRENT
+# salary head / deduction configuration — so it works before any payroll run
+# has ever been generated, for HR planning and tax-liability forecasting.
+# Reuses the exact same resolve_employee_heads_for_month / resolve_employee_
+# deductions_for_month / compute_payslip / cumulative-TDS pipeline proven in
+# Phase 6's 12-month simulation test (test_payroll.py), so the math is the
+# same code path payroll generation itself uses — not a separate estimate.
+#
+# "Integrated with attendance": for a month that has already happened (or is
+# in progress), the projection uses REAL attendance via
+# get_month_attendance_summary(); for a future month, it assumes full
+# attendance (can't know future punches) and labels that row as projected.
+
+
+def _fiscal_year_month_sequence(fiscal_year_row: dict) -> list:
+    """[(bs_year, bs_month), ...] for all 12 months of a fiscal year, in order,
+    starting from the year's actual start month (e.g. Shrawan=4)."""
+    start_year = int(fiscal_year_row["start_bs"][:4])
+    start_month = int(fiscal_year_row["start_bs"][5:7])
+    seq = []
+    y, m = start_year, start_month
+    for _ in range(12):
+        seq.append((y, m))
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+    return seq
+
+
+def get_tax_projection_for_employee(conn, global_user_id: int, fiscal_year_id: int) -> dict | None:
+    """Project a full fiscal year for one employee from their current salary
+    head/deduction configuration. Returns None if the employee has no BASIC
+    head configured (nothing to project). Each monthly row also carries
+    'is_projected' — False when built from real attendance, True when
+    assumed (future month)."""
+    import payroll as pay
+    from datetime import date as _ddate
+    import attendance_engine  # noqa: F401 (imported for clarity; used via get_month_attendance_summary)
+
+    fy = get_fiscal_year(conn, fiscal_year_id)
+    if not fy:
+        return None
+    s = get_salary_structure(conn, global_user_id)
+    marital = (s or {}).get("marital", "single")
+    slab_info = get_tax_slab_bands(conn, fiscal_year_id, marital)
+    if not slab_info or not slab_info["is_confirmed"]:
+        return {"error": f"No confirmed tax slabs for fiscal year {fy['fiscal_year_bs']} ({marital})."}
+
+    fiscal_start_month = int(fy["start_bs"][5:7])
+    today = _ddate.today()
+
+    months = []
+    taxable_ytd = 0.0
+    tax_paid = 0.0
+    cumulative_gross = 0.0
+    has_any_head = False
+
+    for bs_year, bs_month in _fiscal_year_month_sequence(fy):
+        mi = None
+        try:
+            import nepali_utils
+            mi = nepali_utils.bs_month_info(bs_year, bs_month)
+        except Exception:
+            mi = None
+        if not mi:
+            continue
+        from_ad, to_ad = mi["first_ad"], mi["last_ad"]
+
+        resolved_heads = resolve_employee_heads_for_month(conn, global_user_id, bs_month)
+        basic_head = next((h for h in resolved_heads if h["code"] == "BASIC"), None)
+        if not basic_head:
+            continue
+        has_any_head = True
+        basic_amount = basic_head["amount"]
+        other_monthly_sum = sum(h["amount"] for h in resolved_heads
+                                if h["frequency"] == "monthly" and h["code"] != "BASIC")
+        onetime_sum = sum(h["amount"] for h in resolved_heads if h["frequency"] != "monthly")
+        gross_unprorated = float(basic_amount) + float(other_monthly_sum)
+        resolved_deductions = resolve_employee_deductions_for_month(conn, global_user_id, basic_amount, gross_unprorated)
+
+        is_future = _ddate.fromisoformat(from_ad) > today
+        if is_future:
+            wd = mi["days"]
+            present_days = wd
+        else:
+            summary = get_month_attendance_summary(conn, global_user_id, from_ad, to_ad)
+            wd = summary["working_days"] or mi["days"]
+            present_days = summary["paid_days"]
+
+        period_index = pay.fiscal_period_index(bs_month, fiscal_start_month)
+        slip = pay.compute_payslip(
+            basic_salary=basic_amount, allowances=other_monthly_sum,
+            working_days=wd, present_days=present_days, daily_hours=s.get("daily_hours", 8) if s else 8,
+            other_earnings=onetime_sum, other_deductions=(s or {}).get("other_deductions", 0) or 0,
+            pretax_deductions=resolved_deductions, tax_bands=slab_info["bands"],
+            period_index=period_index, taxable_ytd_before=taxable_ytd, tax_paid_before=tax_paid,
+        )
+        taxable_ytd = float(slip["taxable_ytd"])
+        tax_paid += float(slip["tax"])
+        cumulative_gross += float(slip["gross"])
+
+        months.append({
+            "bs_year": bs_year, "bs_month": bs_month, "month_name": mi["month_name"],
+            "is_projected": is_future,
+            "gross": float(slip["gross"]),
+            "heads": resolved_heads,
+            "deductions": resolved_deductions,
+            "pretax_deductions_total": float(slip["pretax_deductions_total"]),
+            "taxable_this_month": float(slip["taxable_this_month"]),
+            "tax_this_month": float(slip["tax"]),
+            "net_pay": float(slip["net_pay"]),
+        })
+
+    if not has_any_head:
+        return None
+
+    return {
+        "fiscal_year": fy, "marital": marital, "months": months,
+        "annual_gross": round(cumulative_gross, 2),
+        "annual_taxable": round(taxable_ytd, 2),
+        "annual_tax": round(tax_paid, 2),
+        "monthly_tax_avg": round(tax_paid / 12, 2),
+    }
+
+
+def get_tax_projection_all_employees(conn, fiscal_year_id: int) -> list:
+    """Yearly tax prediction for every employee with a BASIC head configured —
+    the register view: one row per employee, annual totals only (no monthly
+    detail — drill into get_tax_projection_for_employee for that)."""
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("""
+            SELECT DISTINCT eh.global_user_id, gu.name, gu.global_user_id AS company_id,
+                   d.name AS department
+            FROM payroll_employee_heads eh
+            JOIN payroll_heads h ON h.id = eh.head_id AND h.code = 'BASIC'
+            JOIN global_users gu ON gu.id = eh.global_user_id
+            LEFT JOIN departments d ON d.id = gu.department_id
+            WHERE eh.is_active
+            ORDER BY gu.name NULLS LAST
+        """)
+        employees = [dict(r) for r in cur.fetchall()]
+
+    rows = []
+    for emp in employees:
+        proj = get_tax_projection_for_employee(conn, emp["global_user_id"], fiscal_year_id)
+        if not proj or "error" in proj:
+            rows.append({**emp, "error": (proj or {}).get("error", "no BASIC head configured")})
+            continue
+        rows.append({
+            **emp,
+            "annual_gross": proj["annual_gross"], "annual_taxable": proj["annual_taxable"],
+            "annual_tax": proj["annual_tax"], "monthly_tax_avg": proj["monthly_tax_avg"],
+        })
+    return rows
 
 
 def get_payroll_items(conn, run_id: int) -> list:
@@ -4206,65 +5466,160 @@ def get_ytd_tax_totals(conn, global_user_id: int, bs_year: int, before_period_in
         return {"taxable_before": row[0] or 0, "tax_paid_before": row[1] or 0}
 
 
-def get_month_ot_hours(conn, global_user_id: int, start_ad: str, end_ad: str) -> float:
-    """Sum attendance_daily OT minutes for a user across an AD date range -> hours."""
-    with conn.cursor() as cur:
-        cur.execute("""
-            SELECT COALESCE(SUM(ot_minutes),0)
-            FROM attendance_daily
-            WHERE global_user_id=%s AND work_date >= %s AND work_date <= %s
-        """, (global_user_id, start_ad, end_ad))
-        mins = cur.fetchone()[0] or 0
-        return round(mins / 60.0, 2)
-
-
-def get_month_present_days(conn, global_user_id: int, start_ad: str, end_ad: str):
-    """Count present days from attendance_daily; None if no rows for the period."""
-    with conn.cursor() as cur:
-        cur.execute("""
-            SELECT COUNT(*) FROM attendance_daily
-            WHERE global_user_id=%s AND work_date >= %s AND work_date <= %s
-              AND COALESCE(work_minutes,0) > 0
-        """, (global_user_id, start_ad, end_ad))
-        present = cur.fetchone()[0]
-        cur.execute("""
-            SELECT COUNT(*) FROM attendance_daily
-            WHERE global_user_id=%s AND work_date >= %s AND work_date <= %s
-        """, (global_user_id, start_ad, end_ad))
-        any_rows = cur.fetchone()[0]
-        return present if any_rows > 0 else None
-
-
 # ═══════════════════════════════════════════════════════════════════════════
-#  Holiday overtime: split & premium rules  (Phase 14)
+#  Attendance → payroll linkage — live pipeline  (Phase 7)
 # ═══════════════════════════════════════════════════════════════════════════
+#
+# Retires the old attendance_daily-based get_month_ot_hours/
+# get_month_present_days/get_month_ot_split — payroll now reads from the
+# exact same live computation (attendance_engine.compute_monthly_report +
+# monthly_totals) that /reports/monthly/view shows a user, instead of a
+# separate pre-aggregated table that could silently drift from it
+# (payroll_plan.md Section 8). Also fixes the paid-leave gap: the old
+# present-days count only counted actually-worked days, so an employee on
+# approved paid leave lost salary for those days under proration — this
+# unified summary distinguishes paid vs. unpaid leave via leave_types.is_paid.
 
-# attendance_daily.status_code values that represent a weekly-off / holiday.
-_HOLIDAY_STATUS_CODES = ('SAT', 'PH', 'FH', 'NH', 'OH')
 
-
-def get_month_ot_split(conn, global_user_id: int, start_ad: str, end_ad: str) -> dict:
-    """Split a user's OT minutes for a period into regular vs holiday overtime.
-
-    Holiday OT = OT recorded on a weekly-off or holiday day (worked on a day off).
-    Regular OT = OT on a normal working day.
+def get_month_attendance_summary(conn, global_user_id: int, from_ad: str, to_ad: str) -> dict:
+    """Full month attendance summary for payroll, computed via the live
+    attendance report pipeline (attendance_engine) — the single source of
+    truth shared with /reports/monthly/view, /reports/monthly/print-all,
+    /reports/hajiri, and (from Phase 8 onward) payroll generation.
     """
+    import attendance_engine as ae
+    from datetime import date as _ddate, timedelta as _dtd
+
     with conn.cursor() as cur:
-        cur.execute("""
-            SELECT
-                COALESCE(SUM(CASE WHEN status_code = ANY(%s) THEN ot_minutes ELSE 0 END), 0) AS holiday_ot,
-                COALESCE(SUM(CASE WHEN status_code = ANY(%s) THEN 0 ELSE ot_minutes END), 0) AS regular_ot
-            FROM attendance_daily
-            WHERE global_user_id = %s AND work_date >= %s AND work_date <= %s
-        """, (list(_HOLIDAY_STATUS_CODES), list(_HOLIDAY_STATUS_CODES),
-              global_user_id, start_ad, end_ad))
-        row = cur.fetchone()
-        holiday_min = row[0] or 0
-        regular_min = row[1] or 0
-    return {
-        "regular_ot_hours": round(regular_min / 60.0, 2),
-        "holiday_ot_hours": round(holiday_min / 60.0, 2),
+        cur.execute("SELECT device_id, user_id FROM employees WHERE global_user_id=%s", (global_user_id,))
+        pairs = [(r[0], r[1]) for r in cur.fetchall()]
+
+    daily = get_employee_daily_attendance_multi(conn, pairs, from_ad, to_ad) if pairs else []
+    shift_cal = get_shift_calendar(conn, global_user_id, from_ad, to_ad)
+    holiday_map = {
+        (h['holiday_ad'].isoformat() if hasattr(h['holiday_ad'], 'isoformat') else str(h['holiday_ad'])): h
+        for h in get_holidays(conn, from_ad, to_ad)
     }
+
+    paid_leave_dates: set = set()
+    unpaid_leave_dates: set = set()
+    for la in get_leave_applications(conn, global_user_id=global_user_id, status='approved',
+                                     from_ad=from_ad, to_ad=to_ad):
+        ld = la['from_ad'] if isinstance(la['from_ad'], _ddate) else _ddate.fromisoformat(str(la['from_ad']))
+        le = la['to_ad'] if isinstance(la['to_ad'], _ddate) else _ddate.fromisoformat(str(la['to_ad']))
+        target = paid_leave_dates if la['is_paid'] else unpaid_leave_dates
+        while ld <= le:
+            target.add(ld.isoformat())
+            ld += _dtd(days=1)
+
+    si_min, so_min = get_default_shift_window(conn)
+    days = ae.compute_monthly_report(daily, from_ad, to_ad, si_min, so_min,
+                                     shift_cal, holiday_map, paid_leave_dates | unpaid_leave_dates)
+    totals = ae.monthly_totals(days)
+
+    def _parse_min(s):
+        if not s:
+            return 0
+        try:
+            p = str(s).split(':')
+            return int(p[0]) * 60 + int(p[1])
+        except Exception:
+            return 0
+
+    paid_leave_days = unpaid_leave_days = 0
+    regular_ot_min = holiday_ot_min = 0
+    late_in_min = early_out_min = 0
+    for d in days:
+        if d['remark'] == 'Leave':
+            if d['ad_date'] in paid_leave_dates:
+                paid_leave_days += 1
+            else:
+                unpaid_leave_days += 1
+        if d['remark'] in ('Weekend', 'Holiday', 'Festival'):
+            # compute_monthly_report never flags 'ot' on off-days (planned
+            # work is 0 there) — any worked time on a day off is entirely
+            # holiday OT, not captured by the 'ot' field at all.
+            holiday_ot_min += d.get('work_min', 0) or 0
+        else:
+            regular_ot_min += _parse_min(d['ot'])
+        late_in_min += _parse_min(d['late_in'])
+        early_out_min += _parse_min(d['early_out'])
+
+    present_days = totals['counts']['Present']
+    working_days = totals['working_days']
+    return {
+        'working_days': working_days,
+        'present_days': present_days,
+        'paid_leave_days': paid_leave_days,
+        'unpaid_leave_days': unpaid_leave_days,
+        'absent_days': totals['counts']['Absent'],
+        'weekend_days': totals['counts']['Weekend'],
+        'holiday_days': totals['counts']['Holiday'],
+        'festival_days': totals['counts']['Festival'],
+        'total_days': totals['total_days'],
+        'paid_days': min(present_days + paid_leave_days, working_days),
+        'total_work_minutes': sum(d.get('work_min', 0) or 0 for d in days),
+        'regular_ot_minutes': regular_ot_min,
+        'holiday_ot_minutes': holiday_ot_min,
+        'late_in_minutes': late_in_min,
+        'early_out_minutes': early_out_min,
+    }
+
+
+def save_payroll_attendance_snapshot(conn, run_id: int, global_user_id: int, summary: dict) -> None:
+    """Persist a get_month_attendance_summary() result for a payroll run
+    (Section 8.1) — an immutable point-in-time record, not a live
+    recomputation. Re-generating a run overwrites its own snapshot row (the
+    audit trigger captures the old/new diff), but never affects other runs."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT employee_id FROM global_users WHERE id=%s", (global_user_id,))
+        row = cur.fetchone()
+        emp_id_snap = row[0] if row else None
+        cur.execute("""
+            INSERT INTO payroll_attendance_snapshot
+                (run_id, global_user_id, employee_id_snapshot, working_days, present_days,
+                 paid_leave_days, unpaid_leave_days, absent_days, weekend_days, holiday_days,
+                 festival_days, total_days, paid_days, total_work_minutes, regular_ot_minutes,
+                 holiday_ot_minutes, late_in_minutes, early_out_minutes, computed_at)
+            VALUES (%(run_id)s, %(gu)s, %(emp_id_snap)s, %(working_days)s, %(present_days)s,
+                    %(paid_leave_days)s, %(unpaid_leave_days)s, %(absent_days)s, %(weekend_days)s,
+                    %(holiday_days)s, %(festival_days)s, %(total_days)s, %(paid_days)s,
+                    %(total_work_minutes)s, %(regular_ot_minutes)s, %(holiday_ot_minutes)s,
+                    %(late_in_minutes)s, %(early_out_minutes)s, NOW())
+            ON CONFLICT (run_id, global_user_id) DO UPDATE SET
+                employee_id_snapshot = EXCLUDED.employee_id_snapshot,
+                working_days         = EXCLUDED.working_days,
+                present_days         = EXCLUDED.present_days,
+                paid_leave_days      = EXCLUDED.paid_leave_days,
+                unpaid_leave_days    = EXCLUDED.unpaid_leave_days,
+                absent_days          = EXCLUDED.absent_days,
+                weekend_days         = EXCLUDED.weekend_days,
+                holiday_days         = EXCLUDED.holiday_days,
+                festival_days        = EXCLUDED.festival_days,
+                total_days           = EXCLUDED.total_days,
+                paid_days            = EXCLUDED.paid_days,
+                total_work_minutes   = EXCLUDED.total_work_minutes,
+                regular_ot_minutes   = EXCLUDED.regular_ot_minutes,
+                holiday_ot_minutes   = EXCLUDED.holiday_ot_minutes,
+                late_in_minutes      = EXCLUDED.late_in_minutes,
+                early_out_minutes    = EXCLUDED.early_out_minutes,
+                computed_at          = NOW()
+        """, {"run_id": run_id, "gu": global_user_id, "emp_id_snap": emp_id_snap, **summary})
+    conn.commit()
+
+
+def get_payroll_attendance_snapshot(conn, run_id: int, global_user_id: int):
+    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+        cur.execute("""
+            SELECT * FROM payroll_attendance_snapshot WHERE run_id=%s AND global_user_id=%s
+        """, (run_id, global_user_id))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Holiday overtime: premium rules  (Phase 14)
+# ═══════════════════════════════════════════════════════════════════════════
 
 
 def get_holiday_ot_multiplier(conn, global_user_id: int):

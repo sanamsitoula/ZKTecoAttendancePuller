@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}Payroll Settings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="subtitle">Payroll</p>
+    <h1>Payroll Settings</h1>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-secondary btn-sm" href="/payroll/tax-slabs">Tax Slabs</a>
+    <a class="btn btn-secondary btn-sm" href="/payroll">Back to Payroll</a>
+  </div>
+</div>
+
+{# ── Fiscal Years ──────────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:var(--space-6)">
+  <div class="card-header"><h2>Fiscal Years</h2></div>
+  <div class="card-body">
+    <p class="text-sm text-muted" style="margin-bottom:var(--space-3)">
+      Only one fiscal year should be <span class="badge badge-success">active</span> at a time. A run can only be generated against an
+      <span class="badge badge-success">active</span> year — <span class="badge">closed</span>/<span class="badge">locked</span> years reject new/edited runs.
+    </p>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Fiscal Year</th><th>BS Range</th><th>AD Range</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          {% for f in fiscal_years %}
+          <tr>
+            <td><strong>{{ f.fiscal_year_bs }}</strong></td>
+            <td class="text-xs">{{ f.start_bs }} → {{ f.end_bs }}</td>
+            <td class="text-xs">{{ f.start_ad }} → {{ f.end_ad }}</td>
+            <td><span class="badge badge-{{ 'success' if f.status == 'active' else 'neutral' }}">{{ f.status }}</span></td>
+            <td>
+              <form method="post" action="/payroll/settings/fiscal-years/{{ f.id }}/status" style="display:flex;gap:4px">
+                <select class="form-select form-select-sm" name="status" style="width:110px">
+                  {% for st in ['upcoming','active','closed','locked'] %}
+                  <option value="{{ st }}" {{ 'selected' if f.status == st }}>{{ st }}</option>
+                  {% endfor %}
+                </select>
+                <button class="btn btn-secondary btn-sm" type="submit">Set</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="text-center text-muted">No fiscal years yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <form method="post" action="/payroll/settings/fiscal-years" style="display:flex;gap:8px;align-items:flex-end;margin-top:var(--space-4)">
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label" for="new-fy">New Fiscal Year (BS, e.g. 2084/85)</label>
+        <input class="form-control" id="new-fy" name="fiscal_year_bs" placeholder="2084/85" pattern="\d{4}/\d{2}" required style="width:160px">
+      </div>
+      <button class="btn btn-primary btn-sm" type="submit">Create</button>
+    </form>
+    <p class="text-xs text-muted" style="margin-top:var(--space-2)">
+      Start/end AD+BS dates are computed automatically (Shrawan 1 → the following year's Ashadh-end) — never hardcoded.
+      A newly created year starts as <span class="badge">upcoming</span> with no tax slabs — set those up on the
+      <a href="/payroll/tax-slabs">Tax Slabs</a> page before activating it.
+    </p>
+  </div>
+</div>
+
+{# ── Salary Heads ──────────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:var(--space-6)">
+  <div class="card-header"><h2>Salary Heads Catalog</h2></div>
+  <div class="card-body">
+    <div class="table-wrap" style="margin-bottom:var(--space-4)">
+      <table class="table">
+        <thead><tr><th>Code</th><th>Name</th><th>Calculate Basis</th><th>%</th><th>Frequency</th><th>Taxable</th><th>Active</th><th></th></tr></thead>
+        <tbody>
+          {% for h in heads %}
+          <tr>
+            <td><code>{{ h.code }}</code></td>
+            <td>{{ h.name }}</td>
+            <td>{{ 'Percent of Basic' if h.calc_type == 'percent_of_basic' else 'Flat' }}</td>
+            <td>{{ h.percent_of_basic if h.percent_of_basic is not none else '—' }}</td>
+            <td class="text-xs">{{ h.frequency }}</td>
+            <td>{{ 'Yes' if h.is_taxable else 'No' }}</td>
+            <td><span class="badge badge-{{ 'success' if h.is_active else 'neutral' }}">{{ 'active' if h.is_active else 'inactive' }}</span></td>
+            <td>
+              <form method="post" action="/payroll/settings/heads/{{ h.id }}/toggle" style="display:inline">
+                <button class="btn btn-ghost btn-sm" type="submit">{{ 'Deactivate' if h.is_active else 'Activate' }}</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <details>
+      <summary class="text-sm" style="cursor:pointer;font-weight:600;padding:6px 0">+ Add / Edit a Salary Head</summary>
+      <form method="post" action="/payroll/settings/heads" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:var(--space-3)">
+        <div class="form-group" style="margin-bottom:0"><label class="form-label">Code</label><input class="form-control" name="code" style="width:100px" required></div>
+        <div class="form-group" style="margin-bottom:0"><label class="form-label">Name</label><input class="form-control" name="name" style="width:160px" required></div>
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">Calculate Basis</label>
+          <select class="form-select" name="calc_type" style="width:150px" onchange="this.form.percent_of_basic.disabled = this.value !== 'percent_of_basic'">
+            <option value="fixed">Flat</option>
+            <option value="percent_of_basic">Percent of Basic</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0"><label class="form-label">%</label><input class="form-control" name="percent_of_basic" type="number" step="0.01" style="width:80px" disabled></div>
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">Frequency</label>
+          <select class="form-select" name="frequency" style="width:120px">
+            <option value="monthly">Monthly</option>
+            <option value="annual">Annual</option>
+            <option value="festival">Festival</option>
+            <option value="onetime">One-time</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0"><label class="form-label">Sort</label><input class="form-control" name="sort_order" type="number" value="0" style="width:70px"></div>
+        <label class="text-sm" style="display:flex;align-items:center;gap:4px;padding-bottom:8px"><input type="checkbox" name="is_taxable" checked> Taxable</label>
+        <button class="btn btn-primary btn-sm" type="submit">Save Head</button>
+      </form>
+      <p class="text-xs text-muted" style="margin-top:var(--space-2)">To edit an existing head, re-submit with the same Code — heads are matched by code, and editing here never changes what a historical payslip already showed.</p>
+    </details>
+  </div>
+</div>
+
+{# ── Deduction Types ───────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:var(--space-6)">
+  <div class="card-header"><h2>Statutory Deduction Types</h2></div>
+  <div class="card-body">
+    <div class="table-wrap" style="margin-bottom:var(--space-4)">
+      <table class="table">
+        <thead><tr><th>Code</th><th>Name</th><th>Basis</th><th>Default</th><th>Pre-tax</th><th>Frequency</th><th>Cap (Rs/yr)</th><th>Cap (% gross)</th><th>Active</th><th></th></tr></thead>
+        <tbody>
+          {% for d in deduction_types %}
+          <tr>
+            <td><code>{{ d.code }}</code></td>
+            <td>{{ d.name }}</td>
+            <td>{{ 'Percent of Basic (' ~ d.percent_of_basic ~ '%)' if d.calc_type == 'percent_of_basic' else 'Flat' }}</td>
+            <td>{{ '{:,.2f}'.format(d.default_amount|float) if d.default_amount is not none else '—' }}</td>
+            <td>{{ 'Yes' if d.is_pretax else 'No' }}</td>
+            <td class="text-xs">{{ d.frequency }}</td>
+            <td>{{ '{:,.0f}'.format(d.cap_amount|float) if d.cap_amount is not none else '—' }}</td>
+            <td>{{ d.cap_percent_of_gross if d.cap_percent_of_gross is not none else '—' }}</td>
+            <td><span class="badge badge-{{ 'success' if d.is_active else 'neutral' }}">{{ 'active' if d.is_active else 'inactive' }}</span></td>
+            <td>
+              <form method="post" action="/payroll/settings/deduction-types/{{ d.id }}/toggle" style="display:inline">
+                <button class="btn btn-ghost btn-sm" type="submit">{{ 'Deactivate' if d.is_active else 'Activate' }}</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <details>
+      <summary class="text-sm" style="cursor:pointer;font-weight:600;padding:6px 0">+ Add / Edit a Deduction Type</summary>
+      <form method="post" action="/payroll/settings/deduction-types" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:var(--space-3)">
+        <div class="form-group" style="margin-bottom:0"><label class="form-label">Code</label><input class="form-control" name="code" style="width:100px" required></div>
+        <div class="form-group" style="margin-bottom:0"><label class="form-label">Name</label><input class="form-control" name="name" style="width:160px" required></div>
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">Calculate Basis</label>
+          <select class="form-select" name="calc_type" style="width:150px">
+            <option value="fixed">Flat</option>
+            <option value="percent_of_basic">Percent of Basic</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0"><label class="form-label">%</label><input class="form-control" name="percent_of_basic" type="number" step="0.01" style="width:70px"></div>
+        <div class="form-group" style="margin-bottom:0"><label class="form-label">Default Amount</label><input class="form-control" name="default_amount" type="number" step="0.01" style="width:110px"></div>
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">Frequency</label>
+          <select class="form-select" name="frequency" style="width:110px">
+            <option value="monthly">Monthly</option>
+            <option value="annual">Annual</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0"><label class="form-label">Cap (Rs/yr)</label><input class="form-control" name="cap_amount" type="number" step="0.01" style="width:110px"></div>
+        <div class="form-group" style="margin-bottom:0"><label class="form-label">Cap (% gross)</label><input class="form-control" name="cap_percent_of_gross" type="number" step="0.01" style="width:90px"></div>
+        <div class="form-group" style="margin-bottom:0"><label class="form-label">Sort</label><input class="form-control" name="sort_order" type="number" value="0" style="width:70px"></div>
+        <label class="text-sm" style="display:flex;align-items:center;gap:4px;padding-bottom:8px"><input type="checkbox" name="is_pretax" checked> Pre-tax (reduces taxable income)</label>
+        <button class="btn btn-primary btn-sm" type="submit">Save Deduction Type</button>
+      </form>
+      <p class="text-xs text-muted" style="margin-top:var(--space-2)">Both caps may be set together (e.g. "lesser of ⅓ of gross or Rs 500,000/yr") — whichever is more restrictive applies.</p>
+    </details>
+  </div>
+</div>
+
+{# ── Default Shift Window ──────────────────────────────────────────────── #}
+<div class="card">
+  <div class="card-header"><h2>Default Shift Window</h2></div>
+  <div class="card-body">
+    <p class="text-sm text-muted" style="margin-bottom:var(--space-3)">
+      Used across every attendance report and payroll generation whenever an employee has no specific shift rule assigned.
+    </p>
+    <form method="post" action="/payroll/settings/shift-window" style="display:flex;gap:12px;align-items:flex-end">
+      <div class="form-group" style="margin-bottom:0"><label class="form-label">Start</label><input class="form-control" type="time" name="shift_start" value="{{ shift_start_str }}"></div>
+      <div class="form-group" style="margin-bottom:0"><label class="form-label">End</label><input class="form-control" type="time" name="shift_end" value="{{ shift_end_str }}"></div>
+      <button class="btn btn-primary btn-sm" type="submit">Save</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

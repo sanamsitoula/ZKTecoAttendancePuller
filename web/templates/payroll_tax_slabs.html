@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Tax Slabs — Payroll{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="subtitle">Payroll</p>
+    <h1>Tax Slabs</h1>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-secondary btn-sm" href="/payroll/settings">Payroll Settings</a>
+  </div>
+</div>
+
+<div class="card no-print" style="margin-bottom:var(--space-6)">
+  <div class="card-body">
+    <form method="get" action="/payroll/tax-slabs" style="display:flex;gap:var(--space-3);align-items:flex-end">
+      <div class="form-group" style="margin-bottom:0;min-width:220px">
+        <label class="form-label" for="ts-fy">Fiscal Year</label>
+        <select class="form-select" id="ts-fy" name="fiscal_year_id" onchange="this.form.submit()">
+          {% for f in fiscal_years %}
+          <option value="{{ f.id }}" {% if sel_fy_id == f.id %}selected{% endif %}>{{ f.fiscal_year_bs }} ({{ f.status }})</option>
+          {% endfor %}
+        </select>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if not fy %}
+<div class="card"><div class="card-body text-center text-muted">No fiscal years exist yet — create one on the <a href="/payroll/settings">Payroll Settings</a> page first.</div></div>
+{% else %}
+
+<p class="text-sm text-muted" style="margin-bottom:var(--space-4)">
+  A fiscal year can either have separate <strong>single</strong>/<strong>married</strong> slab tables (Nepal's traditional structure),
+  or a single unified table for <strong>all</strong> marital statuses (e.g. the proposed FY2083/84 structure). Confirm a slab set only
+  once you've verified it against the enacted Finance Act / IRD guidance — an unconfirmed set blocks payroll generation for this year.
+</p>
+
+{% for label, info in [('Single', single_info), ('Married', married_info), ('Unified (ALL marital statuses)', all_info)] %}
+<div class="card" style="margin-bottom:var(--space-5)">
+  <div class="card-header">
+    <h2>{{ label }}</h2>
+    {% if info %}
+    <span class="badge badge-{{ 'success' if info.is_confirmed else 'warning' }}">{{ 'confirmed' if info.is_confirmed else 'NOT confirmed' }}</span>
+    {% else %}
+    <span class="badge badge-neutral">not set up</span>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    {% if info %}
+    <div class="table-wrap" style="margin-bottom:var(--space-3)">
+      <table class="table">
+        <thead><tr><th>#</th><th>Width (Rs)</th><th>Rate</th></tr></thead>
+        <tbody>
+          {% for b in info.bands %}
+          <tr><td>{{ loop.index }}</td><td>{{ '{:,.0f}'.format(b.width|float) if b.width is not none else 'Remainder (open-ended)' }}</td><td>{{ b.rate }}%</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+    <details {{ 'open' if not info }}>
+      <summary class="text-sm" style="cursor:pointer;font-weight:600;padding:6px 0">{{ 'Replace bands' if info else '+ Set up bands' }}</summary>
+      <form method="post" action="/payroll/tax-slabs" style="margin-top:var(--space-3)">
+        <input type="hidden" name="fiscal_year_id" value="{{ sel_fy_id }}">
+        <input type="hidden" name="marital_status" value="{{ 'single' if label == 'Single' else ('married' if label == 'Married' else 'ALL') }}">
+        <div class="table-wrap" style="margin-bottom:var(--space-3)">
+          <table class="table">
+            <thead><tr><th>#</th><th>Width (Rs, blank = remainder)</th><th>Rate (%)</th></tr></thead>
+            <tbody>
+              {% for i in range(1, 7) %}
+              <tr>
+                <td>{{ i }}</td>
+                <td><input class="form-control" type="number" step="1" name="band_width_{{ i }}"
+                    value="{{ info.bands[i-1].width|int if info and i <= info.bands|length and info.bands[i-1].width is not none else '' }}"></td>
+                <td><input class="form-control" type="number" step="0.01" name="band_rate_{{ i }}" style="width:100px"
+                    value="{{ info.bands[i-1].rate if info and i <= info.bands|length else '' }}"></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center">
+          <label class="text-sm" style="display:flex;align-items:center;gap:4px">
+            <input type="checkbox" name="is_confirmed" {{ 'checked' if info and info.is_confirmed }}>
+            Confirmed against enacted Finance Act / IRD guidance
+          </label>
+          <input class="form-control" name="source_note" placeholder="Source note (e.g. 'IRD circular dated ...')" style="flex:1;max-width:360px">
+          <button class="btn btn-primary btn-sm" type="submit">Save</button>
+        </div>
+      </form>
+    </details>
+  </div>
+</div>
+{% endfor %}
+
+{% endif %}
+{% endblock %}

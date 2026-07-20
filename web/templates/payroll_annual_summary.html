@@ -1,0 +1,177 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<style>
+@media print {
+  .no-print { display: none !important; }
+  body { font-size: 9pt; color:#000 !important; }
+  @page { size: A4 portrait; margin: 15mm; }
+  #annual-summary-content .slip-line, #annual-summary-content td, #annual-summary-content th { color:#000 !important; }
+}
+.slip-sec-title { font-size:var(--text-sm); font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--color-text-muted); margin-bottom:var(--space-2); margin-top:var(--space-4); }
+.slip-line { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed var(--color-border-light); font-size:var(--text-sm); }
+.slip-line.total { border-bottom:none; border-top:2px solid var(--color-border); font-weight:700; margin-top:var(--space-2); padding-top:var(--space-2); }
+.formula-box { background:var(--bg-muted, #f8fafc); border:1px solid var(--border-subtle, #e2e8f0); border-radius:8px; padding:12px 16px; font-family:monospace; font-size:12.5px; line-height:1.9; margin:10px 0; white-space:pre-wrap; }
+</style>
+
+<div class="page-header no-print">
+  <div>
+    <p class="subtitle">Payroll</p>
+    <h1>Annual Payroll Summary</h1>
+  </div>
+  <div class="page-actions">
+    <button class="btn btn-secondary" type="button" onclick="window.print()">Print</button>
+    <button class="btn btn-secondary" type="button" onclick="downloadPDF()">Download PDF</button>
+    {% if sel_fy_id and sel_global_id %}
+    <a class="btn btn-primary" href="/payroll/annual-summary/excel?fiscal_year_id={{ sel_fy_id }}&global_id={{ sel_global_id }}">Export Excel</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card no-print" style="margin-bottom:var(--space-6)">
+  <div class="card-body">
+    <form method="get" action="/payroll/annual-summary" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="margin-bottom:0;min-width:180px">
+        <label class="form-label" for="as-fy">Fiscal Year</label>
+        <select class="form-select" id="as-fy" name="fiscal_year_id">
+          {% for f in fiscal_years %}
+          <option value="{{ f.id }}" {% if sel_fy_id == f.id %}selected{% endif %}>{{ f.fiscal_year_bs }} ({{ f.status }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:220px;flex:1">
+        <label class="form-label" for="as-emp">Employee</label>
+        <select class="form-select" id="as-emp" name="global_id">
+          {% for e in employees %}
+          <option value="{{ e.global_id }}" {% if sel_global_id == e.global_id %}selected{% endif %}>
+            {{ e.name }}{% if e.company_id %} ({{ e.company_id }}){% endif %}
+          </option>
+          {% else %}
+          <option value="">No employees with payroll data in this fiscal year</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="padding-top:4px">
+        <button class="btn btn-primary btn-sm" type="submit">View</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if not summary %}
+<div class="card"><div class="card-body text-center text-muted" style="padding:var(--space-8)">
+  No payroll runs generated yet for this employee in {{ fy.fiscal_year_bs if fy else 'this fiscal year' }}.
+</div></div>
+{% else %}
+
+<div id="annual-summary-content">
+  <div class="card" style="max-width:820px;margin:0 auto">
+    <div class="card-body">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid var(--color-border);padding-bottom:var(--space-4);margin-bottom:var(--space-5)">
+        <div>
+          {% if company %}<div style="font-size:var(--text-xl);font-weight:700">{{ company.company_name }}</div>{% endif %}
+          <div class="text-xs text-muted">{{ company.address if company else '' }}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:var(--text-xl);font-weight:700">Annual Payroll Summary</div>
+          <div class="text-xs text-muted">Fiscal Year {{ fy.fiscal_year_bs }} BS &mdash; {{ summary.months_included }} month(s) generated</div>
+        </div>
+      </div>
+
+      <div class="slip-line"><span>Employee</span><span><strong>{{ emp_info.name if emp_info else '—' }}</strong></span></div>
+      <div class="slip-line"><span>Employee ID</span><span>{{ emp_info.company_id if emp_info else '—' }}</span></div>
+      <div class="slip-line"><span>Department</span><span>{{ emp_info.department if emp_info else '—' }}</span></div>
+
+      {# ── Salary heads (annual) ──────────────────────────────────────── #}
+      <div class="slip-sec-title">Salary Heads (Annual Totals)</div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Head</th><th>Frequency</th><th class="text-right">Annual Amount</th></tr></thead>
+          <tbody>
+            {% for h in summary.heads %}
+            <tr><td>{{ h.name }}</td><td class="text-xs">{{ h.frequency }}</td><td class="text-right">{{ '{:,.2f}'.format(h.annual_amount) }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="slip-line total"><span>Gross Annual Income</span><span>Rs {{ '{:,.2f}'.format(summary.gross_annual) }}</span></div>
+
+      {# ── Deductions (annual) ────────────────────────────────────────── #}
+      <div class="slip-sec-title">Statutory / Pre-tax Deductions (Annual Totals)</div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Deduction</th><th>Pre-tax?</th><th class="text-right">Annual Amount</th></tr></thead>
+          <tbody>
+            {% for d in summary.deductions %}
+            <tr><td>{{ d.name }}</td><td class="text-xs">{{ 'Yes' if d.is_pretax else 'No' }}</td><td class="text-right">{{ '{:,.2f}'.format(d.annual_amount) }}</td></tr>
+            {% else %}
+            <tr><td colspan="3" class="text-center text-muted">No deductions enrolled</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {# ── Formula transparency (Section 9) ───────────────────────────── #}
+      <div class="slip-sec-title">How This Was Calculated</div>
+      <div class="formula-box">Gross Annual Income                    = Rs {{ '{:,.2f}'.format(summary.gross_annual) }}
+Less: Pre-tax Deductions (PF/CIT/Insurance) = Rs {{ '{:,.2f}'.format(summary.pretax_deductions_annual) }}
+                                         ─────────────────
+Taxable Income (Annual)                 = Rs {{ '{:,.2f}'.format(summary.taxable_annual) }}
+{% for b in tax_bands %}
+  {{ '{:,.0f}'.format(b.amount) }} @ {{ b.rate_pct }}{{ ' ' * (10 - b.rate_pct|length) }} = Rs {{ '{:,.2f}'.format(b.tax) }}
+{% endfor %}
+                                         ─────────────────
+Total Tax (Annual, TDS withheld)        = Rs {{ '{:,.2f}'.format(summary.tax_annual) }}</div>
+
+      <div class="slip-line"><span>Other (post-tax) Deductions</span><span>{{ '{:,.2f}'.format(summary.other_deductions_annual) }}</span></div>
+
+      <div style="background:var(--color-success-light);border:1px solid var(--color-success);border-radius:var(--radius-lg);padding:var(--space-4);text-align:center;margin-top:var(--space-5)">
+        <div class="text-sm text-muted">Net Pay (Annual)</div>
+        <div style="font-size:var(--text-2xl);font-weight:700;color:var(--color-success)">Rs {{ '{:,.2f}'.format(summary.net_annual) }}</div>
+      </div>
+
+      {% if tax_bands %}
+      <div class="slip-sec-title" style="margin-top:var(--space-6)">Tax Slab Breakdown</div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>From</th><th>To</th><th>Rate</th><th class="text-right">Amount</th><th class="text-right">Tax</th></tr></thead>
+          <tbody>
+            {% for b in tax_bands %}
+            <tr>
+              <td>{{ '{:,.0f}'.format(b['from']) }}</td>
+              <td>{{ '{:,.0f}'.format(b['to']) }}</td>
+              <td>{{ b.rate_pct }}</td>
+              <td class="text-right">{{ '{:,.0f}'.format(b.amount) }}</td>
+              <td class="text-right">{{ '{:,.2f}'.format(b.tax) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      <div style="margin-top:var(--space-5);padding-top:var(--space-3);border-top:1px solid var(--color-border);display:flex;justify-content:space-between;font-size:11px;color:var(--color-text-muted)">
+        <div>Printed Time: {{ now_str }}</div>
+        <div>Developed and Maintained by JEMC IT Unit</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/html2pdf.bundle.min.js"></script>
+<script>
+function downloadPDF() {
+  var el = document.getElementById('annual-summary-content');
+  if (!el) { window.print(); return; }
+  html2pdf().set({
+    margin: [10, 8, 10, 8],
+    filename: 'AnnualPayrollSummary_{{ fy.fiscal_year_bs|replace("/", "-") if fy else "" }}.pdf',
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2, useCORS: true },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+  }).from(el).save();
+}
+</script>
+
+{% endif %}
+{% endblock %}

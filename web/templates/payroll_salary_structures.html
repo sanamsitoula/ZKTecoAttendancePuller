@@ -29,7 +29,7 @@
       <thead>
         <tr>
           <th>Employee</th><th>Dept</th><th>Basic</th><th>Allowances</th>
-          <th>Daily Hrs</th><th>OT ×</th><th>Marital</th><th>Other Ded.</th><th></th>
+          <th>Daily Hrs</th><th>OT ×</th><th>Marital</th><th>Other Ded.</th><th></th><th></th>
         </tr>
       </thead>
       <tbody>
@@ -54,9 +54,10 @@
           </td>
           <td><input class="form-control" style="width:100px" type="number" step="0.01" name="other_deductions" value="{{ '%.2f'|format(r.other_deductions|float) if r.other_deductions is not none else '0' }}" form="f{{ r.global_user_id }}"></td>
           <td><button class="btn btn-primary btn-sm" type="submit" form="f{{ r.global_user_id }}">Save</button></form></td>
+          <td><a class="btn btn-secondary btn-sm" href="/payroll/employee/{{ r.global_user_id }}/setup">Heads &amp; Deductions</a></td>
         </tr>
         {% else %}
-        <tr><td colspan="9" class="text-center text-muted" style="padding:var(--space-8)">No employees found.</td></tr>
+        <tr><td colspan="10" class="text-center text-muted" style="padding:var(--space-8)">No employees found.</td></tr>
         {% endfor %}
       </tbody>
     </table>

@@ -100,15 +100,15 @@ def _run_punch_job(punch_type: str, dry_run: bool = False):
                 logger.info("[%s] %s skipped — holiday", punch_type.upper(), today)
                 return
 
-            # Day-of-week check
+            # Day-of-week check (dow uses date.weekday(): Mon=0..Sun=6)
             if punch_type in ("checkin", "both"):
-                ci_days = cfg.get("checkin_days", [1, 2, 3, 4, 5])
+                ci_days = cfg.get("checkin_days", [0, 1, 2, 3, 4])
                 if dow not in ci_days:
                     logger.info("Check-In skipped — day %d not in allowed days %s", dow, ci_days)
                     return
 
             if punch_type in ("checkout", "both"):
-                co_days = cfg.get("checkout_days", [1, 2, 3, 4, 5])
+                co_days = cfg.get("checkout_days", [0, 1, 2, 3, 4])
                 if dow not in co_days:
                     logger.info("Check-Out skipped — day %d not in allowed days %s", dow, co_days)
                     return

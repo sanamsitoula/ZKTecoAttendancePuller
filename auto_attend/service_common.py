@@ -177,10 +177,7 @@ def execute_punch(user_id: str, device_ids: list, punch_type: int,
 
         # 2. Day-of-week check (already done in scheduler, but double-check)
         dow = today.weekday()  # 0=Mon..6=Sun
-        if punch_type == 0:
-            allowed_days = [1, 2, 3, 4, 5]  # Mon-Fri default
-        else:
-            allowed_days = [1, 2, 3, 4, 5]
+        allowed_days = [0, 1, 2, 3, 4]  # Mon-Fri
         if dow not in allowed_days:
             result["status"] = "skipped"
             result["reason"] = "weekend"

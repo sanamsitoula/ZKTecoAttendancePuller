@@ -53,6 +53,11 @@
       <div>
         <div class="slip-sec-title">Attendance</div>
         <div class="slip-line"><span>Present days</span><span>{{ item.present_days }} / {{ run.working_days }}</span></div>
+        {% if attendance %}
+        <div class="slip-line"><span>Paid leave</span><span>{{ attendance.paid_leave_days }}</span></div>
+        <div class="slip-line"><span>Unpaid leave</span><span>{{ attendance.unpaid_leave_days }}</span></div>
+        <div class="slip-line"><span>Absent</span><span>{{ attendance.absent_days }}</span></div>
+        {% endif %}
         <div class="slip-line"><span>OT hours</span><span>{{ '%.1f'|format(item.ot_hours|float) }}{% if item.ot_manual %} (manual){% endif %}</span></div>
         {% if item.detail %}
         <div class="slip-line"><span>Hourly rate</span><span>Rs {{ '{:,.2f}'.format(item.detail.hourly_rate|float) }}</span></div>
@@ -61,26 +66,49 @@
       </div>
     </div>
 
+    {# ── Formula transparency (payroll_plan.md Section 9): show the actual
+         heads/deductions that were added and subtracted, not just totals. ── #}
     <div class="slip-grid">
       <div>
-        <div class="slip-sec-title">Earnings</div>
+        <div class="slip-sec-title">Earnings — Salary Heads</div>
+        {% for h in heads %}
+        <div class="slip-line">
+          <span>{{ h.head_name }}{% if h.frequency != 'monthly' %} <span class="badge badge-info" style="font-size:9px">{{ h.frequency }}</span>{% endif %}</span>
+          <span>{{ '{:,.2f}'.format(h.amount|float) }}</span>
+        </div>
+        {% else %}
         <div class="slip-line"><span>Basic (earned)</span><span>{{ '{:,.2f}'.format(item.earned_basic|float) }}</span></div>
         <div class="slip-line"><span>Allowances</span><span>{{ '{:,.2f}'.format(item.earned_allowance|float) }}</span></div>
+        {% endfor %}
         {% if item.detail and (item.detail.regular_ot_hours or item.detail.holiday_ot_hours) %}
         <div class="slip-line"><span>Regular OT ({{ '%.1f'|format(item.detail.regular_ot_hours|float) }}h × {{ item.detail.ot_multiplier }}×)</span><span>{{ '{:,.2f}'.format(item.detail.regular_ot_pay|float) }}</span></div>
         <div class="slip-line"><span>Holiday OT ({{ '%.1f'|format(item.detail.holiday_ot_hours|float) }}h × {{ item.detail.holiday_ot_multiplier }}×{% if item.detail.holiday_ot_eligible %} <span class="badge badge-success" style="font-size:9px">premium</span>{% endif %})</span><span>{{ '{:,.2f}'.format(item.detail.holiday_ot_pay|float) }}</span></div>
         {% else %}
         <div class="slip-line"><span>Overtime</span><span>{{ '{:,.2f}'.format(item.ot_pay|float) }}</span></div>
         {% endif %}
+        {% if item.other_earnings|float > 0 and heads %}
+        <div class="slip-line"><span>One-time/annual heads due this month</span><span>{{ '{:,.2f}'.format(item.other_earnings|float) }}</span></div>
+        {% elif not heads %}
         <div class="slip-line"><span>Other earnings</span><span>{{ '{:,.2f}'.format(item.other_earnings|float) }}</span></div>
+        {% endif %}
         <div class="slip-line total"><span>Gross</span><span>{{ '{:,.2f}'.format(item.gross|float) }}</span></div>
       </div>
       <div>
         <div class="slip-sec-title">Deductions</div>
+        {% for d in deductions %}
+        <div class="slip-line">
+          <span>{{ d.deduction_name }}{% if d.capped %} <span class="badge badge-warning" style="font-size:9px">capped</span>{% endif %}</span>
+          <span>{{ '{:,.2f}'.format(d.amount|float) }}</span>
+        </div>
+        {% endfor %}
+        {% if item.detail and item.detail.pretax_deductions_total %}
+        <div class="slip-line"><span>Pre-tax deductions (reduces taxable income)</span><span>{{ '{:,.2f}'.format(item.detail.pretax_deductions_total|float) }}</span></div>
+        {% endif %}
         <div class="slip-line"><span>Income Tax (TDS)</span><span>{{ '{:,.2f}'.format(item.tax|float) }}</span></div>
         <div class="slip-line"><span>Other deductions</span><span>{{ '{:,.2f}'.format(item.other_deductions|float) }}</span></div>
         <div class="slip-line total"><span>Total deductions</span><span>{{ '{:,.2f}'.format((item.tax|float) + (item.other_deductions|float)) }}</span></div>
         <div class="slip-sec-title" style="margin-top:var(--space-4)">Year-to-date (FY)</div>
+        <div class="slip-line"><span>Taxable income this month</span><span>{{ '{:,.2f}'.format(item.taxable_this|float) }}</span></div>
         <div class="slip-line"><span>Taxable income YTD</span><span>{{ '{:,.2f}'.format(item.taxable_ytd|float) }}</span></div>
       </div>
     </div>
