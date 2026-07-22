@@ -34,9 +34,9 @@
   </form>
   <div class="card-body" style="padding:var(--space-3) var(--space-5);border-top:1px solid var(--color-border-light)">
     <span class="text-sm text-muted">
-      Showing {{ rows|length }} of {{ total }} total entries (most recent 300 matching the filter above).
+      Showing {{ page_start }}–{{ page_end }} of {{ total }} matching entries (page {{ page }} of {{ total_pages }}).
       Covers: {{ tables|join(', ') }}.
-      Bulk-written tables (attendance, employees, pull sessions) are intentionally not row-audited here —
+      Bulk-written tables (attendance, pull sessions) are intentionally not row-audited here —
       see the Pull Sessions page for the pull history instead.
     </span>
   </div>
@@ -47,18 +47,22 @@
     <table class="table compact">
       <thead>
         <tr>
-          <th scope="col">When</th>
+          <th scope="col">When (BS / AD)</th>
           <th scope="col">Table</th>
           <th scope="col">Record ID</th>
           <th scope="col">Action</th>
           <th scope="col">Changed By</th>
+          <th scope="col">IP / Device</th>
           <th scope="col">Details</th>
         </tr>
       </thead>
       <tbody>
         {% for r in rows %}
         <tr>
-          <td class="text-sm">{{ r.changed_at | fmt_dt }}</td>
+          <td class="text-sm">
+            {{ r.changed_at | bs_datetime }}
+            <div class="text-xs text-muted">{{ r.changed_at | fmt_dt }}</div>
+          </td>
           <td><code style="font-size:var(--text-xs)">{{ r.table_name }}</code></td>
           <td class="text-sm">{{ r.record_id or '—' }}</td>
           <td>
@@ -77,6 +81,10 @@
             {% else %}
               <span class="text-muted">—</span>
             {% endif %}
+          </td>
+          <td class="text-sm">
+            {% if r.ip_address %}<code style="font-size:var(--text-xs)">{{ r.ip_address }}</code>{% else %}<span class="text-muted">—</span>{% endif %}
+            {% if r.user_agent %}<div class="text-xs text-muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ r.user_agent }}">{{ r.user_agent }}</div>{% endif %}
           </td>
           <td>
             <details>
@@ -99,10 +107,21 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="empty">No audit log entries match these filters.</td></tr>
+        <tr><td colspan="7" class="empty">No audit log entries match these filters.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% if total_pages > 1 %}
+  <div class="card-body" style="display:flex;justify-content:space-between;align-items:center;padding:var(--space-3) var(--space-5);border-top:1px solid var(--color-border-light)">
+    {% set qs = {'table_name': f_table, 'action': f_action, 'changed_by': f_changed_by, 'record_id': f_record_id, 'from_date': f_from, 'to_date': f_to} %}
+    {% set base_qs = qs.items() | selectattr('1') | map('join', '=') | join('&') %}
+    <a class="btn btn-sm btn-secondary {{ 'disabled' if page <= 1 }}"
+       href="/audit-log?{{ base_qs }}{{ '&' if base_qs }}page={{ page - 1 }}">&larr; Previous</a>
+    <span class="text-sm text-muted">Page {{ page }} of {{ total_pages }}</span>
+    <a class="btn btn-sm btn-secondary {{ 'disabled' if page >= total_pages }}"
+       href="/audit-log?{{ base_qs }}{{ '&' if base_qs }}page={{ page + 1 }}">Next &rarr;</a>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

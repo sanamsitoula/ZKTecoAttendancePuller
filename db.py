@@ -500,7 +500,23 @@ CREATE INDEX IF NOT EXISTS idx_web_audit_ts
 
 
 def get_connection():
-    return psycopg2.connect(**load_db_config())
+    conn = psycopg2.connect(**load_db_config())
+    # Thread the current web request's IP/user-agent into this connection's
+    # session, for the audit_log trigger (fn_audit_log()) to pick up via
+    # current_setting('app.request_ip'/'app.user_agent', true). Silently a
+    # no-op outside a web request (CLI scripts, the scheduler) — those still
+    # get audited, just without IP/UA, same as before this existed.
+    try:
+        from web.helpers import current_request_ip, current_user_agent
+        ip = current_request_ip.get()
+        ua = current_user_agent.get()
+        if ip or ua:
+            with conn.cursor() as cur:
+                cur.execute("SELECT set_config('app.request_ip', %s, false), set_config('app.user_agent', %s, false)",
+                            (ip or '', ua or ''))
+    except Exception:
+        pass
+    return conn
 
 
 _PHASE10_SQL = """
@@ -751,6 +767,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
     new_data    JSONB,
     changed_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45);
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS user_agent TEXT;
 CREATE INDEX IF NOT EXISTS idx_audit_log_table_record ON audit_log (table_name, record_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_changed_at    ON audit_log (changed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_log_changed_by    ON audit_log (changed_by);
@@ -761,31 +779,40 @@ DECLARE
     v_new JSONB;
     v_record_id INTEGER;
     v_changed_by INTEGER;
+    v_ip VARCHAR(45);
+    v_ua TEXT;
 BEGIN
     BEGIN
+        -- Set by the app via SET SESSION app.request_ip / app.user_agent right after each
+        -- request-scoped connection is opened (web/app.py middleware -> db.get_connection()).
+        -- missing_ok=true so writes from outside the web app (scripts, migrations) are still
+        -- audited, just without IP/UA.
+        v_ip := NULLIF(current_setting('app.request_ip', true), '');
+        v_ua := NULLIF(current_setting('app.user_agent', true), '');
+
         IF TG_OP = 'DELETE' THEN
             v_old := to_jsonb(OLD);
             v_record_id  := NULLIF(v_old->>'id', '')::INTEGER;
             v_changed_by := COALESCE(NULLIF(v_old->>'deleted_by', '')::INTEGER,
                                       NULLIF(v_old->>'updated_by', '')::INTEGER,
                                       NULLIF(v_old->>'created_by', '')::INTEGER);
-            INSERT INTO audit_log (table_name, record_id, action, changed_by, old_data, new_data)
-            VALUES (TG_TABLE_NAME, v_record_id, TG_OP, v_changed_by, v_old, NULL);
+            INSERT INTO audit_log (table_name, record_id, action, changed_by, old_data, new_data, ip_address, user_agent)
+            VALUES (TG_TABLE_NAME, v_record_id, TG_OP, v_changed_by, v_old, NULL, v_ip, v_ua);
         ELSIF TG_OP = 'UPDATE' THEN
             v_old := to_jsonb(OLD);
             v_new := to_jsonb(NEW);
             v_record_id  := NULLIF(v_new->>'id', '')::INTEGER;
             v_changed_by := COALESCE(NULLIF(v_new->>'updated_by', '')::INTEGER,
                                       NULLIF(v_new->>'created_by', '')::INTEGER);
-            INSERT INTO audit_log (table_name, record_id, action, changed_by, old_data, new_data)
-            VALUES (TG_TABLE_NAME, v_record_id, TG_OP, v_changed_by, v_old, v_new);
+            INSERT INTO audit_log (table_name, record_id, action, changed_by, old_data, new_data, ip_address, user_agent)
+            VALUES (TG_TABLE_NAME, v_record_id, TG_OP, v_changed_by, v_old, v_new, v_ip, v_ua);
         ELSE
             v_new := to_jsonb(NEW);
             v_record_id  := NULLIF(v_new->>'id', '')::INTEGER;
             v_changed_by := COALESCE(NULLIF(v_new->>'created_by', '')::INTEGER,
                                       NULLIF(v_new->>'updated_by', '')::INTEGER);
-            INSERT INTO audit_log (table_name, record_id, action, changed_by, old_data, new_data)
-            VALUES (TG_TABLE_NAME, v_record_id, TG_OP, v_changed_by, NULL, v_new);
+            INSERT INTO audit_log (table_name, record_id, action, changed_by, old_data, new_data, ip_address, user_agent)
+            VALUES (TG_TABLE_NAME, v_record_id, TG_OP, v_changed_by, NULL, v_new, v_ip, v_ua);
         END IF;
     EXCEPTION WHEN OTHERS THEN
         -- Audit logging must never break the actual write.
@@ -797,7 +824,7 @@ $body$ LANGUAGE plpgsql;
 """
 
 _AUDITED_TABLES = [
-    'devices', 'global_users', 'departments', 'sections', 'units', 'directorates',
+    'devices', 'global_users', 'employees', 'departments', 'sections', 'units', 'directorates',
     'shifts', 'shift_rules', 'leave_types', 'leave_balances', 'leave_applications',
     'holidays', 'holiday_types', 'kaaj_records', 'attendance_day_remarks',
     'company_settings', 'web_users', 'pull_schedule', 'auto_attend_rules',
@@ -4458,10 +4485,7 @@ def get_audited_tables() -> list:
     return list(_AUDITED_TABLES)
 
 
-def get_audit_log(conn, table_name: str | None = None, action: str | None = None,
-                   changed_by: int | None = None, record_id: int | None = None,
-                   from_date: str | None = None, to_date: str | None = None,
-                   limit: int = 200) -> list:
+def _audit_log_where(table_name, action, changed_by, record_id, from_date, to_date):
     where = []
     params = []
     if table_name:
@@ -4483,23 +4507,36 @@ def get_audit_log(conn, table_name: str | None = None, action: str | None = None
         where.append("al.changed_at < (%s::date + INTERVAL '1 day')")
         params.append(to_date)
     w = f"WHERE {' AND '.join(where)}" if where else ""
+    return w, params
+
+
+def get_audit_log(conn, table_name: str | None = None, action: str | None = None,
+                   changed_by: int | None = None, record_id: int | None = None,
+                   from_date: str | None = None, to_date: str | None = None,
+                   limit: int = 50, offset: int = 0) -> list:
+    w, params = _audit_log_where(table_name, action, changed_by, record_id, from_date, to_date)
     sql = f"""
         SELECT al.*, wu.username AS changed_by_username, wu.display_name AS changed_by_name
         FROM audit_log al
         LEFT JOIN web_users wu ON wu.id = al.changed_by
         {w}
         ORDER BY al.changed_at DESC
-        LIMIT %s
+        LIMIT %s OFFSET %s
     """
-    params.append(limit)
+    params = params + [limit, offset]
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(sql, params)
         return [dict(r) for r in cur.fetchall()]
 
 
-def get_audit_log_count(conn) -> int:
+def get_audit_log_count(conn, table_name: str | None = None, action: str | None = None,
+                         changed_by: int | None = None, record_id: int | None = None,
+                         from_date: str | None = None, to_date: str | None = None) -> int:
+    """Count matching the same filters as get_audit_log — used for server-side pagination,
+    so the total reflects the filtered result set, not the whole table."""
+    w, params = _audit_log_where(table_name, action, changed_by, record_id, from_date, to_date)
     with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM audit_log")
+        cur.execute(f"SELECT COUNT(*) FROM audit_log al {w}", params)
         return cur.fetchone()[0]
 
 

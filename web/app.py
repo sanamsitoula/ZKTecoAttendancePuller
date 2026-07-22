@@ -40,7 +40,8 @@ from config import SCHEDULE_TIMES, SCHEDULER_TIMEZONE, load_db_config
 from config import COMPANY_NAME, COMPANY_ADDRESS, COMPANY_EMAIL, COMPANY_WEBSITE
 from urllib.parse import urlencode
 from web.flash import redirect_with_flash
-from web.helpers import render, device_config_from_row, attendance_to_dict, action_label, _get_company_settings
+from web.helpers import (render, device_config_from_row, attendance_to_dict, action_label,
+                          _get_company_settings, current_request_ip, current_user_agent)
 from web.auth import (get_secret_key, find_user_by_username, verify_password,
                       get_session_user, hash_password)
 from db import (get_web_user_by_username, get_web_user_by_id, get_all_web_users,
@@ -169,6 +170,14 @@ _EMPLOYEE_ALLOWED_PREFIXES = (
 
 
 async def _auth_gate_dispatch(request: Request, call_next):
+    # Actor context for the audit log (db.get_connection() reads these to set
+    # Postgres session GUCs the audit trigger picks up) — set for every
+    # request, including ones that skip the rest of this gate below.
+    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or \
+                (request.client.host if request.client else None)
+    current_request_ip.set(client_ip)
+    current_user_agent.set(request.headers.get("user-agent"))
+
     path = request.url.path
     if path == "/login" or path.startswith("/static"):
         return await call_next(request)
@@ -402,24 +411,28 @@ def audit_log_view(
     record_id: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
+    page: str | None = None,
 ):
     from db import get_audit_log, get_audited_tables, get_audit_log_count
+    PAGE_SIZE = 50
+    page_num = max(1, _int_param(page) or 1)
+    offset = (page_num - 1) * PAGE_SIZE
     conn = get_connection()
     try:
-        rows = get_audit_log(
-            conn,
+        filters = dict(
             table_name=table_name or None,
             action=action or None,
             changed_by=_int_param(changed_by),
             record_id=_int_param(record_id),
             from_date=from_date or None,
             to_date=to_date or None,
-            limit=300,
         )
-        total = get_audit_log_count(conn)
+        rows = get_audit_log(conn, **filters, limit=PAGE_SIZE, offset=offset)
+        total = get_audit_log_count(conn, **filters)
         tables = get_audited_tables()
     finally:
         conn.close()
+    total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
     return render(templates, request, "audit_log.html", {
         "rows":        rows,
         "total":       total,
@@ -430,6 +443,10 @@ def audit_log_view(
         "f_record_id": record_id or '',
         "f_from":      from_date or '',
         "f_to":        to_date or '',
+        "page":        page_num,
+        "total_pages": total_pages,
+        "page_start":  offset + 1 if rows else 0,
+        "page_end":    offset + len(rows),
         "COMPANY_NAME": COMPANY_NAME,
     })
 

@@ -61,6 +61,28 @@ source .venv/bin/activate
 # Prefer python3 if python is not available
 PYTHON=$(command -v python || command -v python3)
 
+# ── auto-attend scheduler (user 258) ────────────────────────────────────────
+# Approved recurring check-in/check-out job for the configured employee
+# (default: global user 258). Runs as a background scheduler alongside the
+# web UI so it comes up automatically whenever this script is used to start
+# the server. Config: auto_attend_config.json (copied from the .example on
+# first run if missing).
+if [ ! -f "auto_attend_config.json" ] && [ -f "auto_attend_config.json.example" ]; then
+    cp auto_attend_config.json.example auto_attend_config.json
+    echo "Created auto_attend_config.json from example (default user_id: 258)"
+fi
+
+if [ -f "auto_attend/auto_attend.py" ]; then
+    if ! pgrep -f "auto_attend/auto_attend.py" >/dev/null 2>&1; then
+        mkdir -p logs
+        nohup "$PYTHON" auto_attend/auto_attend.py >> logs/auto_attend_nohup.log 2>&1 &
+        disown
+        echo "Auto-attend scheduler started (PID $!) — logs/auto_attend.log"
+    else
+        echo "Auto-attend scheduler already running."
+    fi
+fi
+
 echo ""
 echo "Python  : $($PYTHON --version)"
 echo "Starting: http://localhost:$PORT"

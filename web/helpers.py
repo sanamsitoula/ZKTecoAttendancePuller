@@ -1,4 +1,5 @@
 """Shared helpers for the web UI."""
+from contextvars import ContextVar
 from datetime import datetime, timezone
 
 from fastapi import Request
@@ -6,6 +7,14 @@ from fastapi.templating import Jinja2Templates
 
 from config import DEVICE_TIMEZONE, PUNCH_LABELS, DeviceConfig
 from web.flash import attach_flash_clear, read_flashes
+
+# Per-request actor context (set by the auth-gate middleware, read by
+# db.get_connection() to thread IP/user-agent into the audit-log trigger via
+# Postgres session GUCs — see db.py's fn_audit_log()). None outside a request
+# (background jobs, CLI scripts), which is fine: the trigger treats a missing
+# GUC as "no IP available" rather than failing.
+current_request_ip: ContextVar[str | None] = ContextVar("current_request_ip", default=None)
+current_user_agent: ContextVar[str | None] = ContextVar("current_user_agent", default=None)
 
 try:
     import zoneinfo

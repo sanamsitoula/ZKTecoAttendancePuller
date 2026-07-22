@@ -5,6 +5,9 @@ devices.json
 users.json
 auto_attend_config.json
 
+# Auto-attend service — deployment-specific, not tracked
+auto_attend/
+
 # Python
 __pycache__/
 *.py[cod]

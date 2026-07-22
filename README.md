@@ -1127,6 +1127,53 @@ employee's tax slabs aren't confirmed yet.
 
 ---
 
+## Roles & Permissions (ERP-wide) — Planned
+
+> **Status: design finalized, not yet built.** Full rationale, evidence, and the migration procedure for
+> existing users live in `migration_plan.md` (§3.5, §4.5). This section documents the target model so
+> it's discoverable without reading the whole plan.
+
+The system is being extended from Attendance/Payroll into a full ERP by absorbing a printing-press
+production system (Fleet/Vehicle Management + Press Production: Job Ticket, Forma/Printing, Book
+Packing, Deno, D2M). Every module gets its own named role(s) instead of a flat admin/viewer/employee
+split, and **a user can hold more than one role at once** (e.g. `attendance-user` + `payroll-user`, or
+`vehicle-admin` + `press-incharge`) via a `web_user_roles` table, layered on top of the existing
+`web_users.role` column (kept for backward compatibility — `admin` stays a system-wide superuser,
+unchanged).
+
+**Universal baseline**: every authenticated user, regardless of assigned role(s), can view the read-only
+list/index page of *every* module. Editing, approving, deleting, and financial/detail drill-down remain
+gated by the role table below — the baseline is visibility, not authority.
+
+| Role | Module | Can do |
+|---|---|---|
+| `admin` | All | Full access everywhere — create, edit, delete, approve, all reports. (Existing role, unchanged.) |
+| `vehicle-admin` | Fleet | Full CRUD — vehicles, drivers, fuel coupons, maintenance, daily logs. |
+| `press-admin` | Production (all) | Full CRUD + delete — Job Ticket, Forma/Printing, Book Packing, Deno, D2M. |
+| `press-operator` | Production | Create/run Forma/Printing print jobs; update Book Packing progress. |
+| `press-supervisor` | Production | Approve Book Packing (required) and Forma/Printing (advisory). |
+| `press-incharge` | Production | Create/oversee Book Packing; approve Forma/Printing. |
+| `marketing` | Deno | Receive + verify Deno stock handed over from Press. |
+| `attendance-admin` | Attendance | Full CRUD — devices, employees, attendance, leave, holidays, reports. |
+| `attendance-user` | Attendance | Self-service — own attendance + leave only (`/my-attendance`, `/my-leaves`). |
+| `payroll-admin` | Payroll | Full CRUD — salary structures, payroll runs, tax slabs, settings. |
+| `payroll-user` | Payroll | Self-service — own payslip/payroll data only (`/my-payroll` — new page, not built yet). |
+
+Delete is restricted to the `*-admin`/`admin` roles across every module — no other role can delete
+anything, matching how the source production system was actually operated in practice (verified against
+its real historical data, not assumed).
+
+Existing live `web_users` accounts are migrated, not left behind: `admin` stays `admin`; `employee`
+gains both `attendance-user` and `payroll-user` (preserving today's self-service scope, now independently
+revocable per account); `viewer` needs no explicit role row since the universal list-view baseline already
+covers it.
+
+See `migration_plan.md` for the evidence behind each Production role's exact scope (real usage counts
+from the source system), the `web_user_roles` schema, and the still-open decisions (e.g. whether to
+activate D2M's currently-dormant check/verify/send approval chain).
+
+---
+
 ## Project Structure
 
 ```
