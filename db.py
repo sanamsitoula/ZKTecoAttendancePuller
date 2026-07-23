@@ -3621,10 +3621,15 @@ def get_daily_present_list(conn, date_ad: str) -> list:
             SELECT
                 al.device_id, al.user_id, al.name AS raw_name,
                 al.timestamp, al.punch_label,
-                COALESCE(emp_data.emp_name, gu_fallback.emp_name)               AS emp_name,
-                COALESCE(emp_data.att_id, gu_fallback.att_id)                   AS att_id,
-                COALESCE(emp_data.department_name, gu_fallback.department_name) AS department_name,
-                COALESCE(emp_data.section_name, gu_fallback.section_name)       AS section_name,
+                -- gu_fallback only ever joins when emp_data has no linked
+                -- global_user_id, so preferring it here means: use the
+                -- proper global-user identity whenever one exists, and only
+                -- fall back to the unlinked employees row's own raw fields
+                -- when no matching global user exists at all either.
+                COALESCE(gu_fallback.emp_name, emp_data.emp_name)               AS emp_name,
+                COALESCE(gu_fallback.att_id, emp_data.att_id)                   AS att_id,
+                COALESCE(gu_fallback.department_name, emp_data.department_name) AS department_name,
+                COALESCE(gu_fallback.section_name, emp_data.section_name)       AS section_name,
                 COALESCE(emp_data.global_user_id, gu_fallback.global_user_id)   AS global_user_id
             FROM attendance_logs al
             LEFT JOIN LATERAL (
@@ -3642,10 +3647,14 @@ def get_daily_present_list(conn, date_ad: str) -> list:
                 ORDER BY e.global_user_id NULLS LAST
                 LIMIT 1
             ) emp_data ON TRUE
-            -- Fallback when no `employees` row exists for this exact
-            -- (device_id, user_id): the raw device user_id often equals
-            -- global_users.global_user_id (the company id) directly, even
-            -- when the device-level employee sync record is missing.
+            -- Fallback when this exact (device_id, user_id) has no `employees`
+            -- row at all, OR has one that isn't linked to a global user: the
+            -- raw device user_id often equals global_users.global_user_id
+            -- (the company id) directly, even when the device-level sync
+            -- record is missing or was never linked. This takes priority
+            -- over an unlinked employees row's own (often low-quality,
+            -- device-truncated) name — a properly maintained global_users
+            -- record is the more authoritative identity source.
             -- NOT falling back to "same user_id on any other device" here —
             -- that would reintroduce the cross-device collision bug.
             LEFT JOIN LATERAL (
@@ -3657,7 +3666,7 @@ def get_daily_present_list(conn, date_ad: str) -> list:
                 LEFT JOIN sections    sect2 ON sect2.id = gu2.section_id
                 WHERE  gu2.global_user_id = al.user_id
                 LIMIT 1
-            ) gu_fallback ON emp_data.emp_name IS NULL
+            ) gu_fallback ON emp_data.global_user_id IS NULL
             WHERE DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') = %s
         )
         SELECT
@@ -3695,19 +3704,21 @@ def get_daily_present_gu_ids(conn, date_ad: str) -> set:
     Used to build the absent list (global_users not in this set).
 
     Same fallback as get_daily_present_list: if a punch's (device_id, user_id)
-    has no matching `employees` row (e.g. the person is enrolled on a
-    different device than the one they actually punched from), fall back to
-    matching the raw user_id directly against global_users.global_user_id.
-    Without this, such people were counted as present in the report's
-    present list (via the get_daily_present_list fallback) but ALSO as
-    absent here, since their global_user_id never made it into this set.
+    has no matching `employees` row, OR matches one that isn't linked to a
+    global user (e.g. the person also has a separate, properly-linked
+    employees row on another device, and this one was just never linked),
+    fall back to matching the raw user_id directly against
+    global_users.global_user_id. Without this, such people could be shown
+    as present under a second, unlinked identity (via the
+    get_daily_present_list fallback) while ALSO showing as absent here,
+    since their real global_user_id never made it into this set.
     """
     sql = """
         SELECT DISTINCT COALESCE(e.global_user_id, gu_fb.id) AS gu_id
         FROM   attendance_logs al
         LEFT JOIN employees e ON e.device_id = al.device_id AND e.user_id = al.user_id
         LEFT JOIN global_users gu_fb
-               ON gu_fb.global_user_id = al.user_id AND e.id IS NULL
+               ON gu_fb.global_user_id = al.user_id AND e.global_user_id IS NULL
         WHERE  DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') = %s
           AND  COALESCE(e.global_user_id, gu_fb.id) IS NOT NULL
     """
