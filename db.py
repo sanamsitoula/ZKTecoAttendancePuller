@@ -3575,45 +3575,62 @@ def get_daily_present_list(conn, date_ad: str) -> list:
     """
     Returns one row per unique person who punched on date_ad.
 
-    Groups by al.user_id — the same field used by the attendance page —
-    so one person on multiple devices (or with multiple employee records
-    sharing the same user_id) is always counted once.
+    Grouped by resolved identity — employees.global_user_id when the punch's
+    (device_id, user_id) maps to a globally-linked employee, otherwise
+    device_id:user_id. Raw device user_id alone is NOT a safe grouping key:
+    it is device-local and gets reused for different physical people across
+    devices (e.g. two devices both enrolling a "user 546" who are not the
+    same person), which previously merged unrelated employees' punches into
+    a single row and could show '?' for a resolved name (MIN() over
+    COALESCE(...,'?') can pick the '?' placeholder over a real name because
+    '?' sorts before uppercase letters in ASCII).
 
     Dept/section are pulled via a LATERAL subquery that picks the single
     best-matching employee record (preferring a globally-linked one).
     """
     sql = """
-        SELECT
-            al.user_id                                            AS identity_key,
-            MIN(COALESCE(al.name, emp_data.emp_name, '?'))        AS emp_name,
-            MIN(COALESCE(emp_data.att_id, al.user_id, ''))        AS att_id,
-            MIN(emp_data.department_name)                         AS department_name,
-            MIN(emp_data.section_name)                            AS section_name,
-            MIN(al.timestamp AT TIME ZONE 'Asia/Kathmandu')       AS first_punch,
-            MAX(al.timestamp AT TIME ZONE 'Asia/Kathmandu')       AS last_punch,
-            COUNT(*)                                              AS punch_count,
-            ARRAY_AGG((al.timestamp AT TIME ZONE 'Asia/Kathmandu')
-                      ORDER BY al.timestamp)                      AS punch_times,
-            ARRAY_AGG(al.punch_label ORDER BY al.timestamp)       AS punch_labels
-        FROM attendance_logs al
-        LEFT JOIN LATERAL (
+        WITH punches AS (
             SELECT
-                COALESCE(gu.name, e.name)                         AS emp_name,
-                COALESCE(gu.global_user_id, e.user_id, '')        AS att_id,
-                dept.name                                         AS department_name,
-                sect.name                                         AS section_name
-            FROM   employees   e
-            LEFT JOIN global_users gu   ON gu.id   = e.global_user_id
-            LEFT JOIN departments  dept ON dept.id  = gu.department_id
-            LEFT JOIN sections     sect ON sect.id  = gu.section_id
-            WHERE  e.device_id = al.device_id AND e.user_id = al.user_id
-            ORDER BY e.global_user_id NULLS LAST
-            LIMIT 1
-        ) emp_data ON TRUE
-        WHERE DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') = %s
-        GROUP BY al.user_id
-        ORDER BY (CASE WHEN al.user_id ~ E'^\\d+$' THEN al.user_id::bigint END) NULLS LAST,
-                 al.user_id
+                al.device_id, al.user_id, al.name AS raw_name,
+                al.timestamp, al.punch_label,
+                emp_data.emp_name, emp_data.att_id,
+                emp_data.department_name, emp_data.section_name,
+                emp_data.global_user_id
+            FROM attendance_logs al
+            LEFT JOIN LATERAL (
+                SELECT
+                    COALESCE(gu.name, e.name)                         AS emp_name,
+                    COALESCE(gu.global_user_id, e.user_id, '')        AS att_id,
+                    dept.name                                         AS department_name,
+                    sect.name                                         AS section_name,
+                    e.global_user_id
+                FROM   employees   e
+                LEFT JOIN global_users gu   ON gu.id   = e.global_user_id
+                LEFT JOIN departments  dept ON dept.id  = gu.department_id
+                LEFT JOIN sections     sect ON sect.id  = gu.section_id
+                WHERE  e.device_id = al.device_id AND e.user_id = al.user_id
+                ORDER BY e.global_user_id NULLS LAST
+                LIMIT 1
+            ) emp_data ON TRUE
+            WHERE DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') = %s
+        )
+        SELECT
+            COALESCE('gu:' || global_user_id::text,
+                     'dev:' || device_id::text || ':' || user_id)  AS identity_key,
+            COALESCE(MIN(raw_name), MIN(emp_name), '?')            AS emp_name,
+            MIN(COALESCE(att_id, user_id, ''))                     AS att_id,
+            MIN(department_name)                                   AS department_name,
+            MIN(section_name)                                      AS section_name,
+            MIN(timestamp AT TIME ZONE 'Asia/Kathmandu')           AS first_punch,
+            MAX(timestamp AT TIME ZONE 'Asia/Kathmandu')           AS last_punch,
+            COUNT(*)                                                AS punch_count,
+            ARRAY_AGG((timestamp AT TIME ZONE 'Asia/Kathmandu')
+                      ORDER BY timestamp)                          AS punch_times,
+            ARRAY_AGG(punch_label ORDER BY timestamp)              AS punch_labels
+        FROM punches
+        GROUP BY identity_key
+        ORDER BY (CASE WHEN MIN(user_id) ~ E'^\\d+$' THEN MIN(user_id)::bigint END) NULLS LAST,
+                 MIN(user_id)
     """
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(sql, (date_ad,))
