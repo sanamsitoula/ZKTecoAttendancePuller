@@ -2674,19 +2674,29 @@ def get_employees_for_device(conn, device_id: int) -> list:
 def get_employees_for_report(conn, emp_status: str | None = None) -> list:
     """
     Return employees grouped by global identity for the monthly report picker.
-    Employees linked to global_users are merged into one entry (all devices combined).
-    Unlinked employees are grouped by normalised name.
+
+    Starts from global_users (LEFT JOIN employees), not the other way round —
+    a global user with zero linked `employees` rows (e.g. all their device
+    enrollment rows exist but were never linked, or their real punches come
+    through the global_users.global_user_id fallback used elsewhere in this
+    module) previously vanished entirely from this list, since the old query
+    inner-joined employees -> global_users. They now still appear, just with
+    an empty/partial devices list; get_employee_daily_attendance_multi's own
+    global_id fallback still finds their actual punches.
+
+    Employees with no global_user link at all are grouped separately by
+    normalised name, as before.
     Each item: {key, display_name, company_id, global_id, devices:[{device_id,device_name,user_id}]}
     """
     where = []
-    params = []
     if emp_status:
         where.append("gu.emp_status = %s")
-        params.append(emp_status)
     w = f"WHERE {' AND '.join(where)}" if where else ""
+    params = [emp_status] if emp_status else []
+
     sql = f"""
         SELECT
-            COALESCE(gu.name, e.name, e.user_id) AS display_name,
+            COALESCE(gu.name, e.name, e.user_id)   AS display_name,
             gu.id                                  AS global_id,
             gu.global_user_id                      AS company_id,
             gu.emp_status,
@@ -2701,23 +2711,40 @@ def get_employees_for_report(conn, emp_status: str | None = None) -> list:
             e.device_id,
             e.user_id,
             d.name                                 AS device_name
-        FROM employees e
-        JOIN devices d ON e.device_id = d.id
-        JOIN global_users gu   ON e.global_user_id    = gu.id
+        FROM global_users gu
+        LEFT JOIN employees e ON e.global_user_id = gu.id
+        LEFT JOIN devices   d ON e.device_id = d.id
         LEFT JOIN departments dept ON gu.department_id   = dept.id
         LEFT JOIN directorates dir ON dept.directorate_id = dir.id
         LEFT JOIN sections    sect ON gu.section_id      = sect.id
         LEFT JOIN units       unt  ON gu.unit_id         = unt.id
         {w}
+
+        UNION ALL
+
+        SELECT
+            COALESCE(e.name, e.user_id) AS display_name,
+            NULL AS global_id, NULL AS company_id, NULL AS emp_status,
+            NULL AS department_id, NULL AS department_name,
+            NULL AS directorate_id, NULL AS directorate_name,
+            NULL AS section_id, NULL AS section_name,
+            NULL AS unit_id, NULL AS unit_name,
+            e.device_id, e.user_id, d.name AS device_name
+        FROM employees e
+        JOIN devices d ON e.device_id = d.id
+        WHERE e.global_user_id IS NULL
+    """
+    sql = f"""
+        SELECT * FROM ({sql}) combined
         ORDER BY
-            CASE WHEN gu.global_user_id ~ '^[0-9]+$'
-                 THEN gu.global_user_id::INTEGER ELSE NULL END NULLS LAST,
-            gu.global_user_id NULLS LAST,
-            LOWER(COALESCE(gu.name, e.name, e.user_id)), d.name
+            CASE WHEN company_id ~ '^[0-9]+$'
+                 THEN company_id::INTEGER ELSE NULL END NULLS LAST,
+            company_id NULLS LAST,
+            LOWER(display_name), device_name
     """
     from collections import OrderedDict
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-        cur.execute(sql)
+        cur.execute(sql, params)
         rows = [dict(r) for r in cur.fetchall()]
 
     groups = OrderedDict()
@@ -2740,11 +2767,12 @@ def get_employees_for_report(conn, emp_status: str | None = None) -> list:
                 'unit_name':        r.get('unit_name') or '',
                 'devices':          [],
             }
-        groups[key]['devices'].append({
-            'device_id':   r['device_id'],
-            'device_name': r['device_name'],
-            'user_id':     str(r['user_id']),
-        })
+        if r['device_id'] is not None:
+            groups[key]['devices'].append({
+                'device_id':   r['device_id'],
+                'device_name': r['device_name'],
+                'user_id':     str(r['user_id']),
+            })
     return list(groups.values())
 
 
