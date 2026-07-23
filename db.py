@@ -4262,20 +4262,28 @@ def get_hajiri_data_from_logs(conn, global_user_ids: list,
         return {}
 
     # ── 1. Batch punch query ──────────────────────────────────────────────────
+    # Same fallback as get_daily_present_gu_ids / get_monthly_attendance_summary:
+    # a punch's exact (device_id, user_id) may have no `employees` row, or one
+    # that isn't linked to a global user (e.g. enrolled on a different device
+    # than the one actually punched from). Fall back to matching the raw
+    # user_id directly against global_users.global_user_id so such punches
+    # aren't silently dropped from the hajiri grid.
     punch_sql = """
         SELECT
-            e.global_user_id,
+            COALESCE(e.global_user_id, gu_fb.id) AS global_user_id,
             (al.timestamp AT TIME ZONE 'Asia/Kathmandu')::date  AS work_date,
             MIN((al.timestamp AT TIME ZONE 'Asia/Kathmandu')::time) AS first_in,
             MAX((al.timestamp AT TIME ZONE 'Asia/Kathmandu')::time) AS last_out
         FROM attendance_logs al
-        JOIN employees e
-          ON al.device_id = e.device_id AND al.user_id = e.user_id
-        WHERE e.global_user_id = ANY(%(uids)s)
+        LEFT JOIN employees e
+               ON al.device_id = e.device_id AND al.user_id = e.user_id
+        LEFT JOIN global_users gu_fb
+               ON gu_fb.global_user_id = al.user_id AND e.global_user_id IS NULL
+        WHERE COALESCE(e.global_user_id, gu_fb.id) = ANY(%(uids)s)
           AND (al.timestamp AT TIME ZONE 'Asia/Kathmandu')::date
               BETWEEN %(from_ad)s AND %(to_ad)s
-        GROUP BY e.global_user_id, work_date
-        ORDER BY e.global_user_id, work_date
+        GROUP BY COALESCE(e.global_user_id, gu_fb.id), work_date
+        ORDER BY COALESCE(e.global_user_id, gu_fb.id), work_date
     """
     # punch_map: {global_user_id: {date_str: {first_in, last_out}}}
     punch_map: dict = {}
