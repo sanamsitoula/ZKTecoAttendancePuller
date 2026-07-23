@@ -4547,9 +4547,10 @@ def _build_daily_data(conn, date_ad: str, name_q: str = '', dept_q: str = ''):
     dq = dept_q.strip().lower()
     if nq or dq:
         def _m(emp, nk='emp_name'):
-            nm = (emp.get(nk) or emp.get('employee_name') or '').lower()
-            dn = (emp.get('department_name') or '').lower()
-            return (not nq or nq in nm) and (not dq or dq in dn)
+            nm  = (emp.get(nk) or emp.get('employee_name') or '').lower()
+            dn  = (emp.get('department_name') or '').lower()
+            aid = str(emp.get('att_id') or emp.get('company_id') or '').lower()
+            return (not nq or nq in nm or nq in aid) and (not dq or dq in dn)
         present_all   = [e for e in present_all   if _m(e)]
         on_leave_list = [e for e in on_leave_list if _m(e, 'employee_name')]
         absent_list   = [e for e in absent_list   if _m(e)]
