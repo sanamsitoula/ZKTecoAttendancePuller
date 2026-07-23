@@ -2749,20 +2749,48 @@ def get_employees_for_report(conn, emp_status: str | None = None) -> list:
 
 
 def get_employee_daily_attendance_multi(conn, device_user_pairs: list,
-                                        from_date: str, to_date: str) -> list:
+                                        from_date: str, to_date: str,
+                                        global_id: int | None = None) -> list:
     """
     Multi-device attendance for one logical employee.
     Deduplicates punches within 60 seconds (same person, multiple readers).
     Returns: [{work_date, first_punch, last_punch,
                all_punch_times, all_punches_with_device}]
+
+    device_user_pairs comes from the person's enrolled `employees` rows —
+    but a punch can arrive from a device they were never explicitly enrolled
+    on (e.g. enrolled on device 11 as user 546, but occasionally punches on
+    device 10 which also happens to use raw id 546). When global_id is
+    given, also pull in punches anywhere whose raw user_id matches this
+    person's global_users.global_user_id (their company id) — unless that
+    exact (device_id, user_id) is already claimed by a *different* linked
+    employee, which would mean the id is a genuine cross-device collision
+    between two different real people rather than the same person.
     """
-    if not device_user_pairs:
+    if not device_user_pairs and not global_id:
         return []
 
-    placeholders = " OR ".join(
-        "(al.device_id = %s AND al.user_id = %s)" for _ in device_user_pairs
-    )
-    pair_params = [x for d, u in device_user_pairs for x in (int(d), str(u))]
+    clauses = []
+    params  = []
+    if device_user_pairs:
+        clauses.append(" OR ".join(
+            "(al.device_id = %s AND al.user_id = %s)" for _ in device_user_pairs
+        ))
+        params += [x for d, u in device_user_pairs for x in (int(d), str(u))]
+
+    if global_id:
+        clauses.append("""
+            (al.user_id = (SELECT global_user_id FROM global_users WHERE id = %s)
+             AND NOT EXISTS (
+                 SELECT 1 FROM employees ee
+                 WHERE ee.device_id = al.device_id AND ee.user_id = al.user_id
+                   AND ee.global_user_id IS NOT NULL
+                   AND ee.global_user_id <> %s
+             ))
+        """)
+        params += [global_id, global_id]
+
+    where_clause = " OR ".join(f"({c})" for c in clauses)
 
     sql = f"""
         SELECT
@@ -2772,12 +2800,12 @@ def get_employee_daily_attendance_multi(conn, device_user_pairs: list,
             COALESCE(al.source, 'device') AS source
         FROM attendance_logs al
         JOIN devices d ON al.device_id = d.id
-        WHERE ({placeholders})
+        WHERE ({where_clause})
           AND DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') BETWEEN %s AND %s
         ORDER BY ts_npt
     """
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-        cur.execute(sql, pair_params + [from_date, to_date])
+        cur.execute(sql, params + [from_date, to_date])
         rows = [dict(r) for r in cur.fetchall()]
 
     from collections import defaultdict

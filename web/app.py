@@ -3210,7 +3210,7 @@ def reports_monthly_view(
                 from db import get_shift_calendar as _gsc
                 from db import get_holidays as _ghols
                 from db import get_leaves_with_type_for_month as _gleavetypes
-                daily       = _multi(conn, pairs, from_ad, to_ad)
+                daily       = _multi(conn, pairs, from_ad, to_ad, global_id=g_id)
                 shift_cal   = _gsc(conn, g_id, from_ad, to_ad)
                 holiday_map = {
                     (h['holiday_ad'].isoformat() if hasattr(h['holiday_ad'], 'isoformat') else str(h['holiday_ad'])): h
@@ -3312,7 +3312,7 @@ def my_attendance(request: Request, bs_year: str | None = None, bs_month: str | 
             from db import get_shift_calendar as _gsc
             from db import get_holidays as _ghols
             from db import get_leaves_with_type_for_month as _gleavetypes
-            daily       = _multi(conn, pairs, from_ad, to_ad) if pairs else []
+            daily       = _multi(conn, pairs, from_ad, to_ad, global_id=g_id) if (pairs or g_id) else []
             shift_cal   = _gsc(conn, g_id, from_ad, to_ad)
             holiday_map = {
                 (h['holiday_ad'].isoformat() if hasattr(h['holiday_ad'], 'isoformat') else str(h['holiday_ad'])): h
@@ -3458,7 +3458,7 @@ def reports_monthly_print_all(
             _leave_by_emp = _gleavetypesbatch(conn, from_ad, to_ad)
             for emp in all_emps:
                 pairs     = [(dv['device_id'], dv['user_id']) for dv in emp['devices']]
-                daily     = _multi(conn, pairs, from_ad, to_ad)
+                daily     = _multi(conn, pairs, from_ad, to_ad, global_id=emp.get('global_id'))
                 shift_cal = _gsc(conn, emp.get('global_id'), from_ad, to_ad)
                 leave_map = _leave_by_emp.get(emp.get('global_id'), {})
                 days      = _compute_monthly_report(daily, from_ad, to_ad, SI_MIN, SO_MIN,
