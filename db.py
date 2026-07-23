@@ -3593,9 +3593,11 @@ def get_daily_present_list(conn, date_ad: str) -> list:
             SELECT
                 al.device_id, al.user_id, al.name AS raw_name,
                 al.timestamp, al.punch_label,
-                emp_data.emp_name, emp_data.att_id,
-                emp_data.department_name, emp_data.section_name,
-                emp_data.global_user_id
+                COALESCE(emp_data.emp_name, gu_fallback.emp_name)               AS emp_name,
+                COALESCE(emp_data.att_id, gu_fallback.att_id)                   AS att_id,
+                COALESCE(emp_data.department_name, gu_fallback.department_name) AS department_name,
+                COALESCE(emp_data.section_name, gu_fallback.section_name)       AS section_name,
+                COALESCE(emp_data.global_user_id, gu_fallback.global_user_id)   AS global_user_id
             FROM attendance_logs al
             LEFT JOIN LATERAL (
                 SELECT
@@ -3612,6 +3614,22 @@ def get_daily_present_list(conn, date_ad: str) -> list:
                 ORDER BY e.global_user_id NULLS LAST
                 LIMIT 1
             ) emp_data ON TRUE
+            -- Fallback when no `employees` row exists for this exact
+            -- (device_id, user_id): the raw device user_id often equals
+            -- global_users.global_user_id (the company id) directly, even
+            -- when the device-level employee sync record is missing.
+            -- NOT falling back to "same user_id on any other device" here —
+            -- that would reintroduce the cross-device collision bug.
+            LEFT JOIN LATERAL (
+                SELECT gu2.name AS emp_name, gu2.global_user_id AS att_id,
+                       dept2.name AS department_name, sect2.name AS section_name,
+                       gu2.id AS global_user_id
+                FROM   global_users gu2
+                LEFT JOIN departments dept2 ON dept2.id = gu2.department_id
+                LEFT JOIN sections    sect2 ON sect2.id = gu2.section_id
+                WHERE  gu2.global_user_id = al.user_id
+                LIMIT 1
+            ) gu_fallback ON emp_data.emp_name IS NULL
             WHERE DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') = %s
         )
         SELECT
