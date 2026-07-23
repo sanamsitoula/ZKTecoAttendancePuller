@@ -3665,13 +3665,23 @@ def get_daily_present_gu_ids(conn, date_ad: str) -> set:
     """
     Returns the set of global_user IDs that have at least one punch on date_ad.
     Used to build the absent list (global_users not in this set).
+
+    Same fallback as get_daily_present_list: if a punch's (device_id, user_id)
+    has no matching `employees` row (e.g. the person is enrolled on a
+    different device than the one they actually punched from), fall back to
+    matching the raw user_id directly against global_users.global_user_id.
+    Without this, such people were counted as present in the report's
+    present list (via the get_daily_present_list fallback) but ALSO as
+    absent here, since their global_user_id never made it into this set.
     """
     sql = """
-        SELECT DISTINCT e.global_user_id
+        SELECT DISTINCT COALESCE(e.global_user_id, gu_fb.id) AS gu_id
         FROM   attendance_logs al
-        JOIN   employees e ON e.device_id = al.device_id AND e.user_id = al.user_id
-        WHERE  e.global_user_id IS NOT NULL
-          AND  DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') = %s
+        LEFT JOIN employees e ON e.device_id = al.device_id AND e.user_id = al.user_id
+        LEFT JOIN global_users gu_fb
+               ON gu_fb.global_user_id = al.user_id AND e.id IS NULL
+        WHERE  DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') = %s
+          AND  COALESCE(e.global_user_id, gu_fb.id) IS NOT NULL
     """
     with conn.cursor() as cur:
         cur.execute(sql, (date_ad,))
