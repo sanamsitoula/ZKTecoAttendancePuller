@@ -3493,6 +3493,102 @@ def reports_monthly_print_all(
     })
 
 
+def _build_hajiri_data(conn, sel_year: int, sel_month: int,
+                        f_dept: int | None, f_sec: int | None,
+                        f_emp_type: str, f_search: str) -> dict:
+    """Shared by the HTML hajiri report and its Excel export."""
+    from nepali_utils import bs_month_info as _bsmi
+    from db import get_all_departments, get_all_sections, get_holidays as _ghols
+
+    depts    = get_all_departments(conn)
+    sections = get_all_sections(conn)
+    mi       = _bsmi(sel_year, sel_month)
+
+    if mi is None:
+        return {'error': 'Invalid BS year/month', 'departments': depts, 'sections': sections}
+
+    from_ad = mi['first_ad']
+    to_ad   = mi['last_ad']
+    from datetime import date as _dt, timedelta as _td
+
+    # ── Load all active global users (with filters) ───────────────────────
+    all_users = list_global_users(
+        conn,
+        search=f_search or None,
+        department_id=f_dept or None,
+        section_id=f_sec or None,
+    )
+    if f_emp_type:
+        all_users = [u for u in all_users
+                     if (u.get('emp_type') or 'PERMANENT') == f_emp_type]
+    all_users = [u for u in all_users
+                 if (u.get('emp_status') or 'ACTIVE') == 'ACTIVE']
+
+    user_ids = [u['id'] for u in all_users]
+    att_map  = db_mod.get_hajiri_data_from_logs(conn, user_ids, from_ad, to_ad)
+
+    # ── Build per-employee summary ────────────────────────────────────────
+    employees = []
+    for u in all_users:
+        uid       = u['id']
+        days_data = att_map.get(uid, {})
+        counts = {'P': 0, 'A': 0, 'SAT': 0, 'PH': 0, 'FH': 0, 'NH': 0, 'OH': 0}
+        leave_counts: dict = {}
+        total_ot = 0
+        for day in days_data.values():
+            sc = day.get('status_code') or 'A'
+            if sc in counts:
+                counts[sc] += 1
+            elif sc not in ('device',):
+                leave_counts[sc] = leave_counts.get(sc, 0) + 1
+            total_ot += (day.get('ot_minutes') or 0)
+        holiday_days = counts['PH'] + counts['FH'] + counts['NH'] + counts['OH']
+        employees.append({
+            **u,
+            'days_data':    days_data,
+            'counts':       counts,
+            'leave_counts': leave_counts,
+            'total_ot_min': total_ot,
+            'total_ot_h':   f"{total_ot // 60}:{total_ot % 60:02d}" if total_ot else '',
+            'holiday_days': holiday_days,
+        })
+
+    # ── Build column day list ─────────────────────────────────────────────
+    holiday_dates: dict = {}   # {date_str: display_code}
+    for h in _ghols(conn, from_ad, to_ad):
+        hd = h['holiday_ad']
+        hs = hd.isoformat() if hasattr(hd, 'isoformat') else str(hd)
+        htype = h.get('holiday_type', 'public')
+        holiday_dates[hs] = 'उत्' if htype == 'festival' else 'सा'
+
+    day_list = []
+    d = _dt.fromisoformat(from_ad)
+    end_d = _dt.fromisoformat(to_ad)
+    while d <= end_d:
+        nepal_dow = d.isoweekday() % 7
+        ds = d.isoformat()
+        day_list.append({
+            'date':       ds,
+            'day_num':    d.day,
+            'is_weekend': (nepal_dow == 6),
+            'is_holiday': ds in holiday_dates,
+            'hol_code':   holiday_dates.get(ds, ''),
+        })
+        d += _td(days=1)
+
+    return {
+        'month_name':   mi['month_name'],
+        'from_ad':      from_ad,
+        'to_ad':        to_ad,
+        'total_days':   len(day_list),
+        'employees':    employees,
+        'day_list':     day_list,
+        'departments':  depts,
+        'sections':     sections,
+        'error':        None,
+    }
+
+
 @app.get("/reports/hajiri")
 def reports_hajiri(
     request:       Request,
@@ -3513,113 +3609,116 @@ def reports_hajiri(
 
     conn = get_connection()
     try:
-        from nepali_utils import bs_month_info as _bsmi
-        from db import get_all_departments, get_all_sections
-
-        depts    = get_all_departments(conn)
-        sections = get_all_sections(conn)
-        mi       = _bsmi(sel_year, sel_month)
-
-        if mi is None:
-            return render(templates, request, 'reports_hajiri.html', {
-                'error': 'Invalid BS year/month',
-                'sel_bs_year': sel_year, 'sel_bs_month': sel_month,
-                'departments': depts, 'sections': sections,
-                'COMPANY_NAME': COMPANY_NAME,
-            })
-
-        from_ad = mi['first_ad']
-        to_ad   = mi['last_ad']
-        from datetime import date as _dt, timedelta as _td
-
-        # ── Load all active global users (with filters) ───────────────────────
-        all_users = list_global_users(
-            conn,
-            search=f_search or None,
-            department_id=f_dept or None,
-            section_id=f_sec or None,
-        )
-        if f_emp_type:
-            all_users = [u for u in all_users
-                         if (u.get('emp_type') or 'PERMANENT') == f_emp_type]
-        all_users = [u for u in all_users
-                     if (u.get('emp_status') or 'ACTIVE') == 'ACTIVE']
-
-        user_ids = [u['id'] for u in all_users]
-        att_map  = db_mod.get_hajiri_data_from_logs(conn, user_ids, from_ad, to_ad)
-
-        # ── Build per-employee summary ────────────────────────────────────────
-        employees = []
-        for u in all_users:
-            uid       = u['id']
-            days_data = att_map.get(uid, {})
-            counts = {'P': 0, 'A': 0, 'SAT': 0, 'PH': 0, 'FH': 0, 'NH': 0, 'OH': 0}
-            leave_counts: dict = {}
-            total_ot = 0
-            for day in days_data.values():
-                sc = day.get('status_code') or 'A'
-                if sc in counts:
-                    counts[sc] += 1
-                elif sc not in ('device',):
-                    leave_counts[sc] = leave_counts.get(sc, 0) + 1
-                total_ot += (day.get('ot_minutes') or 0)
-            holiday_days = counts['PH'] + counts['FH'] + counts['NH'] + counts['OH']
-            employees.append({
-                **u,
-                'days_data':    days_data,
-                'counts':       counts,
-                'leave_counts': leave_counts,
-                'total_ot_min': total_ot,
-                'total_ot_h':   f"{total_ot // 60}:{total_ot % 60:02d}" if total_ot else '',
-                'holiday_days': holiday_days,
-            })
-
-        # ── Build column day list ─────────────────────────────────────────────
-        from db import get_holidays as _ghols
-        holiday_dates: dict = {}   # {date_str: display_code}
-        for h in _ghols(conn, from_ad, to_ad):
-            hd = h['holiday_ad']
-            hs = hd.isoformat() if hasattr(hd, 'isoformat') else str(hd)
-            htype = h.get('holiday_type', 'public')
-            holiday_dates[hs] = 'उत्' if htype == 'festival' else 'सा'
-
-        day_list = []
-        d = _dt.fromisoformat(from_ad)
-        end_d = _dt.fromisoformat(to_ad)
-        while d <= end_d:
-            nepal_dow = d.isoweekday() % 7
-            ds = d.isoformat()
-            day_list.append({
-                'date':       ds,
-                'day_num':    d.day,
-                'is_weekend': (nepal_dow == 6),
-                'is_holiday': ds in holiday_dates,
-                'hol_code':   holiday_dates.get(ds, ''),
-            })
-            d += _td(days=1)
-
-        return render(templates, request, 'reports_hajiri.html', {
-            'sel_bs_year':  sel_year,
-            'sel_bs_month': sel_month,
-            'month_name':   mi['month_name'],
-            'bs_year':      sel_year,
-            'from_ad':      from_ad,
-            'to_ad':        to_ad,
-            'total_days':   len(day_list),
-            'employees':    employees,
-            'day_list':     day_list,
-            'departments':  depts,
-            'sections':     sections,
-            'f_dept':       f_dept or '',
-            'f_sec':        f_sec or '',
-            'f_emp_type':   f_emp_type,
-            'f_search':     f_search,
-            'now_str':      _npt_now_str(),
-            'COMPANY_NAME': COMPANY_NAME,
-            'error':        None,
-        })
+        data = _build_hajiri_data(conn, sel_year, sel_month, f_dept, f_sec, f_emp_type, f_search)
     finally:
         conn.close()
+
+    return render(templates, request, 'reports_hajiri.html', {
+        **data,
+        'sel_bs_year':  sel_year,
+        'sel_bs_month': sel_month,
+        'bs_year':      sel_year,
+        'f_dept':       f_dept or '',
+        'f_sec':        f_sec or '',
+        'f_emp_type':   f_emp_type,
+        'f_search':     f_search,
+        'now_str':      _npt_now_str(),
+        'COMPANY_NAME': COMPANY_NAME,
+    })
+
+
+@app.get("/reports/hajiri/excel")
+def reports_hajiri_excel(
+    bs_year:       str | None = None,
+    bs_month:      str | None = None,
+    department_id: str | None = None,
+    section_id:    str | None = None,
+    emp_type:      str | None = None,
+    search:        str | None = None,
+):
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    def_year, def_month = _bs_defaults()
+    sel_year   = _int_param(bs_year)  or def_year
+    sel_month  = _int_param(bs_month) or def_month
+    f_dept     = _int_param(department_id)
+    f_sec      = _int_param(section_id)
+    f_emp_type = (emp_type or '').strip()
+    f_search   = (search  or '').strip()
+
+    conn = get_connection()
+    try:
+        data = _build_hajiri_data(conn, sel_year, sel_month, f_dept, f_sec, f_emp_type, f_search)
+    finally:
+        conn.close()
+
+    if data.get('error'):
+        return redirect_with_flash("/reports/hajiri", "error", data['error'])
+
+    employees = data['employees']
+    day_list  = data['day_list']
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Hajiri"
+    thin = Side(style='thin')
+    bdr = Border(left=thin, right=thin, top=thin, bottom=thin)
+    hdr_fill = PatternFill("solid", fgColor="1E3A5F")
+    hdr_font = Font(bold=True, color="FFFFFF")
+    alt_fill = PatternFill("solid", fgColor="F8FAFC")
+
+    cols = ['#', 'Employee', 'Att. ID', 'Department'] + [str(d['day_num']) for d in day_list] + \
+           ['Present', 'Saturday', 'Holiday', 'Home Leave', 'Sick Leave', 'Other Leave', 'Absent', 'OT (hrs)']
+    last = get_column_letter(len(cols))
+    ws.merge_cells(f'A1:{last}1')
+    ws.cell(1, 1).value = COMPANY_NAME or ''
+    ws.cell(1, 1).font = Font(bold=True, size=13)
+    ws.cell(1, 1).alignment = Alignment(horizontal='center')
+    ws.merge_cells(f'A2:{last}2')
+    ws.cell(2, 1).value = f"Hajiri Vivaran — {data['month_name']} {sel_year} BS  ({data['from_ad']} to {data['to_ad']})"
+    ws.cell(2, 1).font = Font(italic=True, size=10)
+    ws.cell(2, 1).alignment = Alignment(horizontal='center')
+    ws.append([])
+    ws.append(cols)
+    for cell in ws[ws.max_row]:
+        cell.fill = hdr_fill; cell.font = hdr_font
+        cell.alignment = Alignment(horizontal='center', wrap_text=True)
+        cell.border = bdr
+
+    for i, emp in enumerate(employees, 1):
+        days_data = emp['days_data']
+        row = [i, emp.get('name') or '', emp.get('company_id') or '', emp.get('department_name') or '']
+        for d in day_list:
+            cell = days_data.get(d['date'])
+            row.append((cell.get('display_code') if cell else ('शनि' if d['is_weekend'] else ('सा' if d['is_holiday'] else 'X'))))
+        home_l  = emp['leave_counts'].get('HOME', 0)
+        sick_l  = emp['leave_counts'].get('SICK', 0)
+        other_l = sum(emp['leave_counts'].values()) - home_l - sick_l
+        row += [emp['counts']['P'], emp['counts']['SAT'], emp['holiday_days'],
+                home_l, sick_l, other_l, emp['counts']['A'],
+                round((emp['total_ot_min'] or 0) / 60.0, 2)]
+        ws.append(row)
+        if i % 2 == 0:
+            for cell in ws[ws.max_row]:
+                cell.fill = alt_fill
+        for cell in ws[ws.max_row]:
+            cell.border = bdr
+
+    for i in range(1, ws.max_column + 1):
+        col = get_column_letter(i)
+        mx = max((len(str(c.value)) for row in ws.iter_rows(min_col=i, max_col=i)
+                  for c in row if c.value is not None), default=6)
+        ws.column_dimensions[col].width = min(mx + 3, 30) if i <= 4 else min(mx + 2, 10)
+
+    import io
+    buf = io.BytesIO()
+    wb.save(buf); buf.seek(0)
+    fname = f"Hajiri_{data['month_name']}_{sel_year}.xlsx"
+    return StreamingResponse(buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 # ---- Settings (Org Hierarchy / Shifts / Shift Rules) ---------------------

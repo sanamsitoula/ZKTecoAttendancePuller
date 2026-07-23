@@ -64,7 +64,11 @@ thead .day-holiday { background: #fca5a5 !important; }
   </div>
   <div class="page-actions">
     <button class="btn btn-secondary" onclick="window.print()">Print (A3 Landscape)</button>
-    <a class="btn btn-primary" href="/reports/monthly">Monthly Detail</a>
+    <button class="btn btn-secondary" onclick="dlHajiriPDF()">Download PDF</button>
+    <a class="btn btn-primary"
+       href="/reports/hajiri/excel?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}&department_id={{ f_dept }}&section_id={{ f_sec }}&emp_type={{ f_emp_type }}&search={{ f_search | urlencode }}">
+      Export Excel
+    </a>
   </div>
 </div>
 
@@ -129,6 +133,9 @@ thead .day-holiday { background: #fca5a5 !important; }
     </form>
   </div>
 </div>
+
+{# ── Printable / PDF content ── #}
+<div id="hajiri-content">
 
 {# ── Print header ── #}
 <div style="text-align:center;margin-bottom:8px">
@@ -266,6 +273,23 @@ thead .day-holiday { background: #fca5a5 !important; }
 </div>
 
 {% endif %}{# employees #}
+
+</div>{# end #hajiri-content #}
 {% endif %}{# error #}
+
+<script src="/static/html2pdf.bundle.min.js"></script>
+<script>
+function dlHajiriPDF() {
+  var el = document.getElementById('hajiri-content');
+  if (!el) { alert('No report content.'); return; }
+  html2pdf().set({
+    margin: [6, 5, 8, 5],
+    filename: 'Hajiri_{{ month_name }}_{{ sel_bs_year }}.pdf',
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2, useCORS: true },
+    jsPDF: { unit: 'mm', format: 'a3', orientation: 'landscape' }
+  }).from(el).save();
+}
+</script>
 
 {% endblock %}
