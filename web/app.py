@@ -3689,7 +3689,7 @@ def reports_hajiri_excel(
 
     for i, emp in enumerate(employees, 1):
         days_data = emp['days_data']
-        row = [i, emp.get('name') or '', emp.get('company_id') or '', emp.get('department_name') or '']
+        row = [i, emp.get('name') or '', emp.get('global_user_id') or '', emp.get('department_name') or '']
         for d in day_list:
             cell = days_data.get(d['date'])
             row.append((cell.get('display_code') if cell else ('शनि' if d['is_weekend'] else ('सा' if d['is_holiday'] else 'X'))))
@@ -3716,6 +3716,163 @@ def reports_hajiri_excel(
     buf = io.BytesIO()
     wb.save(buf); buf.seek(0)
     fname = f"Hajiri_{data['month_name']}_{sel_year}.xlsx"
+    return StreamingResponse(buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Talab Vivaran — salary + attendance report
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _build_talab_data(conn, sel_year: int, sel_month: int,
+                       f_dept: int | None, f_sec: int | None, f_search: str) -> dict:
+    """Attendance counts (from the same fixed pipeline as Hajiri) merged with
+    each person's salary structure, for the salary/attendance report."""
+    from db import get_all_salary_structures
+
+    data = _build_hajiri_data(conn, sel_year, sel_month, f_dept, f_sec, '', f_search)
+    if data.get('error'):
+        return data
+
+    salary_by_gid = {s['global_user_id']: s for s in get_all_salary_structures(conn)}
+    for emp in data['employees']:
+        sal = salary_by_gid.get(emp['id'])
+        emp['basic_salary'] = sal.get('basic_salary') if sal else None
+        emp['allowances']   = sal.get('allowances') if sal else None
+
+    def _cid_num(e):
+        v = e.get('global_user_id') or ''
+        try:    return (0, int(v))
+        except: return (1, str(v))
+    data['employees'].sort(key=_cid_num)
+
+    return data
+
+
+@app.get("/reports/talab")
+def reports_talab(
+    request:       Request,
+    bs_year:       str | None = None,
+    bs_month:      str | None = None,
+    department_id: str | None = None,
+    section_id:    str | None = None,
+    search:        str | None = None,
+):
+    def_year, def_month = _bs_defaults()
+    sel_year = _int_param(bs_year)  or def_year
+    sel_month = _int_param(bs_month) or def_month
+    f_dept = _int_param(department_id)
+    f_sec  = _int_param(section_id)
+    f_search = (search or '').strip()
+
+    conn = get_connection()
+    try:
+        data = _build_talab_data(conn, sel_year, sel_month, f_dept, f_sec, f_search)
+    finally:
+        conn.close()
+
+    return render(templates, request, 'reports_talab.html', {
+        **data,
+        'sel_bs_year':  sel_year,
+        'sel_bs_month': sel_month,
+        'bs_year':      sel_year,
+        'f_dept':       f_dept or '',
+        'f_sec':        f_sec or '',
+        'f_search':     f_search,
+        'now_str':      _npt_now_str(),
+        'COMPANY_NAME': COMPANY_NAME,
+        'COMPANY_ADDRESS': COMPANY_ADDRESS,
+    })
+
+
+@app.get("/reports/talab/excel")
+def reports_talab_excel(
+    bs_year:       str | None = None,
+    bs_month:      str | None = None,
+    department_id: str | None = None,
+    section_id:    str | None = None,
+    search:        str | None = None,
+):
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    def_year, def_month = _bs_defaults()
+    sel_year = _int_param(bs_year)  or def_year
+    sel_month = _int_param(bs_month) or def_month
+    f_dept = _int_param(department_id)
+    f_sec  = _int_param(section_id)
+    f_search = (search or '').strip()
+
+    conn = get_connection()
+    try:
+        data = _build_talab_data(conn, sel_year, sel_month, f_dept, f_sec, f_search)
+    finally:
+        conn.close()
+
+    if data.get('error'):
+        return redirect_with_flash("/reports/talab", "error", data['error'])
+
+    employees = data['employees']
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Talab"
+    thin = Side(style='thin')
+    bdr = Border(left=thin, right=thin, top=thin, bottom=thin)
+    hdr_fill = PatternFill("solid", fgColor="1A5276")
+    hdr_font = Font(bold=True, color="FFFFFF")
+    alt_fill = PatternFill("solid", fgColor="F8FAFC")
+
+    cols = ['#', 'Bank/Code', 'Name', 'Department', 'Present', 'Saturday', 'Holiday',
+            'Home Leave', 'Sick Leave', 'Other Leave', 'Absent', 'Working Days',
+            'OT (hrs)', 'Basic Salary', 'Remarks']
+    last = get_column_letter(len(cols))
+    ws.merge_cells(f'A1:{last}1')
+    ws.cell(1, 1).value = COMPANY_NAME or ''
+    ws.cell(1, 1).font = Font(bold=True, size=13)
+    ws.cell(1, 1).alignment = Alignment(horizontal='center')
+    ws.merge_cells(f'A2:{last}2')
+    ws.cell(2, 1).value = f"Talab Vivaran — {data['month_name']} {sel_year} BS  ({data['from_ad']} to {data['to_ad']})"
+    ws.cell(2, 1).font = Font(italic=True, size=10)
+    ws.cell(2, 1).alignment = Alignment(horizontal='center')
+    ws.append([])
+    ws.append(cols)
+    for cell in ws[ws.max_row]:
+        cell.fill = hdr_fill; cell.font = hdr_font
+        cell.alignment = Alignment(horizontal='center', wrap_text=True)
+        cell.border = bdr
+
+    for i, emp in enumerate(employees, 1):
+        home_l  = emp['leave_counts'].get('HOME', 0)
+        sick_l  = emp['leave_counts'].get('SICK', 0)
+        other_l = sum(emp['leave_counts'].values()) - home_l - sick_l
+        working_days = emp['counts']['P'] + emp['counts']['A'] + home_l + sick_l + other_l
+        ws.append([
+            i, emp.get('global_user_id') or '', emp.get('name') or '', emp.get('department_name') or '',
+            emp['counts']['P'], emp['counts']['SAT'], emp['holiday_days'],
+            home_l, sick_l, other_l, emp['counts']['A'], working_days,
+            round((emp['total_ot_min'] or 0) / 60.0, 2),
+            emp.get('basic_salary') if emp.get('basic_salary') is not None else '',
+            '',
+        ])
+        if i % 2 == 0:
+            for cell in ws[ws.max_row]:
+                cell.fill = alt_fill
+        for cell in ws[ws.max_row]:
+            cell.border = bdr
+
+    for i in range(1, ws.max_column + 1):
+        col = get_column_letter(i)
+        mx = max((len(str(c.value)) for row in ws.iter_rows(min_col=i, max_col=i)
+                  for c in row if c.value is not None), default=6)
+        ws.column_dimensions[col].width = min(mx + 3, 30)
+
+    import io
+    buf = io.BytesIO()
+    wb.save(buf); buf.seek(0)
+    fname = f"Talab_{data['month_name']}_{sel_year}.xlsx"
     return StreamingResponse(buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'})

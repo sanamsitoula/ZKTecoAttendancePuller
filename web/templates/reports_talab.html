@@ -1,0 +1,223 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<style>
+.talab-wrap { overflow-x: auto; }
+.talab-table { border-collapse: collapse; font-size: 12px; min-width: 100%; }
+.talab-table th, .talab-table td { border: 1px solid #c8d0d8; padding: 4px 8px; white-space: nowrap; }
+.talab-table thead th { background: #1a5276; color: #fff; text-align: center; font-weight: 700; }
+.talab-table .emp-name { text-align: left; font-weight: 600; }
+.talab-table .num { text-align: right; }
+.talab-table tbody tr:nth-child(even) td { background: #f8fafc; }
+.talab-table tbody tr:hover td { background: #eff6ff; }
+.talab-table .totals-row td { background: #dce4f0 !important; font-weight: 700; border-top: 2px solid #3b82f6; }
+.col-present { color: #16a34a; }
+.col-sat     { color: #4CAF50; }
+.col-holiday { color: #dc2626; }
+.col-home    { color: #2563eb; font-weight: 700; }
+.col-sick    { color: #d97706; }
+.col-absent  { color: #dc2626; font-weight: 700; }
+.col-salary  { color: #1769e0; font-weight: 700; text-align: right; }
+@media print {
+  .no-print { display: none !important; }
+  body { font-size: 8pt; }
+  @page { size: A4 landscape; margin: 10mm; }
+  .talab-table { font-size: 8pt; }
+  .talab-table th, .talab-table td { padding: 2px 4px !important; }
+}
+</style>
+
+<div class="page-header no-print">
+  <div>
+    <p class="subtitle">Reports / Talab</p>
+    <h1>Talab Vivaran — तलब विवरण</h1>
+  </div>
+  <div class="page-actions">
+    <button class="btn btn-secondary" onclick="window.print()">Print</button>
+    <button class="btn btn-secondary" onclick="dlTalabPDF()">Download PDF</button>
+    <a class="btn btn-primary"
+       href="/reports/talab/excel?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}&department_id={{ f_dept }}&section_id={{ f_sec }}&search={{ f_search | urlencode }}">
+      Export Excel
+    </a>
+  </div>
+</div>
+
+{% if error %}
+<div class="card" style="margin-bottom:var(--space-6);border-color:var(--color-danger-light)">
+  <div class="card-body" style="color:var(--color-danger)">{{ error }}</div>
+</div>
+{% else %}
+
+<div class="card no-print" style="margin-bottom:var(--space-6)">
+  <div class="card-body">
+    <form method="get" action="/reports/talab" style="display:flex;gap:var(--space-3);align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="margin-bottom:0;min-width:90px">
+        <label class="form-label" for="tal-year">Year (BS)</label>
+        <input type="number" class="form-input" id="tal-year" name="bs_year" value="{{ sel_bs_year }}" min="2070" max="2100">
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:160px">
+        <label class="form-label" for="tal-month">Month (BS)</label>
+        <select class="form-select" id="tal-month" name="bs_month">
+          {% set months=['','Baisakh','Jestha','Ashadh','Shrawan','Bhadra','Ashwin','Kartik','Mangsir','Poush','Magh','Falgun','Chaitra'] %}
+          {% for i in range(1,13) %}
+          <option value="{{ i }}" {{ 'selected' if sel_bs_month==i }}>{{ i }} — {{ months[i] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:160px">
+        <label class="form-label" for="tal-dept">Department</label>
+        <select class="form-select" id="tal-dept" name="department_id">
+          <option value="">All departments</option>
+          {% for d in departments %}
+          <option value="{{ d.id }}" {{ 'selected' if f_dept==d.id|string }}>{{ d.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:150px">
+        <label class="form-label" for="tal-section">Section</label>
+        <select class="form-select" id="tal-section" name="section_id">
+          <option value="">All sections</option>
+          {% for s in sections %}
+          <option value="{{ s.id }}" {{ 'selected' if f_sec==s.id|string }}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0;flex:1;min-width:140px">
+        <label class="form-label" for="tal-search">Search</label>
+        <input type="text" class="form-input" id="tal-search" name="search" value="{{ f_search }}" placeholder="Name or ID…">
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-primary btn-sm" type="submit">Filter</button>
+        <a class="btn btn-ghost btn-sm" href="/reports/talab?bs_year={{ sel_bs_year }}&bs_month={{ sel_bs_month }}">Reset</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="talab-content">
+
+{# ── Print header ── #}
+<div style="text-align:center;margin-bottom:10px">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;justify-content:center">
+    {% if company and company.logo_url %}
+    <img src="{{ company.logo_url }}" alt="Logo" style="max-height:48px;max-width:180px;object-fit:contain">
+    {% endif %}
+    <div>
+      <div style="font-size:14pt;font-weight:700">{{ company.company_name if company else COMPANY_NAME }}</div>
+      {% if company and company.address %}<div style="font-size:9pt;color:#475569">{{ company.address }}</div>
+      {% elif COMPANY_ADDRESS %}<div style="font-size:9pt;color:#475569">{{ COMPANY_ADDRESS }}</div>{% endif %}
+    </div>
+  </div>
+  <div style="font-size:11pt;font-weight:700">तलब विवरण — {{ month_name }} {{ bs_year }} BS</div>
+  <div style="font-size:9pt;color:#475569">{{ from_ad }} to {{ to_ad }} &nbsp;|&nbsp; {{ employees|length }} employee(s)</div>
+</div>
+
+{% if not employees %}
+<section class="panel">
+  <p class="muted" style="text-align:center;padding:24px">No active employees found for the selected filters.</p>
+</section>
+{% else %}
+
+<div class="talab-wrap">
+<table class="talab-table">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>बैंक/कोड</th>
+      <th class="emp-name">पूर्ण नाम</th>
+      <th>विभाग</th>
+      <th title="Present days">हा.दि.</th>
+      <th title="Saturdays">शनि.वि.</th>
+      <th title="Public/Festival holiday">बिदा</th>
+      <th title="घर बिदा — Home leave">घ.बि.</th>
+      <th title="बिरामी बिदा — Sick leave">बि.बि.</th>
+      <th title="Other leave">अन्य</th>
+      <th title="Absent">अनु.</th>
+      <th title="Working days this month">जम्मा दिन</th>
+      <th title="Overtime hours">OT घण्टा</th>
+      <th>आधारभूत तलब</th>
+      <th>कैफियत</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% set ns = namespace(row=0, tp=0, tsat=0, thol=0, thome=0, tsick=0, tother=0, tabs=0, tot=0, tsal=0) %}
+  {% for emp in employees %}
+  {% set ns.row = ns.row + 1 %}
+  {% set home_l = emp.leave_counts.get('HOME', 0) %}
+  {% set sick_l = emp.leave_counts.get('SICK', 0) %}
+  {% set other_l = emp.leave_counts.values()|sum - home_l - sick_l %}
+  {% set working_days = emp.counts.P + emp.counts.A + home_l + sick_l + other_l %}
+  {% set ns.tp = ns.tp + emp.counts.P %}
+  {% set ns.tsat = ns.tsat + emp.counts.SAT %}
+  {% set ns.thol = ns.thol + emp.holiday_days %}
+  {% set ns.thome = ns.thome + home_l %}
+  {% set ns.tsick = ns.tsick + sick_l %}
+  {% set ns.tother = ns.tother + other_l %}
+  {% set ns.tabs = ns.tabs + emp.counts.A %}
+  {% set ns.tot = ns.tot + emp.total_ot_min %}
+  {% set ns.tsal = ns.tsal + (emp.basic_salary or 0) %}
+  <tr>
+    <td>{{ ns.row }}</td>
+    <td><code style="font-size:11px">{{ emp.global_user_id or '—' }}</code></td>
+    <td class="emp-name">{{ emp.name }}</td>
+    <td style="font-size:11px">{{ emp.department_name or '—' }}</td>
+    <td class="num col-present">{{ emp.counts.P }}</td>
+    <td class="num col-sat">{{ emp.counts.SAT }}</td>
+    <td class="num col-holiday">{{ emp.holiday_days }}</td>
+    <td class="num col-home">{{ home_l }}</td>
+    <td class="num col-sick">{{ sick_l }}</td>
+    <td class="num">{{ other_l if other_l else '' }}</td>
+    <td class="num col-absent">{{ emp.counts.A if emp.counts.A else '' }}</td>
+    <td class="num" style="font-weight:700">{{ working_days }}</td>
+    <td class="num">{{ emp.total_ot_h or '' }}</td>
+    <td class="col-salary">{{ 'NPR {:,.0f}'.format(emp.basic_salary) if emp.basic_salary is not none else '—' }}</td>
+    <td></td>
+  </tr>
+  {% endfor %}
+  <tr class="totals-row">
+    <td colspan="4" style="text-align:right">जम्मा ({{ employees|length }} कर्मचारी)</td>
+    <td class="num">{{ ns.tp }}</td>
+    <td class="num">{{ ns.tsat }}</td>
+    <td class="num">{{ ns.thol }}</td>
+    <td class="num">{{ ns.thome }}</td>
+    <td class="num">{{ ns.tsick }}</td>
+    <td class="num">{{ ns.tother }}</td>
+    <td class="num">{{ ns.tabs }}</td>
+    <td></td>
+    <td class="num">{{ '%d:%02d' | format(ns.tot // 60, ns.tot % 60) }}</td>
+    <td class="col-salary">NPR {{ '{:,.0f}'.format(ns.tsal) }}</td>
+    <td></td>
+  </tr>
+  </tbody>
+</table>
+</div>
+
+{# ── Signature row ── #}
+<div style="display:flex;gap:80px;margin-top:40px;padding-top:8px">
+  <div style="flex:1;border-top:1px solid #000;padding-top:4px;text-align:center;font-size:12px">तयार गर्ने</div>
+  <div style="flex:1;border-top:1px solid #000;padding-top:4px;text-align:center;font-size:12px">जाँच गर्ने</div>
+  <div style="flex:1;border-top:1px solid #000;padding-top:4px;text-align:center;font-size:12px">स्वीकृत गर्ने</div>
+</div>
+<div style="font-size:10px;color:#94a3b8;text-align:right;margin-top:6px">Generated: {{ now_str }}</div>
+
+{% endif %}{# employees #}
+
+</div>{# end #talab-content #}
+{% endif %}{# error #}
+
+<script src="/static/html2pdf.bundle.min.js"></script>
+<script>
+function dlTalabPDF() {
+  var el = document.getElementById('talab-content');
+  if (!el) { alert('No report content.'); return; }
+  html2pdf().set({
+    margin: [8, 8, 8, 8],
+    filename: 'Talab_{{ month_name }}_{{ sel_bs_year }}.pdf',
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2, useCORS: true },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+  }).from(el).save();
+}
+</script>
+
+{% endblock %}

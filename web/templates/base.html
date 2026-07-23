@@ -248,6 +248,10 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon" style="width:14px;height:14px"><circle cx="12" cy="12" r="1"/></svg>
                 Hajiri Report
               </a>
+              <a href="/reports/talab" class="sidebar-link {{ 'active' if request.url.path.startswith('/reports/talab') }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon" style="width:14px;height:14px"><circle cx="12" cy="12" r="1"/></svg>
+                Talab Report
+              </a>
               <a href="/reports/monthly" class="sidebar-link {{ 'active' if request.url.path.startswith('/reports/monthly') and 'print-all' not in request.url.path and 'summary' not in request.url.path }}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon" style="width:14px;height:14px"><circle cx="12" cy="12" r="1"/></svg>
                 Monthly Report
