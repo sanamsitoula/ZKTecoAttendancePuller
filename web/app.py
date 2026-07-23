@@ -5062,6 +5062,8 @@ def monthly_summary_report(request: Request,
     summary.setdefault('weekend_count', 0)
     summary.setdefault('holidays',      [])
     summary.setdefault('employees',     [])
+    summary.setdefault('dept_summary',    {})
+    summary.setdefault('section_summary', {})
     summary['nepali_months'] = NEPALI_MONTHS
     summary['today_bs']      = today_bs
     summary['COMPANY_NAME']  = COMPANY_NAME

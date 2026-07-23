@@ -52,6 +52,32 @@
 .holiday-table { font-size: 12px; }
 .holiday-table th, .holiday-table td { padding: 4px 10px; }
 
+/* ── Department / section bar charts ─────────────────────────────────────── */
+.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+@media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
+.bar-chart-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+.bar-chart-label { width: 150px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-chart-track { flex: 1; display: flex; height: 16px; border-radius: 3px; overflow: hidden; background: #f1f5f9; }
+.bar-chart-seg.present  { background: #22c55e; }
+.bar-chart-seg.absent   { background: #ef4444; }
+.bar-chart-seg.on_leave { background: #f59e0b; }
+.bar-chart-count { width: 46px; flex-shrink: 0; text-align: right; color: #475569; }
+.chart-legend { display: flex; gap: 14px; font-size: 11px; color: #64748b; margin-bottom: 10px; }
+.chart-legend span::before {
+  content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+  margin-right: 4px; vertical-align: middle;
+}
+.chart-legend .lg-present::before  { background: #22c55e; }
+.chart-legend .lg-absent::before   { background: #ef4444; }
+.chart-legend .lg-on_leave::before { background: #f59e0b; }
+
+/* ── Sortable table headers ──────────────────────────────────────────────── */
+.summary-table th[data-sort] { cursor: pointer; user-select: none; }
+.summary-table th[data-sort]:hover { background: #eef2ff; }
+.summary-table th[data-sort] .sort-arrow { font-size: 10px; opacity: .4; margin-left: 3px; }
+.summary-table th[data-sort].sorted-asc  .sort-arrow { opacity: 1; content: '\25B2'; }
+.summary-table th[data-sort].sorted-desc .sort-arrow { opacity: 1; }
+
 /* Print header hidden on screen */
 .print-header { display: none; }
 
@@ -181,21 +207,74 @@
     {% endif %}
   </section>
 
+  {# ── Department / section charts ───────────────────────────────────────── #}
+  {% if dept_summary or section_summary %}
+  <section class="panel">
+    <h3 style="font-size:14px;margin-bottom:10px;color:#334155">Present / Absent / On-Leave by Department &amp; Section</h3>
+    <div class="chart-legend">
+      <span class="lg-present">Present</span>
+      <span class="lg-absent">Absent</span>
+      <span class="lg-on_leave">On Leave</span>
+    </div>
+    <div class="chart-grid">
+      <div>
+        <h4 style="font-size:12px;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">By Department</h4>
+        {% for dname, c in dept_summary.items() %}
+        {% set total = (c.present + c.absent + c.on_leave) or 1 %}
+        <div class="bar-chart-row">
+          <div class="bar-chart-label" title="{{ dname }}">{{ dname }}</div>
+          <div class="bar-chart-track">
+            <div class="bar-chart-seg present"  style="width:{{ (c.present  / total * 100) | round(1) }}%"></div>
+            <div class="bar-chart-seg absent"   style="width:{{ (c.absent   / total * 100) | round(1) }}%"></div>
+            <div class="bar-chart-seg on_leave" style="width:{{ (c.on_leave / total * 100) | round(1) }}%"></div>
+          </div>
+          <div class="bar-chart-count">{{ c.employees }} emp</div>
+        </div>
+        {% endfor %}
+      </div>
+      <div>
+        <h4 style="font-size:12px;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">By Section</h4>
+        {% for sname, c in section_summary.items() %}
+        {% set total = (c.present + c.absent + c.on_leave) or 1 %}
+        <div class="bar-chart-row">
+          <div class="bar-chart-label" title="{{ sname }}">{{ sname }}</div>
+          <div class="bar-chart-track">
+            <div class="bar-chart-seg present"  style="width:{{ (c.present  / total * 100) | round(1) }}%"></div>
+            <div class="bar-chart-seg absent"   style="width:{{ (c.absent   / total * 100) | round(1) }}%"></div>
+            <div class="bar-chart-seg on_leave" style="width:{{ (c.on_leave / total * 100) | round(1) }}%"></div>
+          </div>
+          <div class="bar-chart-count">{{ c.employees }} emp</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
   {# ── Filter bar (no-print) ─────────────────────────────────────────────── #}
   <div class="no-print" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-    <input data-table-filter="summary-table"
-           placeholder="Search employee&hellip;"
+    <input id="summary-search"
+           placeholder="Search name or attendance ID&hellip;"
            aria-label="Search employees in summary"
-           style="flex:1;min-width:200px;max-width:340px">
-    <select data-table-filter="summary-table" data-filter-col="3"
-            aria-label="Filter by department"
-            style="min-width:180px">
+           style="flex:1;min-width:200px;max-width:340px"
+           class="form-input">
+    <select id="summary-dept-filter" aria-label="Filter by department" class="form-select" style="min-width:180px">
       <option value="">All Departments</option>
       {% set seen_depts = [] %}
       {% for emp in employees | sort(attribute='department_name') %}
         {% if emp.department_name and emp.department_name not in seen_depts %}
           {% if seen_depts.append(emp.department_name) %}{% endif %}
           <option value="{{ emp.department_name }}">{{ emp.department_name }}</option>
+        {% endif %}
+      {% endfor %}
+    </select>
+    <select id="summary-section-filter" aria-label="Filter by section" class="form-select" style="min-width:180px">
+      <option value="">All Sections</option>
+      {% set seen_sections = [] %}
+      {% for emp in employees | sort(attribute='section_name') %}
+        {% if emp.section_name and emp.section_name not in seen_sections %}
+          {% if seen_sections.append(emp.section_name) %}{% endif %}
+          <option value="{{ emp.section_name }}">{{ emp.section_name }}</option>
         {% endif %}
       {% endfor %}
     </select>
@@ -210,19 +289,20 @@
       <thead>
         <tr>
           <th scope="col" style="width:36px">#</th>
-          <th scope="col">Employee Name</th>
-          <th scope="col">ID</th>
-          <th scope="col">Department</th>
+          <th scope="col" data-sort="text" data-col="1">Employee Name<span class="sort-arrow">&#9660;</span></th>
+          <th scope="col" data-sort="num"  data-col="2">Att. ID<span class="sort-arrow">&#9660;</span></th>
+          <th scope="col" data-sort="text" data-col="3">Department<span class="sort-arrow">&#9660;</span></th>
+          <th scope="col" data-sort="text" data-col="4">Section<span class="sort-arrow">&#9660;</span></th>
           <th scope="col" style="text-align:center">Working<br>Days</th>
-          <th scope="col" style="text-align:center">Present</th>
-          <th scope="col" style="text-align:center">Absent</th>
+          <th scope="col" data-sort="num" data-col="6" style="text-align:center">Present<span class="sort-arrow">&#9660;</span></th>
+          <th scope="col" data-sort="num" data-col="7" style="text-align:center">Absent<span class="sort-arrow">&#9660;</span></th>
           <th scope="col" style="text-align:center">On Leave</th>
           <th scope="col">Leave Details</th>
           <th scope="col" style="text-align:center">Present %</th>
         </tr>
       </thead>
-      <tbody>
-        {% set sorted_emps = employees | sort(attribute='emp_name') | sort(attribute='department_name') %}
+      <tbody id="summary-table-body">
+        {% set sorted_emps = employees | sort(attribute='company_id') %}
         {% set ns = namespace(row=0, t_working=0, t_present=0, t_absent=0, t_leave=0) %}
         {% for emp in sorted_emps %}
           {% set ns.row = ns.row + 1 %}
@@ -231,11 +311,17 @@
           {% set ns.t_absent  = ns.t_absent  + (emp.absent  | default(0)) %}
           {% set ns.t_leave   = ns.t_leave   + (emp.on_leave | default(0)) %}
           {% set pct = (emp.present / emp.working_days * 100) if emp.working_days > 0 else 0 %}
-        <tr>
+        <tr data-name="{{ (emp.emp_name or '') | lower }}"
+            data-att-id="{{ emp.company_id or '' }}"
+            data-dept="{{ emp.department_name or '' }}"
+            data-section="{{ emp.section_name or '' }}"
+            data-present="{{ emp.present }}"
+            data-absent="{{ emp.absent }}">
           <td>{{ ns.row }}</td>
           <td><strong>{{ emp.emp_name }}</strong></td>
           <td>{{ emp.company_id or '&mdash;' }}</td>
           <td>{{ emp.department_name or '&mdash;' }}</td>
+          <td>{{ emp.section_name or '&mdash;' }}</td>
           <td style="text-align:center">{{ emp.working_days }}</td>
           <td style="text-align:center"
               class="{% if emp.present == emp.working_days and emp.working_days > 0 %}cell-green{% elif emp.present > 0 %}cell-amber{% else %}cell-red{% endif %}">
@@ -261,14 +347,14 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="10" class="empty">No employee data for this period.</td>
+          <td colspan="11" class="empty">No employee data for this period.</td>
         </tr>
         {% endfor %}
       </tbody>
       {% if employees %}
       <tfoot>
         <tr class="totals-row">
-          <td colspan="4" style="text-align:right">Totals</td>
+          <td colspan="5" style="text-align:right">Totals</td>
           <td style="text-align:center">{{ ns.t_working }}</td>
           <td style="text-align:center">{{ ns.t_present }}</td>
           <td style="text-align:center">{{ ns.t_absent }}</td>
@@ -303,6 +389,69 @@ function downloadPDF() {
   };
   html2pdf().set(opt).from(el).save();
 }
+
+/* ── Search / department / section filter (AND across all three) ────────── */
+(function () {
+  var searchBox  = document.getElementById('summary-search');
+  var deptSel    = document.getElementById('summary-dept-filter');
+  var sectionSel = document.getElementById('summary-section-filter');
+  var tbody      = document.getElementById('summary-table-body');
+  var countEl    = document.getElementById('summary-table-count');
+  if (!tbody) return;
+  var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr[data-name]'));
+
+  function applyFilters() {
+    var q = (searchBox.value || '').toLowerCase().trim();
+    var dept = deptSel.value;
+    var sect = sectionSel.value;
+    var visible = 0;
+    rows.forEach(function (r) {
+      var matchesSearch = !q || r.dataset.name.indexOf(q) !== -1 ||
+                           r.dataset.attId.toLowerCase().indexOf(q) !== -1;
+      var matchesDept    = !dept || r.dataset.dept === dept;
+      var matchesSection = !sect || r.dataset.section === sect;
+      var show = matchesSearch && matchesDept && matchesSection;
+      r.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    if (countEl) countEl.textContent = visible + ' of ' + rows.length + ' shown';
+  }
+
+  if (searchBox)  searchBox.addEventListener('input', applyFilters);
+  if (deptSel)    deptSel.addEventListener('change', applyFilters);
+  if (sectionSel) sectionSel.addEventListener('change', applyFilters);
+  applyFilters();
+
+  /* ── Click-to-sort headers ─────────────────────────────────────────────── */
+  var headers = document.querySelectorAll('#summary-table th[data-sort]');
+  var currentSort = { col: null, dir: 1 };
+
+  headers.forEach(function (th) {
+    th.addEventListener('click', function () {
+      var col  = parseInt(th.dataset.col, 10);
+      var type = th.dataset.sort;
+      var dir  = (currentSort.col === col) ? -currentSort.dir : 1;
+      currentSort = { col: col, dir: dir };
+
+      headers.forEach(function (h) { h.classList.remove('sorted-asc', 'sorted-desc'); });
+      th.classList.add(dir === 1 ? 'sorted-asc' : 'sorted-desc');
+
+      var sorted = rows.slice().sort(function (a, b) {
+        var av = a.children[col].textContent.trim();
+        var bv = b.children[col].textContent.trim();
+        if (type === 'num') {
+          av = parseFloat(av) || 0;
+          bv = parseFloat(bv) || 0;
+          return (av - bv) * dir;
+        }
+        return av.localeCompare(bv) * dir;
+      });
+      sorted.forEach(function (r) { tbody.appendChild(r); });
+      // Renumber the leading "#" column to match the new visual order
+      sorted.forEach(function (r, i) { r.children[0].textContent = i + 1; });
+    });
+  });
+})();
 </script>
 
 {% endblock %}

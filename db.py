@@ -3901,14 +3901,22 @@ def get_monthly_attendance_summary(conn, bs_year: int, bs_month: int) -> dict:
 
     all_emps = get_all_global_users_with_dept(conn)
 
+    # Same fallback as the daily report (get_daily_present_gu_ids): a punch's
+    # exact (device_id, user_id) may have no `employees` row, or one that
+    # isn't linked to a global user (e.g. the person has a separate, properly
+    # linked employees row on another device). Without this, such punches
+    # were silently excluded and the person showed absent all month despite
+    # actually attending.
     sql_att = """
-        SELECT e.global_user_id,
+        SELECT COALESCE(e.global_user_id, gu_fb.id) AS global_user_id,
                DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') AS work_date
         FROM attendance_logs al
-        JOIN employees e ON e.device_id = al.device_id AND e.user_id = al.user_id
+        LEFT JOIN employees e ON e.device_id = al.device_id AND e.user_id = al.user_id
+        LEFT JOIN global_users gu_fb
+               ON gu_fb.global_user_id = al.user_id AND e.global_user_id IS NULL
         WHERE DATE(al.timestamp AT TIME ZONE 'Asia/Kathmandu') BETWEEN %s AND %s
-          AND e.global_user_id IS NOT NULL
-        GROUP BY e.global_user_id, work_date
+          AND COALESCE(e.global_user_id, gu_fb.id) IS NOT NULL
+        GROUP BY COALESCE(e.global_user_id, gu_fb.id), work_date
     """
     with conn.cursor() as cur:
         cur.execute(sql_att, (from_ad, to_ad))
@@ -4003,8 +4011,24 @@ def get_monthly_attendance_summary(conn, bs_year: int, bs_month: int) -> dict:
         except: return (1, v)
     emp_summaries.sort(key=_cid_num)
 
+    # Department/section rollups for the summary charts — same present/
+    # absent/on_leave counters, grouped instead of per-employee.
+    dept_summary: dict = {}
+    section_summary: dict = {}
+    for e in emp_summaries:
+        dn = e['department_name'] or 'No Department'
+        sn = e['section_name']    or 'No Section'
+        for bucket, key in ((dept_summary, dn), (section_summary, sn)):
+            bucket.setdefault(key, {'present': 0, 'absent': 0, 'on_leave': 0, 'employees': 0})
+            bucket[key]['present']   += e['present']
+            bucket[key]['absent']    += e['absent']
+            bucket[key]['on_leave']  += e['on_leave']
+            bucket[key]['employees'] += 1
+
     from nepali_utils import NEPALI_MONTHS
     return {
+        'dept_summary':    dict(sorted(dept_summary.items())),
+        'section_summary': dict(sorted(section_summary.items())),
         'bs_year':        bs_year,
         'bs_month':       bs_month,
         'month_name':     NEPALI_MONTHS[bs_month] if 1 <= bs_month <= 12 else str(bs_month),
